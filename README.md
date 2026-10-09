@@ -55,6 +55,7 @@ Every field is optional, but there has to be something in it:
 | `email.cleanup` | Junk senders to suggest clearing, `{ sender, count }`. Shown only; the app never touches your mail. |
 | `email.note` | Shown when nothing needs you, e.g. "Nothing new". |
 | `dinners` | Tonight's picks, best first, as `{ name, url }` (other fields are kept but not shown). The app names the top 3 and links to Grocerylist, where the ideas live. |
+| `dateNight` | Optional. `{ pairing, restaurants: [{ name, cuisine, price, rating, area, why, url, image }], activities: [{ name, when, why, url }] }`. Shown as a Date night card when present (the morning run sends it on Thursdays). |
 | `notes` | Anything else worth a line. |
 
 The last 14 days are kept; the app has a picker for earlier ones.

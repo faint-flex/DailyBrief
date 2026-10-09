@@ -72,3 +72,13 @@ test('a pool of up to 15 dinners is kept', () => {
   const dinners = Array.from({ length: 20 }, (_, i) => ({ name: `Dinner ${i}` }));
   assert.equal(normalizeBrief({ dinners }).brief.dinners.length, 15);
 });
+
+test('date night comes through, and an empty one is left out', () => {
+  const { brief } = normalizeBrief(example);
+  assert.equal(brief.dateNight.restaurants.length, 2);
+  assert.equal(brief.dateNight.restaurants[0].area, 'Arts District');
+  assert.equal(brief.dateNight.activities[0].when, 'Fri 5–11pm');
+  assert.match(brief.dateNight.pairing, /Esther/);
+  assert.equal(normalizeBrief({ notes: ['x'], dateNight: { restaurants: [] } }).brief.dateNight, null);
+  assert.equal(normalizeBrief({ dateNight: { restaurants: [{ name: 'X', url: 'javascript:1' }] } }).brief.dateNight.restaurants[0].url, '');
+});

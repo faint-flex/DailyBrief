@@ -50,6 +50,42 @@ function dinner(item) {
   };
 }
 
+function restaurant(item) {
+  if (typeof item === 'string') item = { name: item };
+  if (!item || typeof item !== 'object') return null;
+  const name = text(item.name, 100);
+  if (!name) return null;
+  return {
+    name,
+    cuisine: text(item.cuisine, 60),
+    price: text(item.price, 8),
+    rating: text(item.rating, 40),
+    area: text(item.area ?? item.neighborhood, 60),
+    why: text(item.why),
+    url: webAddress(item.url),
+    image: webAddress(item.image),
+  };
+}
+
+function activity(item) {
+  if (typeof item === 'string') item = { name: item };
+  if (!item || typeof item !== 'object') return null;
+  const name = text(item.name, 120);
+  if (!name) return null;
+  return { name, when: text(item.when, 80), why: text(item.why), url: webAddress(item.url), image: webAddress(item.image) };
+}
+
+/** Date night: a few restaurants, things to do, and one suggested evening. */
+function dateNight(input) {
+  if (!input || typeof input !== 'object') return null;
+  const night = {
+    restaurants: list(input.restaurants, 5).map(restaurant).filter(Boolean),
+    activities: list(input.activities, 5).map(activity).filter(Boolean),
+    pairing: text(input.pairing, 300),
+  };
+  return night.restaurants.length || night.activities.length || night.pairing ? night : null;
+}
+
 /** Today's date where LyFe lives, as YYYY-MM-DD. */
 export function localDate(now = new Date(), timeZone = 'America/Los_Angeles') {
   return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
@@ -70,10 +106,11 @@ export function normalizeBrief(input, now = new Date()) {
       note: text(email.note, 200),
     },
     dinners: list(input.dinners, MAX_DINNERS).map(dinner).filter(Boolean),
+    dateNight: dateNight(input.dateNight),
     notes: list(input.notes).map((line) => text(line)).filter(Boolean),
   };
   const empty = !brief.email.needsYou.length && !brief.email.cleanup.length && !brief.email.note
-    && !brief.dinners.length && !brief.notes.length && !brief.greeting;
+    && !brief.dinners.length && !brief.notes.length && !brief.greeting && !brief.dateNight;
   if (empty) return { error: 'That brief has nothing in it.' };
   return { brief };
 }

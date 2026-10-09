@@ -31,5 +31,16 @@
     },
     { "name": "Beef and broccoli", "minutes": 25, "why": "Better than takeout.", "ingredients": ["1 lb flank steak", "2 heads broccoli", "1/3 cup soy sauce", "1 tbsp brown sugar", "2 cups rice"] }
   ],
+  "dateNight": {
+    "restaurants": [
+      { "name": "Esther's Kitchen", "cuisine": "Italian", "price": "$$", "rating": "4.7 from 2,900", "area": "Arts District", "why": "Fresh pasta, warm and lively.", "url": "https://www.example.com/esthers-kitchen", "image": "https://www.example.com/esthers.jpg" },
+      { "name": "Lotus of Siam", "cuisine": "Thai", "price": "$$", "rating": "4.6 from 3,400", "area": "Flamingo Rd", "why": "A Vegas classic.", "url": "https://www.example.com/lotus-of-siam" }
+    ],
+    "activities": [
+      { "name": "First Friday art walk", "when": "Fri 5–11pm", "why": "Free, a few blocks from Esther's.", "url": "https://www.example.com/first-friday" },
+      { "name": "Sunset at Red Rock overlook", "when": "Any evening, sunset 6:20pm", "url": "https://www.example.com/red-rock" }
+    ],
+    "pairing": "Friday: dinner at Esther's Kitchen at 6, then walk over to First Friday."
+  },
   "notes": []
 }

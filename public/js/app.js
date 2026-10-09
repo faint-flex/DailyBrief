@@ -114,15 +114,51 @@ function renderDinnerLink(brief) {
     : 'Ideas, recipes and your shopping list are all in Grocerylist.';
 }
 
+/** A picture from the venue's own page; it quietly disappears if the site won't serve it. */
+function photo(src, alt) {
+  if (!src) return null;
+  const img = el('img', { src, alt, loading: 'lazy', decoding: 'async', referrerpolicy: 'no-referrer' });
+  img.addEventListener('error', () => img.remove());
+  return img;
+}
+
+function renderDateNight(night) {
+  $('date-night').hidden = !night;
+  if (!night) return;
+  $('date-pairing').textContent = night.pairing;
+  $('date-pairing').hidden = !night.pairing;
+
+  $('date-places').replaceChildren(...night.restaurants.map((place) => {
+    const facts = [place.cuisine, place.price, place.area].filter(Boolean).join(' · ');
+    const body = el('div', { class: 'place-text' },
+      el('div', { class: 'place-head' },
+        el('strong', {}, place.name),
+        place.rating ? el('span', { class: 'pill rating' }, `★ ${place.rating}`) : null),
+      facts ? el('span', { class: 'muted small' }, facts) : null,
+      place.why ? el('span', { class: 'why' }, place.why) : null);
+    const inner = [photo(place.image, place.name), body];
+    return el('li', {}, place.url
+      ? el('a', { class: 'place', href: place.url, target: '_blank', rel: 'noopener' }, inner)
+      : el('div', { class: 'place' }, inner));
+  }));
+
+  $('date-things').replaceChildren(...night.activities.map((thing) => el('li', {},
+    thing.url ? el('a', { href: thing.url, target: '_blank', rel: 'noopener' }, el('strong', {}, thing.name)) : el('strong', {}, thing.name),
+    thing.when ? el('span', { class: 'subject' }, thing.when) : null,
+    thing.why ? el('span', { class: 'why' }, thing.why) : null)));
+  $('date-things-heading').hidden = !night.activities.length;
+}
+
 function renderBrief(brief, { stale = false } = {}) {
   $('empty').hidden = !!brief;
   if (!brief) {
-    for (const id of ['email', 'notes-card']) $(id).hidden = true;
+    for (const id of ['email', 'notes-card', 'date-night']) $(id).hidden = true;
     renderDinnerLink(null);
     return;
   }
   renderEmail(brief.email);
   renderDinnerLink(brief);
+  renderDateNight(brief.dateNight || null);
   $('notes').replaceChildren(...brief.notes.map((line) => el('li', {}, line)));
   $('notes-card').hidden = !brief.notes.length;
 
