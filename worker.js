@@ -4,11 +4,13 @@
 //   POST /api/brief     the morning run sends the day's brief here
 //   GET  /api/brief     the phone reads the latest (or ?date=YYYY-MM-DD)
 //   POST /api/dinner    "Add to list" for one of the brief's dinners
+//   GET  /photo/...     a meal photo, copied from the recipe site when the brief arrived
 //
 // Every /api call needs the key (Authorization: Bearer <key>), because a brief
 // is a summary of your inbox.
 import { normalizeBrief, briefStore } from './src/brief.js';
 import { addToGrocerylist, GroceryError } from './src/grocery.js';
+import { savePhotos, servePhoto } from './src/photos.js';
 
 const MAX_BODY = 64 * 1024;
 
@@ -71,8 +73,14 @@ export async function handleApi(request, env, url) {
       }
       const { brief, error } = normalizeBrief(input);
       if (error) return json({ error }, 400);
+      await savePhotos(env.BRIEFS, brief);
       await store.put(brief);
-      return json({ ok: true, date: brief.date, dinners: brief.dinners.length });
+      return json({
+        ok: true,
+        date: brief.date,
+        dinners: brief.dinners.length,
+        photos: brief.dinners.filter((dinner) => dinner.photo).length,
+      });
     }
     return json({ error: 'Method not allowed.' }, 405);
   }
@@ -107,6 +115,8 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname.startsWith('/api/')) return handleApi(request, env, url);
+    // Meal photos are public: they are recipe-site pictures, nothing personal.
+    if (url.pathname.startsWith('/photo/') && env.BRIEFS) return servePhoto(env.BRIEFS, url.pathname);
     if (env.ASSETS) return env.ASSETS.fetch(request);
     return new Response('Not found', { status: 404 });
   },

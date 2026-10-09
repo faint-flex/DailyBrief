@@ -25,20 +25,27 @@ function cleanupLine(item) {
   return { sender: text(item.sender ?? item.from, 80), count: Number.isFinite(count) ? count : null };
 }
 
+/** Only http(s) links; anything else (javascript:, data:) is dropped. */
+function webAddress(value) {
+  const address = text(value, 1000);
+  return /^https?:\/\//i.test(address) ? address : '';
+}
+
 function dinner(item) {
   if (typeof item === 'string') item = { name: item };
   if (!item || typeof item !== 'object') return null;
   const name = text(item.name ?? item.title, 100);
   if (!name) return null;
   const minutes = Number.parseInt(item.minutes, 10);
-  let url = text(item.url, 500);
-  if (!/^https?:\/\//i.test(url)) url = '';
+  const url = webAddress(item.url);
   return {
     name,
     minutes: Number.isFinite(minutes) ? minutes : null,
     why: text(item.why),
     rating: text(item.rating, 40),
     url,
+    image: webAddress(item.image ?? item.imageUrl),
+    photo: '',
     ingredients: list(item.ingredients).map((line) => text(line, 120)).filter(Boolean).slice(0, 40),
   };
 }
@@ -102,6 +109,10 @@ export function briefStore(kv) {
       await kv.put(`brief:${brief.date}`, JSON.stringify(brief));
       const dates = [brief.date, ...(await this.dates()).filter((d) => d !== brief.date)].sort().reverse();
       for (const old of dates.slice(KEEP_DAYS)) {
+        const gone = await readJson(`brief:${old}`, null);
+        for (const meal of gone?.dinners || []) {
+          if (meal.photo) await kv.delete(meal.photo.replace(/^\/photo\//, 'photo:'));
+        }
         await kv.delete(`brief:${old}`);
         await kv.delete(`added:${old}`);
       }

@@ -66,7 +66,7 @@ test('a sent brief can be read back', async () => {
 
   const sent = await call(e, '/api/brief', { method: 'POST', body: example });
   assert.equal(sent.status, 200);
-  assert.deepEqual(await sent.json(), { ok: true, date: '2026-10-10', dinners: 3 });
+  assert.deepEqual(await sent.json(), { ok: true, date: '2026-10-10', dinners: 3, photos: 0 });
 
   const { brief, dates } = await (await call(e, '/api/brief')).json();
   assert.equal(brief.dinners[0].name, 'Sheet-pan chicken fajitas');

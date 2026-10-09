@@ -144,8 +144,24 @@ function dinnerButton(brief, dinner, index) {
   return el('div', { class: 'row actions' }, button, status);
 }
 
+/** The recipe's own photo, linked to the recipe. Nothing at all if there isn't one. */
+function mealPhoto(dinner) {
+  const sources = [dinner.photo, dinner.image].filter(Boolean);
+  if (!sources.length) return null;
+  const img = el('img', { src: sources.shift(), alt: dinner.name, loading: 'lazy', decoding: 'async', referrerpolicy: 'no-referrer' });
+  const frame = dinner.url
+    ? el('a', { class: 'meal-photo', href: dinner.url, target: '_blank', rel: 'noopener', tabindex: '-1' }, img)
+    : el('div', { class: 'meal-photo' }, img);
+  img.addEventListener('error', () => {
+    if (sources.length) img.src = sources.shift();
+    else frame.remove();
+  });
+  return frame;
+}
+
 function renderDinners(brief) {
   $('dinners').replaceChildren(...brief.dinners.map((dinner, index) => el('li', {},
+    mealPhoto(dinner),
     el('div', { class: 'dinner-head' },
       el('strong', {}, dinner.name),
       el('span', { class: 'pills' },

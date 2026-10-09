@@ -56,7 +56,7 @@ Every field is optional, but there has to be something in it:
 | `email.needsYou` | Up to 12 of `{ from, subject, why }`, or plain strings. |
 | `email.cleanup` | Junk senders to suggest clearing, `{ sender, count }`. Shown only; the app never touches your mail. |
 | `email.note` | Shown when nothing needs you, e.g. "Nothing new". |
-| `dinners` | Up to 5 of `{ name, rating, minutes, why, url, ingredients: ["1 lb beef", …] }`. `rating` is shown as written, e.g. `"4.9 from 1,240"`. |
+| `dinners` | Up to 5 of `{ name, rating, minutes, why, url, image, ingredients: ["1 lb beef", …] }`. `rating` is shown as written, e.g. `"4.9 from 1,240"`. `image` is the recipe's photo address; the app keeps its own copy when the brief arrives, because many recipe sites block their photos on other sites. |
 | `notes` | Anything else worth a line. |
 
 The last 14 days are kept; the app has a picker for earlier ones.
