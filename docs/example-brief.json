@@ -15,12 +15,15 @@
   "dinners": [
     {
       "name": "Sheet-pan chicken fajitas",
+      "rating": "4.8 from 2,310",
+      "url": "https://www.example.com/sheet-pan-fajitas",
       "minutes": 30,
       "why": "One pan, quick on a weeknight.",
       "ingredients": ["1.5 lb chicken breast", "3 bell peppers", "1 onion", "8 flour tortillas", "1 lime", "2 tbsp fajita seasoning"]
     },
     {
       "name": "Garlic butter salmon",
+      "rating": "4.9 from 1,240",
       "minutes": 20,
       "why": "Fast and nothing like the last week.",
       "url": "https://www.example.com/garlic-butter-salmon",

@@ -14,6 +14,7 @@ test('the example brief comes through whole', () => {
   assert.deepEqual(brief.email.cleanup[0], { sender: 'Kate Spade', count: 41 });
   assert.equal(brief.dinners.length, 3);
   assert.equal(brief.dinners[1].url, 'https://www.example.com/garlic-butter-salmon');
+  assert.equal(brief.dinners[1].rating, '4.9 from 1,240');
   assert.equal(brief.receivedAt, '2026-10-10T14:50:00.000Z');
 });
 

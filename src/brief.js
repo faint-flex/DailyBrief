@@ -37,6 +37,7 @@ function dinner(item) {
     name,
     minutes: Number.isFinite(minutes) ? minutes : null,
     why: text(item.why),
+    rating: text(item.rating, 40),
     url,
     ingredients: list(item.ingredients).map((line) => text(line, 120)).filter(Boolean).slice(0, 40),
   };

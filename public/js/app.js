@@ -40,6 +40,13 @@ const hourOf = (local) => {
   const hour = Number(local.slice(11, 13));
   return `${hour % 12 || 12}${hour < 12 ? 'am' : 'pm'}`;
 };
+const siteOf = (url) => {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return 'the web';
+  }
+};
 const dayName = (date) => new Date(`${date}T12:00:00`).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
 
 function header() {
@@ -141,13 +148,15 @@ function renderDinners(brief) {
   $('dinners').replaceChildren(...brief.dinners.map((dinner, index) => el('li', {},
     el('div', { class: 'dinner-head' },
       el('strong', {}, dinner.name),
-      dinner.minutes ? el('span', { class: 'pill' }, `${dinner.minutes} min`) : null),
+      el('span', { class: 'pills' },
+        dinner.rating ? el('span', { class: 'pill rating' }, `★ ${dinner.rating}`) : null,
+        dinner.minutes ? el('span', { class: 'pill' }, `${dinner.minutes} min`) : null)),
     dinner.why ? el('p', { class: 'why' }, dinner.why) : null,
     dinner.ingredients.length
       ? el('details', {}, el('summary', {}, `${dinner.ingredients.length} ingredients`),
         el('ul', { class: 'ingredients' }, dinner.ingredients.map((line) => el('li', {}, line))))
       : null,
-    dinner.url ? el('a', { href: dinner.url, target: '_blank', rel: 'noopener' }, 'Recipe') : null,
+    dinner.url ? el('a', { href: dinner.url, target: '_blank', rel: 'noopener' }, `Recipe on ${siteOf(dinner.url)}`) : null,
     dinnerButton(brief, dinner, index))));
   $('dinner').hidden = !brief.dinners.length;
 }
