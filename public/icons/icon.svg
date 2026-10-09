@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Daily brief">
+  <rect width="512" height="512" fill="#2b5d8a"/>
+  <circle cx="356" cy="150" r="62" fill="#f4c04e"/>
+  <rect x="96" y="176" width="320" height="240" rx="34" fill="#ffffff"/>
+  <g stroke="#2b5d8a" stroke-width="22" stroke-linecap="round">
+    <path d="M146 246 H366"/>
+    <path d="M146 306 H366" opacity="0.6"/>
+    <path d="M146 366 H286" opacity="0.35"/>
+  </g>
+</svg>

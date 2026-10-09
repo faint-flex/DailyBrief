@@ -1,0 +1,24 @@
+name = "daily-brief"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+
+# Everything in public/ is served as a static file; /api/* falls through to the Worker.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+# Where the daily briefs are kept. `npm run setup` creates it and fills in the id.
+[[kv_namespaces]]
+binding = "BRIEFS"
+id = "replace_with_your_kv_namespace_id"
+
+# "Add to list" talks to your Grocerylist worker directly. It must be deployed
+# in the same Cloudflare account under the name "grocerylist".
+[[services]]
+binding = "GROCERY"
+service = "grocerylist"
+
+# Secrets, set by `npm run setup` (never put them in this file):
+#   BRIEF_KEY     unlocks the app and lets the morning run send the brief
+#   GROCERY_CODE  the 20-letter code on Grocerylist's Share tab

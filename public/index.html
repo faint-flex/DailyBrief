@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Your morning brief: what needs you in email, dinner ideas and the weather.">
+<meta name="theme-color" content="#2b5d8a">
+<title>Daily Brief</title>
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icons/icon-180.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Brief">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="topbar">
+  <p id="today" class="today"></p>
+  <h1 id="greeting">Good morning</h1>
+</header>
+
+<main>
+  <section id="key-gate" class="card" hidden aria-labelledby="key-heading">
+    <h2 id="key-heading">Unlock your brief</h2>
+    <p class="muted">Your brief summarizes your inbox, so it is locked. Paste the key that setup printed.</p>
+    <form id="key-form" class="row">
+      <input id="key-input" type="password" autocomplete="current-password" placeholder="Key" aria-label="Key" required>
+      <button type="submit" class="primary">Unlock</button>
+    </form>
+    <p id="key-status" class="status" role="status" aria-live="polite"></p>
+  </section>
+
+  <section id="weather" class="card weather" aria-labelledby="weather-heading">
+    <div class="card-head">
+      <h2 id="weather-heading">Weather</h2>
+      <button id="place-button" type="button" class="link"></button>
+    </div>
+    <form id="place-form" class="row" hidden>
+      <input id="place-input" type="text" placeholder="City or ZIP" aria-label="City or ZIP" autocomplete="address-level2">
+      <button type="submit" class="primary">Set</button>
+      <button id="locate-button" type="button" title="Use my location" aria-label="Use my location">📍</button>
+    </form>
+    <div id="weather-body"><p class="muted">Loading the weather…</p></div>
+  </section>
+
+  <section id="email" class="card" aria-labelledby="email-heading" hidden>
+    <h2 id="email-heading">Email</h2>
+    <ul id="needs-you" class="lines"></ul>
+    <details id="cleanup-box" hidden>
+      <summary>Cleanup suggestions</summary>
+      <p class="muted small">Nothing is deleted unless you say so. Ask Claude to clear any of these.</p>
+      <ul id="cleanup" class="lines compact"></ul>
+    </details>
+  </section>
+
+  <section id="dinner" class="card" aria-labelledby="dinner-heading" hidden>
+    <h2 id="dinner-heading">Dinner ideas</h2>
+    <ol id="dinners" class="dinners"></ol>
+  </section>
+
+  <section id="notes-card" class="card" aria-labelledby="notes-heading" hidden>
+    <h2 id="notes-heading">Also today</h2>
+    <ul id="notes" class="lines"></ul>
+  </section>
+
+  <section id="empty" class="card" hidden>
+    <h2>No brief yet</h2>
+    <p class="muted">Your brief arrives each morning a little before 8. The weather above is live.</p>
+  </section>
+
+  <footer class="footer">
+    <p id="brief-status" class="status" role="status" aria-live="polite"></p>
+    <div class="row">
+      <label class="sr-only" for="date-select">Earlier briefs</label>
+      <select id="date-select" hidden></select>
+      <button id="refresh" type="button">Refresh</button>
+    </div>
+  </footer>
+</main>
+
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>

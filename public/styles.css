@@ -1,0 +1,121 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --text: #1b2330;
+  --muted: #5f6b7a;
+  --line: #e0e5ec;
+  --accent: #2b5d8a;
+  --accent-text: #ffffff;
+  --good: #2f7d4f;
+  --rain: #2f6fb3;
+  --radius: 16px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #11151b;
+    --surface: #1a2029;
+    --text: #e8edf3;
+    --muted: #98a4b3;
+    --line: #2b3440;
+    --accent: #7fb2e5;
+    --accent-text: #0e1a26;
+    --good: #5cc183;
+    --rain: #8cc0f2;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Installed on a phone there is no browser chrome, so respect the notch and
+     the home indicator ourselves. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+           calc(2rem + env(safe-area-inset-bottom)) env(safe-area-inset-left);
+  -webkit-text-size-adjust: 100%;
+}
+
+.topbar, main { max-width: 640px; margin: 0 auto; padding: 0 16px; }
+.topbar { padding-top: 20px; padding-bottom: 8px; }
+.today { margin: 0; color: var(--muted); font-size: 0.95rem; }
+h1 { margin: 0; font-size: 1.9rem; line-height: 1.2; }
+.tagline { margin: 6px 0 0; color: var(--muted); }
+h2 { margin: 0 0 10px; font-size: 1.1rem; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin: 12px 0;
+}
+.card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.card-head h2 { margin-bottom: 6px; }
+
+.muted { color: var(--muted); }
+.small { font-size: 0.85rem; }
+.status { margin: 6px 0 0; color: var(--muted); font-size: 0.9rem; min-height: 1.2em; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+[hidden] { display: none !important; }
+
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.row input { flex: 1 1 160px; min-width: 0; }
+
+input, select, button {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 9px 12px;
+  min-height: 44px;
+}
+button { cursor: pointer; }
+button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+button.done { color: var(--good); border-color: var(--good); background: transparent; }
+button.link { border: 0; background: none; padding: 0; min-height: 0; color: var(--accent); font-size: 0.9rem; }
+button:disabled { opacity: 0.7; cursor: default; }
+a { color: var(--accent); }
+
+/* Weather */
+.now { display: flex; align-items: center; gap: 12px; }
+.now .icon { font-size: 2.6rem; line-height: 1; }
+.now .temp { font-size: 2.8rem; font-weight: 600; line-height: 1; }
+.now-text { display: flex; flex-direction: column; }
+.hours {
+  list-style: none; margin: 14px 0 0; padding: 12px 0 0;
+  border-top: 1px solid var(--line);
+  display: grid; grid-template-columns: repeat(6, 1fr); text-align: center;
+}
+.hours li { display: flex; flex-direction: column; gap: 2px; }
+.rain { color: var(--rain); }
+
+/* Email */
+.lines { list-style: none; margin: 0; padding: 0; }
+.lines > li { padding: 10px 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; }
+.lines > li:first-child { border-top: 0; padding-top: 0; }
+.lines .subject { font-size: 0.95rem; }
+.lines .why { color: var(--muted); font-size: 0.9rem; }
+.lines.compact > li { flex-direction: row; justify-content: space-between; padding: 6px 0; }
+.count { color: var(--muted); font-variant-numeric: tabular-nums; }
+details { margin-top: 10px; }
+summary { cursor: pointer; color: var(--accent); }
+
+/* Dinner */
+.dinners { list-style: none; margin: 0; padding: 0; }
+.dinners > li { padding: 12px 0; border-top: 1px solid var(--line); }
+.dinners > li:first-child { border-top: 0; padding-top: 0; }
+.dinner-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.dinners .why { margin: 2px 0 6px; color: var(--muted); }
+.pill { font-size: 0.8rem; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+.ingredients { margin: 6px 0; padding-left: 20px; color: var(--muted); }
+.actions { margin-top: 8px; }
+
+.footer { margin: 16px 0; }
+.footer .row { margin-top: 8px; }
+.footer select { flex: 1 1 auto; }
