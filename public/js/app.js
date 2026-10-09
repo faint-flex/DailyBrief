@@ -122,8 +122,30 @@ function photo(src, alt) {
   return img;
 }
 
+/** Open Google Maps around where you are now, falling back to your weather place. */
+async function openNearby(query) {
+  $('near-status').textContent = 'Finding where you are…';
+  let place;
+  try {
+    place = await hereNow();
+  } catch {
+    place = saved.get(PLACE);
+  }
+  $('near-status').textContent = '';
+  const where = place ? `/@${place.latitude},${place.longitude},14z` : '';
+  const url = `https://www.google.com/maps/search/${encodeURIComponent(place ? query : `${query} near me`)}${where}`;
+  window.open(url, '_blank', 'noopener') || (location.href = url);
+}
+
+for (const button of document.querySelectorAll('[data-near]')) {
+  button.addEventListener('click', () => openNearby(button.dataset.near));
+}
+
+/** Ideas sent with the brief, if any; the buttons above always work. */
 function renderDateNight(night) {
-  $('date-night').hidden = !night;
+  for (const id of ['date-pairing', 'date-things-heading']) $(id).hidden = true;
+  $('date-places').replaceChildren();
+  $('date-things').replaceChildren();
   if (!night) return;
   $('date-pairing').textContent = night.pairing;
   $('date-pairing').hidden = !night.pairing;
@@ -152,7 +174,8 @@ function renderDateNight(night) {
 function renderBrief(brief, { stale = false } = {}) {
   $('empty').hidden = !!brief;
   if (!brief) {
-    for (const id of ['email', 'notes-card', 'date-night']) $(id).hidden = true;
+    for (const id of ['email', 'notes-card']) $(id).hidden = true;
+    renderDateNight(null);
     renderDinnerLink(null);
     return;
   }

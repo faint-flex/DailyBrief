@@ -61,8 +61,14 @@
     <a id="grocery-link" class="button primary" href="https://grocerylist.lyfesgrocery.workers.dev/#tab=ideas">Open Grocerylist</a>
   </section>
 
-  <section id="date-night" class="card" aria-labelledby="date-heading" hidden>
-    <h2 id="date-heading">Date night</h2>
+  <section id="date-night" class="card" aria-labelledby="date-heading">
+    <h2 id="date-heading">Date night near me</h2>
+    <p class="muted small">Top-rated spots around you right now, in Google Maps.</p>
+    <div class="row">
+      <button type="button" class="primary" data-near="romantic restaurants">Restaurants</button>
+      <button type="button" data-near="things to do tonight">Things to do</button>
+    </div>
+    <p id="near-status" class="status small" role="status" aria-live="polite"></p>
     <p id="date-pairing" class="pairing" hidden></p>
     <ul id="date-places" class="places"></ul>
     <h3 id="date-things-heading" class="subhead" hidden>Things to do</h3>
