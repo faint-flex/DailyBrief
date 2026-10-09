@@ -108,29 +108,14 @@ a { color: var(--accent); }
 details { margin-top: 10px; }
 summary { cursor: pointer; color: var(--accent); }
 
-/* Dinner */
-.dinners { list-style: none; margin: 0; padding: 0; }
-.dinners > li { padding: 12px 0; border-top: 1px solid var(--line); }
-.dinners > li:first-child { border-top: 0; padding-top: 0; }
-.meal-photo {
-  display: block; margin-bottom: 10px; border-radius: 12px; overflow: hidden;
-  aspect-ratio: 16 / 9; background: var(--line);
+/* Dinner: a pointer to Grocerylist */
+a.button {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 44px; padding: 9px 16px; border-radius: 10px; text-decoration: none; font-weight: 600;
 }
-.meal-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.dinner-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
-.dinners .why { margin: 2px 0 6px; color: var(--muted); }
-.pills { display: flex; gap: 6px; flex-shrink: 0; }
-.pill.rating { color: var(--star); border-color: currentColor; }
-.pill { font-size: 0.8rem; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
-.ingredients { margin: 6px 0; padding-left: 20px; color: var(--muted); }
-.actions { margin-top: 8px; }
+a.button.primary { background: var(--accent); color: var(--accent-text); }
+.dinner-link p { margin: 0 0 12px; }
 
-.actions { justify-content: space-between; }
-button.thumbs { background: transparent; font-size: 1.15rem; padding: 6px 12px; }
-button.more { width: 100%; margin-top: 12px; color: var(--accent); font-weight: 600; }
-#dinner-status:empty { display: none; }
-#dinner-status { margin: 0 0 10px; }
 .footer { margin: 16px 0; }
 .footer .row { margin-top: 8px; }
 .footer select { flex: 1 1 auto; }
-.add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; flex: 1; }

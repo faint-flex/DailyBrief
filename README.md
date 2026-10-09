@@ -1,11 +1,11 @@
 # Daily Brief
 
-Your morning brief as its own app on your phone: what needs you in email, a few
-dinner ideas you can put on the grocery list with one tap, and live weather.
+Your morning brief as its own app on your phone: what needs you in email,
+tonight's top dinner picks, and live weather.
 Installs on your home screen like an app and still shows the last brief with no
 signal.
 
-<img src="docs/screenshot.png" alt="Daily Brief: weather, email that needs you, dinner ideas with Add to list" width="320">
+<img src="docs/screenshot.png" alt="Daily Brief: weather, email that needs you, tonight's dinner picks" width="320">
 
 Claude's morning run writes the brief at about 7:50am and sends it here. The
 weather is fetched live on your phone from [Open-Meteo](https://open-meteo.com)
@@ -29,9 +29,7 @@ At the end it prints:
    variable (Project settings → Cloud environment → gear icon) so the morning
    run can send the brief. Don't paste the key into a chat.
 
-It also asks for your Grocerylist share code (the 20 letters on its Share tab)
-so **Add to list** works. Press Enter to skip; run `npm run setup` again later
-to add it. After the first time, `npm run deploy` pushes changes.
+After the first time, `npm run deploy` pushes changes.
 
 The key is kept in `.brief-key` in this folder (never committed). To change it,
 delete that file and run `npm run setup` again; then update the phone and the
@@ -56,28 +54,15 @@ Every field is optional, but there has to be something in it:
 | `email.needsYou` | Up to 12 of `{ from, subject, why }`, or plain strings. |
 | `email.cleanup` | Junk senders to suggest clearing, `{ sender, count }`. Shown only; the app never touches your mail. |
 | `email.note` | Shown when nothing needs you, e.g. "Nothing new". |
-| `dinners` | A pool of up to 15 of `{ name, rating, minutes, why, url, image, ingredients: ["1 lb beef", …] }`. `rating` is shown as written, e.g. `"4.9 from 1,240"`. `image` is the recipe's photo address; the app keeps its own copy when the brief arrives, because many recipe sites block their photos on other sites. |
+| `dinners` | Tonight's picks, best first, as `{ name, url }` (other fields are kept but not shown). The app names the top 3 and links to Grocerylist, where the ideas live. |
 | `notes` | Anything else worth a line. |
-
-The app shows 5 dinners at a time; **Show me others** moves to the next 5 in the
-pool. The 👎 button hides a dinner for the day (with Undo) and records it as a
-dislike, which the morning run reads to steer away from it:
-
-```bash
-curl -fsS "$DAILY_BRIEF_URL/api/dislikes" -H "Authorization: Bearer $DAILY_BRIEF_KEY"
-```
 
 The last 14 days are kept; the app has a picker for earlier ones.
 
-## Add to list
+## Dinner
 
-Each dinner with ingredients (or a recipe link) gets an **Add to list** button.
-It puts the dinner in Grocerylist's shared cookbook and on the shopping list,
-the same way Grocerylist's own *Add to list* does, and won't add it twice.
-Daily Brief reaches Grocerylist through a Cloudflare service binding, so your
-Grocerylist worker must be named `grocerylist` in the same account. The code
-that edits the list is copied from Grocerylist; see
-[vendor/grocerylist/README.md](vendor/grocerylist/README.md).
+Dinner ideas, recipes and the shopping list all live in Grocerylist. The brief
+names tonight's top picks and has a button that opens Grocerylist's Ideas tab.
 
 ## Privacy
 
@@ -89,7 +74,7 @@ your phone.
 
 ```bash
 npm test                                            # no install needed
-npx wrangler dev -c wrangler.toml -c ../grocerylist/wrangler.toml   # both apps locally
+npx wrangler dev   # run locally
 ```
 
-For local runs, put `BRIEF_KEY=…` (and optionally `GROCERY_CODE=…`) in `.dev.vars`.
+For local runs, put `BRIEF_KEY=…` in `.dev.vars`.

@@ -5,7 +5,6 @@ import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import readline from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -119,13 +118,6 @@ async function main() {
     await wrangler(['secret', 'put', 'BRIEF_KEY'], { input: key });
     await fs.writeFile(KEY_FILE, `${key}\n`, { encoding: 'utf8', mode: 0o600 });
   }
-
-  const ask = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const code = (await ask.question(
-    '\nFor "Add to list": paste the 20-letter code from Grocerylist\'s Share tab (or press Enter to skip): ',
-  )).trim();
-  ask.close();
-  if (code) await wrangler(['secret', 'put', 'GROCERY_CODE'], { input: code });
 
   say([
     'All set.',

@@ -53,22 +53,18 @@ test('the store returns the newest brief and keeps two weeks', async () => {
   }
   const latest = await store.get();
   assert.equal(latest.date, '2026-10-16');
-  assert.deepEqual(latest.added, []);
   const dates = await store.dates();
   assert.equal(dates.length, KEEP_DAYS);
   assert.equal(await store.get('2026-10-01'), null);
   assert.ok(!kv.map.has('brief:2026-10-02'));
 });
 
-test('a resent brief replaces that day, and added dinners are remembered', async () => {
+test('a resent brief replaces that day', async () => {
   const store = briefStore(memoryKv());
   await store.put(normalizeBrief({ date: '2026-10-10', notes: ['first'] }).brief);
   await store.put(normalizeBrief({ date: '2026-10-10', notes: ['second'] }).brief);
-  await store.markAdded('2026-10-10', 'Tacos');
-  await store.markAdded('2026-10-10', 'Tacos');
   const brief = await store.get('2026-10-10');
   assert.deepEqual(brief.notes, ['second']);
-  assert.deepEqual(brief.added, ['Tacos']);
   assert.deepEqual(await store.dates(), ['2026-10-10']);
 });
 

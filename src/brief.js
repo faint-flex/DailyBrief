@@ -8,9 +8,8 @@ const MAX_LINES = 12;
 const MAX_TEXT = 300;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 export const KEEP_DAYS = 14;
-// The morning run sends a pool of dinners; the app shows 5 at a time.
+// Dinner ideas live in Grocerylist; the brief only names tonight's top picks.
 export const MAX_DINNERS = 15;
-const MAX_DISLIKES = 100;
 
 const text = (value, max = MAX_TEXT) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 const list = (value, max = MAX_LINES) => (Array.isArray(value) ? value.slice(0, max) : []);
@@ -47,8 +46,6 @@ function dinner(item) {
     why: text(item.why),
     rating: text(item.rating, 40),
     url,
-    image: webAddress(item.image ?? item.imageUrl),
-    photo: '',
     ingredients: list(item.ingredients).map((line) => text(line, 120)).filter(Boolean).slice(0, 40),
   };
 }
@@ -106,44 +103,15 @@ export function briefStore(kv) {
       if (!DATE_RE.test(date)) return null;
       const brief = await readJson(`brief:${date}`, null);
       if (!brief) return null;
-      return {
-        ...brief,
-        added: await readJson(`added:${date}`, []),
-        hidden: await readJson(`hidden:${date}`, []),
-      };
+      return brief;
     },
     async put(brief) {
       await kv.put(`brief:${brief.date}`, JSON.stringify(brief));
       const dates = [brief.date, ...(await this.dates()).filter((d) => d !== brief.date)].sort().reverse();
       for (const old of dates.slice(KEEP_DAYS)) {
-        const gone = await readJson(`brief:${old}`, null);
-        for (const meal of gone?.dinners || []) {
-          if (meal.photo) await kv.delete(meal.photo.replace(/^\/photo\//, 'photo:'));
-        }
         await kv.delete(`brief:${old}`);
-        await kv.delete(`added:${old}`);
-        await kv.delete(`hidden:${old}`);
       }
       await kv.put('dates', JSON.stringify(dates.slice(0, KEEP_DAYS)));
-    },
-    async markAdded(date, name) {
-      const added = await readJson(`added:${date}`, []);
-      if (!added.includes(name)) added.push(name);
-      await kv.put(`added:${date}`, JSON.stringify(added));
-    },
-    /** Thumbs-down: hide a dinner from that day's brief and remember it as a dislike. */
-    async setHidden(date, dinner, hide) {
-      const hidden = (await readJson(`hidden:${date}`, [])).filter((name) => name !== dinner.name);
-      if (hide) hidden.push(dinner.name);
-      await kv.put(`hidden:${date}`, JSON.stringify(hidden));
-
-      const dislikes = (await this.dislikes()).filter((item) => item.name !== dinner.name);
-      if (hide) dislikes.unshift({ name: dinner.name, url: dinner.url, date });
-      await kv.put('dislikes', JSON.stringify(dislikes.slice(0, MAX_DISLIKES)));
-      return hidden;
-    },
-    async dislikes() {
-      return readJson('dislikes', []);
     },
   };
 }
