@@ -112,3 +112,27 @@ test('Add to list explains what is missing', async () => {
   const missing = await call(e, '/api/dinner', { method: 'POST', body: JSON.stringify({ date: '2026-10-10', index: 9 }) });
   assert.equal(missing.status, 404);
 });
+
+test('a thumbs-down hides a dinner for the day and is remembered as a dislike', async () => {
+  const e = env();
+  await call(e, '/api/brief', { method: 'POST', body: example });
+  const hide = (index, hidden = true) => call(e, '/api/dinner/hide', {
+    method: 'POST', body: JSON.stringify({ date: '2026-10-10', index, hidden }),
+  });
+
+  assert.deepEqual(await (await hide(1)).json(), { hidden: ['Garlic butter salmon'] });
+  let { brief } = await (await call(e, '/api/brief')).json();
+  assert.deepEqual(brief.hidden, ['Garlic butter salmon']);
+  let { dislikes } = await (await call(e, '/api/dislikes')).json();
+  assert.deepEqual(dislikes.map((d) => d.name), ['Garlic butter salmon']);
+  assert.equal(dislikes[0].date, '2026-10-10');
+
+  await hide(1, false);
+  ({ brief } = await (await call(e, '/api/brief')).json());
+  assert.deepEqual(brief.hidden, []);
+  ({ dislikes } = await (await call(e, '/api/dislikes')).json());
+  assert.deepEqual(dislikes, []);
+
+  assert.equal((await hide(9)).status, 404);
+  assert.equal((await call(e, '/api/dislikes', { key: 'wrong' })).status, 401);
+});

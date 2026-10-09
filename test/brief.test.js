@@ -71,3 +71,8 @@ test('a resent brief replaces that day, and added dinners are remembered', async
   assert.deepEqual(brief.added, ['Tacos']);
   assert.deepEqual(await store.dates(), ['2026-10-10']);
 });
+
+test('a pool of up to 15 dinners is kept', () => {
+  const dinners = Array.from({ length: 20 }, (_, i) => ({ name: `Dinner ${i}` }));
+  assert.equal(normalizeBrief({ dinners }).brief.dinners.length, 15);
+});

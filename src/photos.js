@@ -43,7 +43,7 @@ export async function savePhotos(kv, brief, fetcher = fetch) {
 
 /** GET /photo/<date>:<index> */
 export async function servePhoto(kv, pathname) {
-  const match = pathname.match(/^\/photo\/(\d{4}-\d{2}-\d{2}):(\d)$/);
+  const match = pathname.match(/^\/photo\/(\d{4}-\d{2}-\d{2}):(\d{1,2})$/);
   if (!match) return new Response('Not found', { status: 404 });
   const { value, metadata } = await kv.getWithMetadata(photoKey(match[1], match[2]), { type: 'arrayBuffer' });
   if (!value) return new Response('Not found', { status: 404 });

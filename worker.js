@@ -4,6 +4,8 @@
 //   POST /api/brief     the morning run sends the day's brief here
 //   GET  /api/brief     the phone reads the latest (or ?date=YYYY-MM-DD)
 //   POST /api/dinner    "Add to list" for one of the brief's dinners
+//   POST /api/dinner/hide   thumbs-down on a dinner (or {hidden:false} to undo)
+//   GET  /api/dislikes  every dinner turned down, for the morning run to avoid
 //   GET  /photo/...     a meal photo, copied from the recipe site when the brief arrived
 //
 // Every /api call needs the key (Authorization: Bearer <key>), because a brief
@@ -83,6 +85,25 @@ export async function handleApi(request, env, url) {
       });
     }
     return json({ error: 'Method not allowed.' }, 405);
+  }
+
+  if (url.pathname === '/api/dislikes') {
+    if (request.method !== 'GET') return json({ error: 'Method not allowed.' }, 405);
+    return json({ dislikes: await store.dislikes() });
+  }
+
+  if (url.pathname === '/api/dinner/hide') {
+    if (request.method !== 'POST') return json({ error: 'Method not allowed.' }, 405);
+    let input;
+    try {
+      input = await readJson(request);
+    } catch {
+      return json({ error: 'Could not read that request.' }, 400);
+    }
+    const brief = await store.get(input.date);
+    const dinner = brief && brief.dinners[input.index];
+    if (!dinner) return json({ error: 'That dinner is not in the brief.' }, 404);
+    return json({ hidden: await store.setHidden(brief.date, dinner, input.hidden !== false) });
   }
 
   if (url.pathname === '/api/dinner') {

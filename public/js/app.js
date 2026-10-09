@@ -141,7 +141,7 @@ function dinnerButton(brief, dinner, index) {
     },
   }, added ? 'On the list ✓' : 'Add to list');
   if (added) button.disabled = true;
-  return el('div', { class: 'row actions' }, button, status);
+  return el('span', { class: 'add' }, button, status);
 }
 
 /** The recipe's own photo, linked to the recipe. Nothing at all if there isn't one. */
@@ -159,8 +159,41 @@ function mealPhoto(dinner) {
   return frame;
 }
 
-function renderDinners(brief) {
-  $('dinners').replaceChildren(...brief.dinners.map((dinner, index) => el('li', {},
+const PAGE = 5;
+const pageKey = (date) => `brief-page:${date}`;
+let lastHidden = null;
+
+function notForMe(brief, dinner, index) {
+  return el('button', {
+    type: 'button',
+    class: 'thumbs',
+    title: 'Not for me',
+    'aria-label': `Not for me: ${dinner.name}`,
+    onclick: () => setHidden(brief, dinner, index, true),
+  }, '👎');
+}
+
+async function setHidden(brief, dinner, index, hide) {
+  // Show the change straight away; the server catches up.
+  brief.hidden = brief.hidden.filter((name) => name !== dinner.name);
+  if (hide) brief.hidden.push(dinner.name);
+  lastHidden = hide ? { dinner, index } : null;
+  renderDinners(brief);
+  try {
+    const { hidden } = await api('/api/dinner/hide', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date: brief.date, index, hidden: hide }),
+    });
+    brief.hidden = hidden;
+    saved.set(CACHE, brief);
+  } catch (error) {
+    $('dinner-status').textContent = `Could not save that: ${error.message}`;
+  }
+}
+
+function dinnerCard(brief, dinner, index) {
+  return el('li', {},
     mealPhoto(dinner),
     el('div', { class: 'dinner-head' },
       el('strong', {}, dinner.name),
@@ -173,7 +206,44 @@ function renderDinners(brief) {
         el('ul', { class: 'ingredients' }, dinner.ingredients.map((line) => el('li', {}, line))))
       : null,
     dinner.url ? el('a', { href: dinner.url, target: '_blank', rel: 'noopener' }, `Recipe on ${siteOf(dinner.url)}`) : null,
-    dinnerButton(brief, dinner, index))));
+    el('div', { class: 'row actions' }, dinnerButton(brief, dinner, index), notForMe(brief, dinner, index)));
+}
+
+/** Five at a time from the day's pool, skipping the ones turned down. */
+function renderDinners(brief) {
+  brief.hidden = brief.hidden || [];
+  const pool = brief.dinners
+    .map((dinner, index) => ({ dinner, index }))
+    .filter(({ dinner }) => !brief.hidden.includes(dinner.name));
+  const pages = Math.max(1, Math.ceil(pool.length / PAGE));
+  const page = (saved.get(pageKey(brief.date)) || 0) % pages;
+  const shown = pool.slice(page * PAGE, page * PAGE + PAGE);
+
+  $('dinners').replaceChildren(...shown.map(({ dinner, index }) => dinnerCard(brief, dinner, index)));
+
+  const status = $('dinner-status');
+  status.replaceChildren();
+  if (lastHidden && brief.hidden.includes(lastHidden.dinner.name)) {
+    const { dinner, index } = lastHidden;
+    status.append(`Hid ${dinner.name}. `, el('button', {
+      type: 'button',
+      class: 'link',
+      onclick: () => setHidden(brief, dinner, index, false),
+    }, 'Undo'));
+  }
+  if (!pool.length && brief.dinners.length) {
+    status.append(el('p', { class: 'muted' }, 'You turned all of today\'s down. Tomorrow\'s ideas will steer away from them.'));
+  }
+
+  const more = $('more-dinners');
+  more.hidden = pool.length <= PAGE;
+  more.textContent = `Show me others (seeing ${page * PAGE + 1}–${page * PAGE + shown.length} of ${pool.length})`;
+  more.onclick = () => {
+    lastHidden = null;
+    saved.set(pageKey(brief.date), page + 1);
+    renderDinners(brief);
+    $('dinner').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
   $('dinner').hidden = !brief.dinners.length;
 }
 

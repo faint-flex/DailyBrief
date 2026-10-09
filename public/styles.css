@@ -125,6 +125,12 @@ summary { cursor: pointer; color: var(--accent); }
 .ingredients { margin: 6px 0; padding-left: 20px; color: var(--muted); }
 .actions { margin-top: 8px; }
 
+.actions { justify-content: space-between; }
+button.thumbs { background: transparent; font-size: 1.15rem; padding: 6px 12px; }
+button.more { width: 100%; margin-top: 12px; color: var(--accent); font-weight: 600; }
+#dinner-status:empty { display: none; }
+#dinner-status { margin: 0 0 10px; }
 .footer { margin: 16px 0; }
 .footer .row { margin-top: 8px; }
 .footer select { flex: 1 1 auto; }
+.add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; flex: 1; }
