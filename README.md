@@ -29,7 +29,10 @@ At the end it prints:
    variable (Project settings → Cloud environment → gear icon) so the morning
    run can send the brief. Don't paste the key into a chat.
 
-After the first time, `npm run deploy` pushes changes.
+After the first time, `npm run deploy` pushes changes, or connect the repo once so
+every push to `main` deploys by itself: Cloudflare dashboard → Workers & Pages →
+**daily-brief** → Settings → Builds → **Connect**, pick this repo, keep the
+defaults.
 
 The key is kept in `.brief-key` in this folder (never committed). To change it,
 delete that file and run `npm run setup` again; then update the phone and the

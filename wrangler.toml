@@ -8,10 +8,10 @@ directory = "./public"
 binding = "ASSETS"
 run_worker_first = ["/api/*"]
 
-# Where the daily briefs are kept. `npm run setup` creates it and fills in the id.
+# Where the daily briefs are kept (your BRIEFS namespace; the id is not a secret).
 [[kv_namespaces]]
 binding = "BRIEFS"
-id = "replace_with_your_kv_namespace_id"
+id = "515698f8ff3d4ec6b026dc5f179d69aa"
 
 # "Add to list" talks to your Grocerylist worker directly. It must be deployed
 # in the same Cloudflare account under the name "grocerylist".
