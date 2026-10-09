@@ -1,6 +1,6 @@
 # Copied from Grocerylist
 
-These files are copied unchanged from [faint-flex/Grocerylist](https://github.com/faint-flex/Grocerylist)
+These files are copied unchanged from faint-flex/Grocerylist
 at commit `40dd500` (branch `dinner-ideas-to-list`), except that `add-dinner.js`
 imports from `./lib/` instead of `../public/js/lib/`.
 
