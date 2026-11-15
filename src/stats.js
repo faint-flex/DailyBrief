@@ -9,6 +9,8 @@
 //            STATS_CF_TOKEN and STATS_BUFFER_KEY. App Store numbers are only ever
 //            nightly, because Apple publishes them once a day.
 
+import { readDirect, overlaySocial, PLATFORMS } from './social-direct.js';
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 export const KEEP_DAYS = 400;
 export const SITE = 'usebabylog.com';
@@ -60,6 +62,9 @@ function distillSocial(s) {
     t.posts += 1;
     for (const [k, v] of Object.entries(countsOf(p.metrics))) t[k] = (t[k] || 0) + v;
   }
+  for (const [service, a] of Object.entries(s.accounts || {})) {
+    if (Number.isFinite(Number(a?.followers))) (totals[service] ||= { posts: 0 }).followers = Number(a.followers);
+  }
   const week = {};
   for (const [service, m] of Object.entries(s.week || {})) week[service] = countsOf(m);
   return {
@@ -71,6 +76,7 @@ function distillSocial(s) {
       link: webAddress(p.link), metrics: countsOf(p.metrics),
     })),
     scheduled: (Array.isArray(s.posts) ? s.posts : []).filter((p) => p?.status === 'scheduled').length,
+    direct: (Array.isArray(s.direct) ? s.direct : []).filter((d) => SERVICES.includes(d)),
   };
 }
 
@@ -91,8 +97,8 @@ function distillAppStore(a) {
   };
 }
 
-/** Raw nightly report -> { snapshot } or { error }. */
-export function distillNightly(input, now = new Date()) {
+/** Raw nightly report -> { snapshot } or { error }. direct = readDirect() numbers to lay over Buffer's. */
+export function distillNightly(input, now = new Date(), direct = null) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return { error: 'Send the report as a JSON object.' };
   const day = DATE_RE.test(input.day) ? input.day : DATE_RE.test(input.date) ? input.date : null;
   if (!day) return { error: 'The report needs its "day" (YYYY-MM-DD).' };
@@ -105,7 +111,7 @@ export function distillNightly(input, now = new Date()) {
       headline: text(input.headline, 200),
       suggestion: text(input.suggestion, 300),
       website: distillWebsite(input.website),
-      social: distillSocial(input.social),
+      social: distillSocial(direct ? overlaySocial(input.social, direct) : input.social),
       appStore: distillAppStore(input.appStore),
     },
   };
@@ -241,16 +247,23 @@ async function section(fn) {
   try { return await fn(); } catch (e) { return { connected: false, error: short(e) }; }
 }
 
+const anyDirect = (env) => Object.values(PLATFORMS).some((p) => p.ready(env));
+
 /** Fresh website + social numbers, distilled like a nightly snapshot. */
-export async function readLive(env, fetcher = fetch, now = new Date()) {
-  const [website, social] = await Promise.all([section(() => liveWebsite(env, fetcher, now)), section(() => liveSocial(env, fetcher, now))]);
-  return { at: now.toISOString(), website: distillWebsite(website), social: distillSocial(social) };
+export async function readLive(env, fetcher = fetch, now = new Date(), kv = env.BRIEFS) {
+  const [website, social, direct] = await Promise.all([
+    section(() => liveWebsite(env, fetcher, now)),
+    env.STATS_BUFFER_KEY || !anyDirect(env) ? section(() => liveSocial(env, fetcher, now)) : { connected: false, need: 'STATS_BUFFER_KEY' },
+    kv && anyDirect(env) ? readDirect(env, kv, fetcher).catch(() => ({})) : {},
+  ]);
+  const connect = Object.fromEntries(Object.entries(direct).map(([k, d]) => [k, { setup: d.setup !== false, connected: !!d.connected, error: d.error || '' }]));
+  return { at: now.toISOString(), website: distillWebsite(website), social: distillSocial(overlaySocial(social, direct)), connect };
 }
 
 // One isolate answers many opens; don't hit the APIs more than once a minute.
 let cached = null;
 export async function liveCached(env, { fresh = false, fetcher = fetch, now = new Date() } = {}) {
-  if (!env.STATS_CF_TOKEN && !env.STATS_BUFFER_KEY) return null;
+  if (!env.STATS_CF_TOKEN && !env.STATS_BUFFER_KEY && !anyDirect(env)) return null;
   if (!fresh && cached && now - cached.time < 60e3) return cached.value;
   const value = await readLive(env, fetcher, now);
   cached = { time: now, value };

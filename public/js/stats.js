@@ -149,10 +149,11 @@ function derive(data) {
   const soc = live?.social?.connected ? live.social : nightly?.social?.connected ? nightly.social : (live?.social || nightly?.social || null);
   const socLive = !!live?.social?.connected;
   const totalsOf = (t) => {
-    const out = { views: 0, likes: 0, comments: 0, shares: 0, saves: 0, reach: 0, posts: 0 };
+    const out = { views: 0, likes: 0, comments: 0, shares: 0, saves: 0, reach: 0, posts: 0, followers: null };
     for (const m of Object.values(t || {})) {
       out.views += m.views || 0; out.likes += (m.reactions ?? m.likes) || 0; out.comments += m.comments || 0;
       out.shares += m.shares || 0; out.saves += m.saves || 0; out.reach += m.reach || 0; out.posts += m.posts || 0;
+      if (m?.followers != null) out.followers = (out.followers || 0) + m.followers;
     }
     return out;
   };
@@ -179,6 +180,7 @@ function overview(x) {
   const siteTrend = x.site.slice(-14);
   const since = x.socLive ? 'since last night' : 'vs night before';
   const follows = x.soc?.week ? sum(Object.values(x.soc.week).map((w) => w.follows || 0)) : null;
+  const hasFollowers = x.socNow?.followers != null;
   const reviews = n?.appStore?.reviews || [];
   const avg = reviews.length ? sum(reviews.map((r) => r.rating)) / reviews.length : null;
   const hours = x.webLive ? x.web.hours || [] : [];
@@ -199,7 +201,10 @@ function overview(x) {
     ${kpi({ label: 'Comments + shares', tone: 'social2', value: fmt((x.socNow?.comments || 0) + (x.socNow?.shares || 0)), off: x.socNow ? '' : notConnected(x.soc),
       sub: delta(x.socNow ? x.socNow.comments + x.socNow.shares : null, x.socBase ? x.socBase.comments + x.socBase.shares : null, { since, none: 'all posts' }),
       trend: x.socialSeries.map((s) => s.comments + s.shares) })}
-    ${kpi({ label: 'New follows', tone: 'social2', value: fmt(follows), off: x.soc?.connected ? '' : notConnected(x.soc), sub: 'last 7 days' })}
+    ${hasFollowers
+    ? kpi({ label: 'Followers', tone: 'social2', value: fmt(x.socNow.followers), sub: delta(x.socNow.followers, x.socBase?.followers ?? null, { since, none: 'Instagram + TikTok' }),
+      trend: x.socialSeries.map((s) => s.followers).filter((v) => v != null) })
+    : kpi({ label: 'New follows', tone: 'social2', value: fmt(follows), off: x.soc?.connected ? '' : notConnected(x.soc), sub: 'last 7 days' })}
   </div>
   ${sec('App Store', 'Apple posts each day the next morning')}
   <div class="kpis">
@@ -231,8 +236,17 @@ function websiteView(x) {
   ${barList(x.web?.countries, 'web', (c) => `${flag(c.code)} ${esc(regionName(c.code))}`)}`;
 }
 
+function connectLine(service) {
+  const c = S.data?.live?.connect?.[service];
+  if (!c) return '';
+  if (c.error) return ` · <button class="linkbtn" data-connect="${service}">Reconnect</button> <span class="small">(${esc(c.error)})</span>`;
+  if (!c.setup) return ' · direct stats need the app keys';
+  return ` · <button class="linkbtn" data-connect="${service}">Connect for real numbers</button>`;
+}
+
 function socialView(x) {
   if (!x.soc?.connected) return `<div class="card empty">${esc(notConnected(x.soc))}</div>`;
+  const direct = x.soc.direct || [];
   const net = (service, label) => {
     const t = x.totalsOf({ [service]: x.soc.totals?.[service] });
     const b = x.socialBaseDay ? x.totalsOf({ [service]: (S.data.history.social[x.socialBaseDay] || {})[service] }) : null;
@@ -241,7 +255,9 @@ function socialView(x) {
     return `<div class="card net"><div class="net-head"><b><span class="badge ${service}">${label}</span></b><span class="muted small">${fmt(t.posts)} post${t.posts === 1 ? '' : 's'}</span></div>
       <div class="net-grid">${cell('Views', t.views, b?.views)}${cell('Likes', t.likes, b?.likes)}${cell('Comments', t.comments, b?.comments)}
       ${cell('Shares', t.shares, b?.shares)}${service === 'instagram' ? cell('Saves', t.saves, b?.saves) : cell('Reach', t.reach, b?.reach)}
-      <div><span>Follows 7d</span><strong>${w.follows == null ? '–' : fmt(w.follows)}</strong></div></div></div>`;
+      ${t.followers != null ? cell('Followers', t.followers, b?.followers ?? undefined)
+    : `<div><span>Follows 7d</span><strong>${w.follows == null ? '–' : fmt(w.follows)}</strong></div>`}</div>
+      <p class="note">${direct.includes(service) ? `Straight from ${label}` : `From Buffer${connectLine(service, label)}`}</p></div>`;
   };
   const posts = x.soc.posts || [];
   const s = x.socialSeries;
@@ -256,8 +272,8 @@ function socialView(x) {
     <span class="txt">${esc(p.text)}</span>${p.link ? `<a href="${esc(p.link)}" target="_blank" rel="noopener">Open ↗</a>` : ''}</div>
     <div class="m">${p.sentAt ? `${shortDay(localDay(new Date(p.sentAt)))} · ` : ''}${Object.keys(p.metrics || {}).length
       ? `${fmt(p.metrics.views ?? 0)} views · ${fmt((p.metrics.reactions ?? p.metrics.likes) ?? 0)} likes · ${fmt(p.metrics.comments ?? 0)} comments`
-      : 'no numbers from Buffer yet'}</div></li>`).join('')}</ul>` : '<div class="card empty">No posts sent yet.</div>'}
-  <p class="note">Numbers come from Buffer. TikTok posts finished by hand in the TikTok app may not show numbers here.</p>`;
+      : 'no numbers yet'}</div></li>`).join('')}</ul>` : '<div class="card empty">No posts sent yet.</div>'}
+  ${direct.length < 2 ? '<p class="note">Buffer can\'t see Reel views or TikToks finished by hand in the TikTok app. Connect each network above for its real numbers.</p>' : ''}`;
 }
 
 function storeView(x) {
@@ -356,6 +372,33 @@ $('gate-form').addEventListener('submit', (event) => {
   load();
 });
 $('refresh').addEventListener('click', () => load({ fresh: true }));
+document.addEventListener('click', async (event) => {
+  const b = event.target.closest('button[data-connect]');
+  if (!b) return;
+  b.disabled = true;
+  b.textContent = 'Opening…';
+  try {
+    const res = await fetch(`/api/stats/connect?platform=${b.dataset.connect}`, { method: 'POST', headers: { Authorization: `Bearer ${saved.get(KEY)}` } });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+    location.href = body.url;
+  } catch (error) {
+    b.textContent = error.message;
+  }
+});
+// Back from a TikTok / Instagram sign-in.
+{
+  const done = location.hash.match(/connected=(tiktok|instagram)/);
+  const failed = location.hash.match(/connect-error=([^&]*)/);
+  if (done || failed) {
+    $('notice').hidden = false;
+    $('notice').textContent = done ? `${done[1] === 'tiktok' ? 'TikTok' : 'Instagram'} is connected. Its numbers now come straight from it.`
+      : `Couldn't connect: ${decodeURIComponent(failed[1])}`;
+    S.view = 'social';
+    document.querySelector('.tabs button[data-view=social]')?.click();
+    history.replaceState(null, '', location.pathname);
+  }
+}
 document.querySelector('.tabs').addEventListener('click', (event) => {
   const b = event.target.closest('button[data-view]');
   if (!b) return;
