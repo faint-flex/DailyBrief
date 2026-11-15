@@ -135,3 +135,46 @@ a.button.primary { background: var(--accent); color: var(--accent-text); }
 .footer { margin: 16px 0; }
 .footer .row { margin-top: 8px; }
 .footer select { flex: 1 1 auto; }
+
+/* App report: a dark dashboard panel in BabyLog's night-sky colors, dark in both themes. */
+.dash {
+  --d-bg: #0a0e1f; --d-panel: #131932; --d-panel2: #1a2142; --d-line: #262d52; --d-text: #eef0ff; --d-muted: #9ea5c8;
+  --d-accent: #c2b5ff; --d-pink: #ff8fb1; --d-teal: #5fd4c4; --d-blue: #8fb8ff; --d-gold: #ffcf7a; --d-good: #5cd6a0;
+  margin: 0 0 14px; padding: 16px; border-radius: var(--radius); color: var(--d-text);
+  background: radial-gradient(120% 80% at 90% -20%, rgba(194, 181, 255, .18), transparent 60%), var(--d-bg);
+  border: 1px solid var(--d-line); box-shadow: 0 10px 30px rgba(10, 14, 31, .25);
+}
+.dash-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.dash-brand { display: flex; align-items: center; gap: 10px; }
+.dash-brand img { width: 34px; height: 34px; border-radius: 9px; filter: drop-shadow(0 0 8px rgba(194, 181, 255, .35)); }
+.dash-brand h2 { margin: 0; font-size: 17px; line-height: 1.1; letter-spacing: .2px; }
+.dash-sub { font-size: 11px; color: var(--d-muted); text-transform: uppercase; letter-spacing: 1.4px; }
+.live { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--d-muted); text-transform: uppercase; letter-spacing: 1px; text-align: right; }
+.live i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #5d6380; }
+.live.on i { background: var(--d-good); animation: dash-pulse 2s infinite; }
+@keyframes dash-pulse { 0% { box-shadow: 0 0 0 0 rgba(92, 214, 160, .6); } 70% { box-shadow: 0 0 0 8px rgba(92, 214, 160, 0); } 100% { box-shadow: 0 0 0 0 rgba(92, 214, 160, 0); } }
+@media (prefers-reduced-motion: reduce) { .live.on i { animation: none; } }
+.dash-headline { margin: 0 0 12px; font-size: 17px; font-weight: 650; line-height: 1.35; }
+.kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+@media (min-width: 560px) { .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.kpi {
+  --tone: var(--d-accent); position: relative; overflow: hidden; display: flex; flex-direction: column; min-width: 0;
+  padding: 12px 12px 34px; border-radius: 12px; border: 1px solid var(--d-line);
+  background: linear-gradient(180deg, var(--d-panel2), var(--d-panel));
+}
+.kpi.pink { --tone: var(--d-pink); } .kpi.teal { --tone: var(--d-teal); } .kpi.blue { --tone: var(--d-blue); } .kpi.gold { --tone: var(--d-gold); }
+.kpi::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--tone); opacity: .9; }
+.kpi-label { font-size: 10.5px; color: var(--d-muted); text-transform: uppercase; letter-spacing: 1.1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kpi-value { font-size: 28px; font-weight: 750; line-height: 1.15; color: var(--tone); font-variant-numeric: tabular-nums; }
+.kpi-sub { font-size: 12px; color: var(--d-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.delta { font-weight: 700; }
+.delta.up { color: var(--d-good); } .delta.down { color: var(--d-pink); }
+.spark { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 30px; }
+.spark-line { fill: none; stroke: var(--tone); stroke-width: 1.8; vector-effect: non-scaling-stroke; }
+.spark-area { fill: var(--tone); opacity: .12; }
+.spark-dot { fill: var(--tone); }
+.dash-lines { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.dash-lines li { display: flex; gap: 8px; align-items: baseline; font-size: 14.5px; line-height: 1.4; padding: 8px 10px; border-radius: 10px; background: rgba(255, 255, 255, .03); border: 1px solid var(--d-line); }
+.tag { flex: none; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--d-accent); min-width: 80px; }
+.dash-tip { display: flex; gap: 8px; align-items: baseline; margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; font-size: 14.5px;
+  background: linear-gradient(90deg, rgba(194, 181, 255, .14), rgba(194, 181, 255, .03)); border: 1px solid rgba(194, 181, 255, .35); }

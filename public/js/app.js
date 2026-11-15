@@ -210,6 +210,7 @@ async function loadBrief(date) {
     const { brief, dates } = await api(`/api/brief${date ? `?date=${date}` : ''}`);
     $('key-gate').hidden = true;
     renderBrief(brief);
+    if (!date) loadReport();
     if (brief) renderDates(dates, brief.date);
     if (brief && !date) saved.set(CACHE, brief);
   } catch (error) {
@@ -224,10 +225,78 @@ async function loadBrief(date) {
   }
 }
 
+/* ---------- App report (BabyLog's evening numbers) ---------- */
+
+const REPORT_CACHE = 'report-cache';
+
+/** A small trend line for a stat tile (oldest to newest). */
+function sparkline(values) {
+  if (!values || values.length < 2) return null;
+  const ns = 'http://www.w3.org/2000/svg';
+  const w = 100, h = 28, max = Math.max(...values), min = Math.min(...values), span = max - min || 1;
+  const pts = values.map((v, i) => [(i / (values.length - 1)) * w, h - 3 - ((v - min) / span) * (h - 6)]);
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  svg.setAttribute('preserveAspectRatio', 'none');
+  svg.setAttribute('class', 'spark');
+  svg.setAttribute('aria-hidden', 'true');
+  const d = pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+  const area = document.createElementNS(ns, 'path');
+  area.setAttribute('d', `${d} L${w},${h} L0,${h} Z`);
+  area.setAttribute('class', 'spark-area');
+  const line = document.createElementNS(ns, 'path');
+  line.setAttribute('d', d);
+  line.setAttribute('class', 'spark-line');
+  const [lx, ly] = pts.at(-1);
+  const dot = document.createElementNS(ns, 'circle');
+  dot.setAttribute('cx', lx); dot.setAttribute('cy', ly); dot.setAttribute('r', 2.6);
+  dot.setAttribute('class', 'spark-dot');
+  svg.append(area, line, dot);
+  return svg;
+}
+
+function renderReport(report) {
+  $('report').hidden = !report;
+  if (!report) return;
+  const isToday = report.date === new Date().toLocaleDateString('en-CA');
+  $('report-heading').textContent = report.title;
+  $('report-when').textContent = isToday ? `Today · ${timeOf(report.receivedAt)}` : dayName(report.date);
+  // Evenings lead with the report; mornings lead with the brief.
+  const evening = new Date().getHours() >= 17;
+  if (evening && isToday) $('weather').before($('report'));
+  else $('email').before($('report'));
+  $('report-live').className = `live${isToday ? ' on' : ''}`;
+  $('report-headline').textContent = report.headline;
+  $('report-headline').hidden = !report.headline;
+  $('report-stats').replaceChildren(...report.stats.map((s) => el('div', { class: `kpi ${s.tone || ''}` },
+    el('span', { class: 'kpi-label' }, s.label),
+    el('span', { class: 'kpi-value' }, s.value),
+    el('span', { class: 'kpi-sub' },
+      s.change ? el('span', { class: `delta${/^[-−]/.test(s.change) ? ' down' : /^\+/.test(s.change) ? ' up' : ''}` }, s.change) : null,
+      s.sub ? ` ${s.sub}` : null),
+    sparkline(s.trend))));
+  $('report-lines').replaceChildren(...report.lines.map((l) => el('li', {},
+    l.label ? el('span', { class: 'tag' }, l.label) : null,
+    el('span', {}, l.text))));
+  $('report-tip').replaceChildren(el('span', { class: 'tag' }, 'Next'), report.suggestion);
+  $('report-tip').hidden = !report.suggestion;
+}
+
+async function loadReport() {
+  try {
+    const { report } = await api('/api/report?app=babylog');
+    renderReport(report);
+    saved.set(REPORT_CACHE, report);
+  } catch {
+    renderReport(saved.get(REPORT_CACHE));
+  }
+}
+
 $('date-select').addEventListener('change', (event) => loadBrief(event.target.value));
 $('refresh').addEventListener('click', () => {
   header();
   loadBrief();
+  loadReport();
   loadWeather();
 });
 
@@ -297,7 +366,9 @@ header();
 takeKeyFromLink();
 const cached = saved.get(CACHE);
 if (cached) renderBrief(cached);
+renderReport(saved.get(REPORT_CACHE));
 loadBrief();
+loadReport();
 loadWeather();
 
 // Opening the app from the background on a new morning should show the new brief.
@@ -305,6 +376,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   header();
   loadBrief();
+  loadReport();
   loadWeather();
 });
 

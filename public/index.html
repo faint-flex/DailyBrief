@@ -45,6 +45,23 @@
     <div id="weather-body"><p class="muted">Loading the weather…</p></div>
   </section>
 
+  <section id="report" class="dash" aria-labelledby="report-heading" hidden>
+    <div class="dash-head">
+      <div class="dash-brand">
+        <img src="/icons/babylog-192.png" alt="" width="34" height="34">
+        <div>
+          <h2 id="report-heading">BabyLog</h2>
+          <span class="dash-sub">Daily report</span>
+        </div>
+      </div>
+      <span id="report-live" class="live"><i></i><span id="report-when"></span></span>
+    </div>
+    <p id="report-headline" class="dash-headline"></p>
+    <div id="report-stats" class="kpis"></div>
+    <ul id="report-lines" class="dash-lines"></ul>
+    <p id="report-tip" class="dash-tip" hidden></p>
+  </section>
+
   <section id="email" class="card" aria-labelledby="email-heading" hidden>
     <h2 id="email-heading">Email</h2>
     <ul id="needs-you" class="lines"></ul>

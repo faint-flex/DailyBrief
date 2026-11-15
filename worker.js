@@ -3,10 +3,13 @@
 //
 //   POST /api/brief     the morning run sends the day's brief here
 //   GET  /api/brief     the phone reads the latest (or ?date=YYYY-MM-DD)
+//   POST /api/report    an evening app report (BabyLog numbers) is sent here
+//   GET  /api/report    the phone reads the latest (?app=babylog&date=YYYY-MM-DD)
 //
 // Every /api call needs the key (Authorization: Bearer <key>), because a brief
 // is a summary of your inbox.
 import { normalizeBrief, briefStore } from './src/brief.js';
+import { normalizeReport, reportStore } from './src/report.js';
 
 const MAX_BODY = 64 * 1024;
 
@@ -64,6 +67,27 @@ export async function handleApi(request, env, url) {
       if (error) return json({ error }, 400);
       await store.put(brief);
       return json({ ok: true, date: brief.date, dinners: brief.dinners.length });
+    }
+    return json({ error: 'Method not allowed.' }, 405);
+  }
+
+  if (url.pathname === '/api/report') {
+    const reports = reportStore(env.BRIEFS);
+    if (request.method === 'GET') {
+      const app = /^[a-z0-9-]{1,30}$/.test(url.searchParams.get('app') || '') ? url.searchParams.get('app') : 'babylog';
+      return json({ report: await reports.get(app, url.searchParams.get('date')), dates: await reports.dates(app) });
+    }
+    if (request.method === 'POST') {
+      let input;
+      try {
+        input = await readJson(request);
+      } catch {
+        return json({ error: 'Could not read that report as JSON.' }, 400);
+      }
+      const { report, error } = normalizeReport(input);
+      if (error) return json({ error }, 400);
+      await reports.put(report);
+      return json({ ok: true, app: report.app, date: report.date });
     }
     return json({ error: 'Method not allowed.' }, 405);
   }
