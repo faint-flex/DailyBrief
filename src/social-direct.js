@@ -25,7 +25,7 @@ export const PLATFORMS = {
     ready: (env) => !!(env.IG_ACCESS_TOKEN || (env.IG_APP_ID && env.IG_APP_SECRET && env.IG_CONFIG_ID)),
     authorize: (env, redirect, state) => `https://www.facebook.com/${GRAPH}/dialog/oauth?${new URLSearchParams({
       client_id: env.IG_APP_ID, redirect_uri: redirect, response_type: 'code', state, config_id: env.IG_CONFIG_ID,
-      override_default_response_type: 'true' })}`,
+      override_default_response_type: 'true', auth_type: 'reauthorize' })}`,
   },
 };
 
@@ -119,7 +119,7 @@ export async function probeInstagram(env, kv, fetcher = fetch) {
   if (!raw) return { connected: false, pastedSecret: !!env.IG_ACCESS_TOKEN };
   const t = JSON.parse(raw);
   const kind = { source: pasted ? 'pasted' : 'connect', prefix: String(t.access || '').slice(0, 4), length: String(t.access || '').length, base: t.base || 'fb' };
-  const out = { connected: true, kind, igUser: t.igUser || '', expires: t.expires, lookups: {} };
+  const out = { connected: true, kind, connectedAt: t.connectedAt || null, igUser: t.igUser || '', expires: t.expires, lookups: {} };
   for (const attempt of instagramLookups(env, t.access)) {
     try {
       const res = await fetcher(attempt.url);
@@ -162,7 +162,7 @@ export async function finishConnect(env, kv, platform, url, fetcher = fetch) {
   if (!code) return fail(url.searchParams.get('error_description') || url.searchParams.get('error') || 'Sign-in was cancelled.');
   try {
     const token = await exchange(env, platform, code, `${url.origin}/oauth/${platform}`, fetcher);
-    await kv.put(tokenKey(platform), JSON.stringify(token));
+    await kv.put(tokenKey(platform), JSON.stringify({ ...token, connectedAt: new Date().toISOString() }));
     return `/stats#connected=${platform}`;
   } catch (e) {
     return fail(short(e));
