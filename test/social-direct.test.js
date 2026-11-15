@@ -5,7 +5,7 @@ import { startConnect, finishConnect, readDirect, overlaySocial } from '../src/s
 import { distillNightly } from '../src/stats.js';
 import { memoryKv } from './helpers.js';
 
-const keys = { TIKTOK_CLIENT_KEY: 'tk', TIKTOK_CLIENT_SECRET: 'ts', IG_APP_ID: 'ig', IG_APP_SECRET: 'is' };
+const keys = { TIKTOK_CLIENT_KEY: 'tk', TIKTOK_CLIENT_SECRET: 'ts', IG_APP_ID: 'ig', IG_APP_SECRET: 'is', IG_CONFIG_ID: 'cfg' };
 const ok = (data) => new Response(JSON.stringify(data), { status: 200 });
 
 function fakeApis(log = []) {
@@ -19,10 +19,10 @@ function fakeApis(log = []) {
     if (url.startsWith('https://open.tiktokapis.com/v2/video/list/')) {
       return ok({ data: { videos: [{ id: 'v1', title: 'Logging a feed at 3am', create_time: 1763211195, share_url: 'https://www.tiktok.com/@usebabylog/video/1', view_count: 950, like_count: 33, comment_count: 4, share_count: 2 }] }, error: { code: 'ok' } });
     }
-    if (url === 'https://api.instagram.com/oauth/access_token') return ok({ access_token: 'ig-short', user_id: 77 });
-    if (url.startsWith('https://graph.instagram.com/access_token')) return ok({ access_token: 'ig-long', expires_in: 5184000 });
-    if (url.includes('graph.instagram.com/v21.0/me?')) return ok({ username: 'usebabylog', followers_count: 58, media_count: 2 });
-    if (url.includes('graph.instagram.com/v21.0/me/media')) {
+    if (url.startsWith('https://graph.facebook.com/v21.0/oauth/access_token?') && url.includes('code=')) return ok({ access_token: 'suat' });
+    if (url.includes('/me/accounts?')) return ok({ data: [{ id: 'page1' }, { id: 'page2', instagram_business_account: { id: '1784' } }] });
+    if (url.includes('/v21.0/1784?')) return ok({ username: 'usebabylog', followers_count: 58, media_count: 2 });
+    if (url.includes('/v21.0/1784/media?')) {
       return ok({ data: [{ id: 'm1', caption: 'Logging a feed at 3am\nmore', media_product_type: 'REELS', permalink: 'https://www.instagram.com/reel/x/', timestamp: '2026-11-15T03:07:56+0000', like_count: 21, comments_count: 3 },
         { id: 'm2', caption: 'Which side?', media_product_type: 'FEED', permalink: 'https://www.instagram.com/p/y/', timestamp: '2026-11-15T03:07:10+0000', like_count: 9, comments_count: 1 }] });
     }
@@ -49,13 +49,17 @@ test('connect: sign-in link, one-time state, tokens kept, bad state refused', as
   const ig = await startConnect(keys, kv, 'instagram', 'https://b.test');
   const igState = new URL(ig.url).searchParams.get('state');
   assert.equal(await finishConnect(keys, kv, 'instagram', new URL(`https://b.test/oauth/instagram?code=c&state=${igState}`), fakeApis()), '/stats#connected=instagram');
-  assert.equal(JSON.parse(kv.map.get('social-token:instagram')).access, 'ig-long');
+  const igToken = JSON.parse(kv.map.get('social-token:instagram'));
+  assert.equal(igToken.access, 'suat');
+  assert.equal(igToken.expires, null);
+  assert.equal(igToken.igUser, '1784');
+  assert.match(ig.url, /facebook\.com\/v21\.0\/dialog\/oauth\?.*config_id=cfg/);
 });
 
 test('direct reads: TikTok videos + followers, Instagram views/reach, expired TikTok token refreshed', async () => {
   const kv = memoryKv();
   await kv.put('social-token:tiktok', JSON.stringify({ access: 'old', refresh: 'r', expires: Date.now() - 1000, at: Date.now() - 864e5 }));
-  await kv.put('social-token:instagram', JSON.stringify({ access: 'ig-long', expires: Date.now() + 5e9, at: Date.now() }));
+  await kv.put('social-token:instagram', JSON.stringify({ access: 'suat', expires: null, at: Date.now(), igUser: '1784' }));
   const d = await readDirect(keys, kv, fakeApis());
   assert.equal(d.tiktok.connected, true);
   assert.equal(d.tiktok.account.followers, 12);
@@ -73,7 +77,7 @@ test('direct reads: TikTok videos + followers, Instagram views/reach, expired Ti
 
 test('direct numbers replace Buffer\'s for that platform, nightly and live', async () => {
   const kv = memoryKv();
-  await kv.put('social-token:instagram', JSON.stringify({ access: 'ig-long', expires: Date.now() + 5e9, at: Date.now() }));
+  await kv.put('social-token:instagram', JSON.stringify({ access: 'suat', expires: null, at: Date.now(), igUser: '1784' }));
   const direct = await readDirect(keys, kv, fakeApis());
   const buffer = { connected: true, posts: [{ service: 'instagram', status: 'sent', metrics: {} }, { service: 'tiktok', status: 'sent', metrics: { views: 5 } }], week: {} };
   const merged = overlaySocial(buffer, direct);
