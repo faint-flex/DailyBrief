@@ -101,3 +101,30 @@ test('the worker routes: connect needs the key, the sign-in return redirects to 
   assert.equal(back.status, 302);
   assert.match(back.headers.get('Location'), /\/stats#connect-error=/);
 });
+
+test('a pasted Instagram token (IG_ACCESS_TOKEN) reads graph.instagram.com and renews itself', async () => {
+  const kv = memoryKv();
+  const seen = [];
+  const fetcher = async (url) => {
+    seen.push(url);
+    if (url.includes('graph.instagram.com/v21.0/me?')) return ok({ username: 'usebabylog', followers_count: 61, media_count: 2 });
+    if (url.includes('graph.instagram.com/v21.0/me/media?')) return ok({ data: [{ id: 'm1', caption: 'Reel', permalink: 'https://www.instagram.com/reel/x/', timestamp: '2026-11-15T03:07:56+0000', like_count: 4, comments_count: 1 }] });
+    if (url.includes('/m1/insights')) return ok({ data: [{ name: 'views', values: [{ value: 900 }] }] });
+    if (url.includes('refresh_access_token')) return ok({ access_token: 'IGnew', expires_in: 5184000 });
+    return new Response('{}', { status: 404 });
+  };
+  const env = { IG_ACCESS_TOKEN: 'IGpasted' };
+  const d = await readDirect(env, kv, fetcher);
+  assert.equal(d.instagram.connected, true);
+  assert.equal(d.instagram.account.followers, 61);
+  assert.equal(d.instagram.posts[0].metrics.views, 900);
+  assert.ok(seen.every((u) => !u.includes('graph.facebook.com')));
+  // A week later the worker renews its copy.
+  const stored = JSON.parse(kv.map.get('social-token:instagram-pasted'));
+  kv.map.set('social-token:instagram-pasted', JSON.stringify({ ...stored, at: Date.now() - 8 * 864e5 }));
+  await readDirect(env, kv, fetcher);
+  assert.equal(JSON.parse(kv.map.get('social-token:instagram-pasted')).access, 'IGnew');
+  // Pasting a new secret starts over from it.
+  await readDirect({ IG_ACCESS_TOKEN: 'IGother' }, kv, fetcher);
+  assert.equal(JSON.parse(kv.map.get('social-token:instagram-pasted')).access, 'IGother');
+});
