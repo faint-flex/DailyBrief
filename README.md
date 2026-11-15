@@ -82,3 +82,18 @@ npx wrangler dev   # run locally
 ```
 
 For local runs, put `BRIEF_KEY=…` in `.dev.vars`.
+
+## App reports (BabyLog's evening numbers)
+
+Claude's 8:39 PM BabyLog run sends a report to `POST /api/report` (same key). It is kept
+apart from the brief, shows as a dark dashboard card (at the top in the evening), and
+the last 30 days are kept. Shape:
+
+```json
+{ "app": "babylog", "date": "2026-11-15", "headline": "One line",
+  "stats": [{ "label": "Site visitors", "value": "335", "change": "+12%", "sub": "today",
+              "trend": [120, 200, 335], "tone": "teal" }],
+  "lines": [{ "label": "Website", "text": "…" }], "suggestion": "One thing to try" }
+```
+
+`tone` is one of pink, teal, blue, lavender, gold. Up to 6 stats and 8 lines.
