@@ -13,6 +13,7 @@
 import { normalizeBrief, briefStore } from './src/brief.js';
 import { normalizeReport, reportStore } from './src/report.js';
 import { distillNightly, statsStore, liveCached } from './src/stats.js';
+import { startConnect, finishConnect, readDirect, PLATFORMS } from './src/social-direct.js';
 
 const MAX_BODY = 64 * 1024;
 const MAX_STATS_BODY = 256 * 1024;
@@ -112,12 +113,19 @@ export async function handleApi(request, env, url) {
       } catch {
         return json({ error: 'Could not read those numbers as JSON (256 KB at most).' }, 400);
       }
-      const { snapshot, error } = distillNightly(input);
+      // Lay TikTok/Instagram's own numbers over Buffer's when those are connected.
+      const direct = Object.values(PLATFORMS).some((p) => p.ready(env)) ? await readDirect(env, env.BRIEFS).catch(() => null) : null;
+      const { snapshot, error } = distillNightly(input, new Date(), direct);
       if (error) return json({ error }, 400);
       const history = await stats.put(snapshot);
       return json({ ok: true, day: snapshot.day, days: { site: Object.keys(history.site).length, store: Object.keys(history.store).length, social: Object.keys(history.social).length } });
     }
     return json({ error: 'Method not allowed.' }, 405);
+  }
+
+  if (url.pathname === '/api/stats/connect' && request.method === 'POST') {
+    const { url: address, error } = await startConnect(env, env.BRIEFS, url.searchParams.get('platform'), url.origin);
+    return error ? json({ error }, 400) : json({ url: address });
   }
 
   return json({ error: 'Not found.' }, 404);
@@ -127,6 +135,9 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname.startsWith('/api/')) return handleApi(request, env, url);
+    // TikTok / Instagram send the browser back here after sign-in (checked by a one-time state).
+    const back = url.pathname.match(/^\/oauth\/(tiktok|instagram)$/);
+    if (back && env.BRIEFS) return Response.redirect(`${url.origin}${await finishConnect(env, env.BRIEFS, back[1], url)}`, 302);
     if (env.ASSETS) return env.ASSETS.fetch(request);
     return new Response('Not found', { status: 404 });
   },
