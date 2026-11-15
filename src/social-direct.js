@@ -128,6 +128,26 @@ export async function probeInstagram(env, kv, fetcher = fetch) {
       out.lookups[attempt.name] = { status: res.status, found: attempt.pick(body) || null, body: scrub };
     } catch (e) { out.lookups[attempt.name] = { error: short(e) }; }
   }
+  // What the dashboard's own reads get back, so silent zeros show their cause.
+  if (t.igUser) {
+    const base = t.base === 'ig' ? `https://graph.instagram.com/${GRAPH}` : FB;
+    const get = async (name, path, params) => {
+      try {
+        const res = await fetcher(`${base}/${path}?${new URLSearchParams({ ...params, access_token: t.access })}`);
+        const body = await res.json().catch(() => ({}));
+        out.reads[name] = { status: res.status, body: JSON.stringify(body).replace(/"(access_token|app_id|user_id)":"[^"]*"/g, '"$1":"…"').slice(0, 800) };
+        return body;
+      } catch (e) { out.reads[name] = { error: short(e) }; return {}; }
+    };
+    out.reads = {};
+    await get('account', t.igUser, { fields: 'username,followers_count,media_count' });
+    const media = await get('media', `${t.igUser}/media`, { fields: 'id,media_product_type,timestamp,like_count,comments_count', limit: '3' });
+    const first = media.data?.[0]?.id;
+    if (first) {
+      await get('insights', `${first}/insights`, { metric: 'views,reach,shares,saved' });
+      await get('insights_small', `${first}/insights`, { metric: 'reach' });
+    }
+  }
   return out;
 }
 
