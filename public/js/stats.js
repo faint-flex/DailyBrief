@@ -131,7 +131,7 @@ function barList(items, tone, nameOf) {
     <span class="track"><span class="fill" style="display:block;width:${Math.max(2, (i.views / max) * 100)}%"></span></span></li>`).join('')}</ul>`;
 }
 const sec = (title, hint = '', extra = '') => `<div class="sec"><h3>${esc(title)}</h3>${extra || `<span class="hint">${esc(hint)}</span>`}</div>`;
-const notConnected = (part) => (part?.error ? `Couldn't read it: ${part.error}` : part?.need ? `Not connected yet (${part.need})` : 'No numbers yet');
+const notConnected = (part) => (part?.error ? `Couldn't read it: ${part.error}` : part?.need ? `Not connected yet (${part.need})` : 'After tonight\'s report');
 
 /* ---------- what the numbers say ---------- */
 function derive(data) {

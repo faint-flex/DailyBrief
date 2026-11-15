@@ -1,6 +1,6 @@
 // Offline shell. The last brief is kept in localStorage, so once the shell is
 // cached the app opens and shows it with no signal.
-const VERSION = 'v9';
+const VERSION = 'v10';
 const CACHE = `daily-brief-${VERSION}`;
 const SHELL = [
   '/',
