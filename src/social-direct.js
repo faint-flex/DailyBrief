@@ -101,6 +101,13 @@ function instagramLookups(env, access) {
       pick: (r) => r.instagram_business_account?.id },
     { name: 'me/instagram_accounts', url: `${FB}/me/instagram_accounts?fields=id,username&access_token=${tok}`,
       pick: (r) => (r.data || [])[0]?.id },
+    { name: 'ig/me', url: `https://graph.instagram.com/${GRAPH}/me?fields=user_id,username,id&access_token=${tok}`,
+      pick: (r) => r.user_id || null },
+    { name: 'me/assigned_pages', url: `${FB}/me/assigned_pages?fields=id,instagram_business_account{id,username}&access_token=${tok}`,
+      pick: (r) => (r.data || []).map((x) => x.instagram_business_account?.id).find(Boolean) },
+    { name: 'me/businesses', url: `${FB}/me/businesses?fields=id,name,owned_instagram_accounts{id,username},instagram_accounts{id,username}&access_token=${tok}`,
+      pick: (r) => (r.data || []).flatMap((b) => [...(b.owned_instagram_accounts?.data || []), ...(b.instagram_accounts?.data || [])]).map((x) => x.id).find(Boolean) },
+    { name: 'me/basic', url: `${FB}/me?fields=id,name&access_token=${tok}`, pick: () => null },
   ];
 }
 
