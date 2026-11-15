@@ -114,10 +114,12 @@ function instagramLookups(env, access) {
 
 /** For setup help: what each lookup answers (no tokens in the output). */
 export async function probeInstagram(env, kv, fetcher = fetch) {
-  const raw = await kv.get(tokenKey('instagram'));
-  if (!raw) return { connected: false };
+  const pasted = env.IG_ACCESS_TOKEN ? JSON.parse((await kv.get(tokenKey('instagram-pasted'))) || 'null') : null;
+  const raw = pasted ? JSON.stringify(pasted) : await kv.get(tokenKey('instagram'));
+  if (!raw) return { connected: false, pastedSecret: !!env.IG_ACCESS_TOKEN };
   const t = JSON.parse(raw);
-  const out = { connected: true, igUser: t.igUser || '', expires: t.expires, lookups: {} };
+  const kind = { source: pasted ? 'pasted' : 'connect', prefix: String(t.access || '').slice(0, 4), length: String(t.access || '').length, base: t.base || 'fb' };
+  const out = { connected: true, kind, igUser: t.igUser || '', expires: t.expires, lookups: {} };
   for (const attempt of instagramLookups(env, t.access)) {
     try {
       const res = await fetcher(attempt.url);
