@@ -13,7 +13,7 @@
 import { normalizeBrief, briefStore } from './src/brief.js';
 import { normalizeReport, reportStore } from './src/report.js';
 import { distillNightly, statsStore, liveCached } from './src/stats.js';
-import { startConnect, finishConnect, readDirect, PLATFORMS } from './src/social-direct.js';
+import { startConnect, finishConnect, readDirect, probeInstagram, PLATFORMS } from './src/social-direct.js';
 
 const MAX_BODY = 64 * 1024;
 const MAX_STATS_BODY = 256 * 1024;
@@ -122,6 +122,8 @@ export async function handleApi(request, env, url) {
     }
     return json({ error: 'Method not allowed.' }, 405);
   }
+
+  if (url.pathname === '/api/stats/instagram-check') return json(await probeInstagram(env, env.BRIEFS));
 
   if (url.pathname === '/api/stats/connect' && request.method === 'POST') {
     const { url: address, error } = await startConnect(env, env.BRIEFS, url.searchParams.get('platform'), url.origin);

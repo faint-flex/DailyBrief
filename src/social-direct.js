@@ -77,21 +77,48 @@ async function longLived(env, token, fetcher, now = Date.now()) {
   return { ...token, access: r.access_token, expires: r.expires_in ? now + r.expires_in * 1000 : null, at: now };
 }
 
-/** The Instagram account id: set by hand, or found through the Facebook Page it's linked to. */
+/** The Instagram account id: set by hand, from the token's granted assets, or via a linked Page. */
 async function findInstagram(env, access, fetcher) {
   if (env.IG_USER_ID) return String(env.IG_USER_ID);
-  const tries = [
-    `${FB}/me/accounts?fields=instagram_business_account{id,username}&access_token=${encodeURIComponent(access)}`,
-    `${FB}/me?fields=instagram_business_account{id,username}&access_token=${encodeURIComponent(access)}`,
-  ];
-  for (const url of tries) {
+  for (const attempt of instagramLookups(env, access)) {
     try {
-      const r = await readJsonRes(await fetcher(url), 'Instagram');
-      const found = (r.data || [r]).map((x) => x.instagram_business_account?.id).find(Boolean);
+      const found = attempt.pick(await readJsonRes(await fetcher(attempt.url), 'Instagram'));
       if (found) return String(found);
     } catch { /* try the next way */ }
   }
   return '';
+}
+
+function instagramLookups(env, access) {
+  const tok = encodeURIComponent(access);
+  return [
+    // The token's own grants list which Instagram accounts it may use (target_ids).
+    { name: 'debug_token', url: `${FB}/debug_token?input_token=${tok}&access_token=${encodeURIComponent(`${env.IG_APP_ID}|${env.IG_APP_SECRET}`)}`,
+      pick: (r) => (r.data?.granular_scopes || []).filter((g) => /^instagram_/.test(g.scope)).flatMap((g) => g.target_ids || [])[0] },
+    { name: 'me/accounts', url: `${FB}/me/accounts?fields=id,instagram_business_account{id,username}&access_token=${tok}`,
+      pick: (r) => (r.data || []).map((x) => x.instagram_business_account?.id).find(Boolean) },
+    { name: 'me', url: `${FB}/me?fields=id,instagram_business_account{id,username}&access_token=${tok}`,
+      pick: (r) => r.instagram_business_account?.id },
+    { name: 'me/instagram_accounts', url: `${FB}/me/instagram_accounts?fields=id,username&access_token=${tok}`,
+      pick: (r) => (r.data || [])[0]?.id },
+  ];
+}
+
+/** For setup help: what each lookup answers (no tokens in the output). */
+export async function probeInstagram(env, kv, fetcher = fetch) {
+  const raw = await kv.get(tokenKey('instagram'));
+  if (!raw) return { connected: false };
+  const t = JSON.parse(raw);
+  const out = { connected: true, igUser: t.igUser || '', expires: t.expires, lookups: {} };
+  for (const attempt of instagramLookups(env, t.access)) {
+    try {
+      const res = await fetcher(attempt.url);
+      const body = await res.json().catch(() => ({}));
+      const scrub = JSON.stringify(body).replace(/"(access_token|app_id|user_id)":"[^"]*"/g, '"$1":"…"').slice(0, 800);
+      out.lookups[attempt.name] = { status: res.status, found: attempt.pick(body) || null, body: scrub };
+    } catch (e) { out.lookups[attempt.name] = { error: short(e) }; }
+  }
+  return out;
 }
 
 /** The sign-in comes back here (GET /oauth/<platform>). Returns where to send the browser. */
