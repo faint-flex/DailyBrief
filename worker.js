@@ -5,13 +5,17 @@
 //   GET  /api/brief     the phone reads the latest (or ?date=YYYY-MM-DD)
 //   POST /api/report    an evening app report (BabyLog numbers) is sent here
 //   GET  /api/report    the phone reads the latest (?app=babylog&date=YYYY-MM-DD)
+//   POST /api/stats     the nightly BabyLog Daily Report run sends its raw numbers here
+//   GET  /api/stats     the Stats tab: live website + social, nightly App Store, history
 //
 // Every /api call needs the key (Authorization: Bearer <key>), because a brief
 // is a summary of your inbox.
 import { normalizeBrief, briefStore } from './src/brief.js';
 import { normalizeReport, reportStore } from './src/report.js';
+import { distillNightly, statsStore, liveCached } from './src/stats.js';
 
 const MAX_BODY = 64 * 1024;
+const MAX_STATS_BODY = 256 * 1024;
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -39,9 +43,9 @@ function keyFrom(request) {
   return match ? match[1].trim() : '';
 }
 
-async function readJson(request) {
+async function readJson(request, max = MAX_BODY) {
   const raw = await request.text();
-  if (raw.length > MAX_BODY) throw new Error('That is too big.');
+  if (raw.length > max) throw new Error('That is too big.');
   return JSON.parse(raw);
 }
 
@@ -88,6 +92,30 @@ export async function handleApi(request, env, url) {
       if (error) return json({ error }, 400);
       await reports.put(report);
       return json({ ok: true, app: report.app, date: report.date });
+    }
+    return json({ error: 'Method not allowed.' }, 405);
+  }
+
+  if (url.pathname === '/api/stats') {
+    const stats = statsStore(env.BRIEFS);
+    if (request.method === 'GET') {
+      const [nightly, history, live] = await Promise.all([
+        stats.latest(), stats.history(),
+        liveCached(env, { fresh: url.searchParams.has('fresh') }).catch(() => null),
+      ]);
+      return json({ live, nightly, history, liveKeys: { website: !!env.STATS_CF_TOKEN, social: !!env.STATS_BUFFER_KEY } });
+    }
+    if (request.method === 'POST') {
+      let input;
+      try {
+        input = await readJson(request, MAX_STATS_BODY);
+      } catch {
+        return json({ error: 'Could not read those numbers as JSON (256 KB at most).' }, 400);
+      }
+      const { snapshot, error } = distillNightly(input);
+      if (error) return json({ error }, 400);
+      const history = await stats.put(snapshot);
+      return json({ ok: true, day: snapshot.day, days: { site: Object.keys(history.site).length, store: Object.keys(history.store).length, social: Object.keys(history.social).length } });
     }
     return json({ error: 'Method not allowed.' }, 405);
   }

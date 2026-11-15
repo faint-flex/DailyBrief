@@ -16,6 +16,10 @@
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
+<nav class="apptabs" aria-label="Pages">
+  <a href="/" aria-current="page">Brief</a>
+  <a href="/stats">BabyLog stats</a>
+</nav>
 <header class="topbar">
   <p id="today" class="today"></p>
   <h1 id="greeting">Good morning</h1>
@@ -43,23 +47,6 @@
       <button id="locate-button" type="button" title="Use my location" aria-label="Use my location">📍</button>
     </form>
     <div id="weather-body"><p class="muted">Loading the weather…</p></div>
-  </section>
-
-  <section id="report" class="dash" aria-labelledby="report-heading" hidden>
-    <div class="dash-head">
-      <div class="dash-brand">
-        <img src="/icons/babylog-192.png" alt="" width="34" height="34">
-        <div>
-          <h2 id="report-heading">BabyLog</h2>
-          <span class="dash-sub">Daily report</span>
-        </div>
-      </div>
-      <span id="report-live" class="live"><i></i><span id="report-when"></span></span>
-    </div>
-    <p id="report-headline" class="dash-headline"></p>
-    <div id="report-stats" class="kpis"></div>
-    <ul id="report-lines" class="dash-lines"></ul>
-    <p id="report-tip" class="dash-tip" hidden></p>
   </section>
 
   <section id="email" class="card" aria-labelledby="email-heading" hidden>

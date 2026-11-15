@@ -1,6 +1,6 @@
 // Offline shell. The last brief is kept in localStorage, so once the shell is
 // cached the app opens and shows it with no signal.
-const VERSION = 'v8';
+const VERSION = 'v9';
 const CACHE = `daily-brief-${VERSION}`;
 const SHELL = [
   '/',
@@ -8,6 +8,10 @@ const SHELL = [
   '/styles.css',
   '/js/app.js',
   '/js/weather.js',
+  '/stats',
+  '/stats.css',
+  '/js/stats.js',
+  '/icons/babylog-192.png',
   '/manifest.webmanifest',
   '/icons/icon-192.png',
   '/icons/icon-512.png',

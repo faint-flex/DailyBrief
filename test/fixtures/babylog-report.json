@@ -1,0 +1,46 @@
+{
+  "day": "2026-11-15",
+  "generatedAt": "2026-11-15T14:24:01.948Z",
+  "website": {
+    "connected": true,
+    "note": "Cloudflare dates are UTC days; counts include some bots.",
+    "days": [{ "date": "2026-11-15", "visitors": 335, "pageViews": 423, "requests": 2487 }],
+    "last24h": {
+      "pages": [
+        { "clientRequestPath": "/", "views": 387 }, { "clientRequestPath": "/privacy", "views": 18 },
+        { "clientRequestPath": "/support", "views": 15 }, { "clientRequestPath": "/app", "views": 6 },
+        { "clientRequestPath": "/cdn-cgi/rum", "views": 3 }, { "clientRequestPath": "/index.html", "views": 2 }
+      ],
+      "countries": [
+        { "clientCountryName": "US", "views": 201 }, { "clientCountryName": "DE", "views": 34 },
+        { "clientCountryName": "CH", "views": 28 }, { "clientCountryName": "PL", "views": 25 },
+        { "clientCountryName": "CA", "views": 23 }, { "clientCountryName": "UA", "views": 18 },
+        { "clientCountryName": "SG", "views": 18 }, { "clientCountryName": "NL", "views": 15 }
+      ]
+    }
+  },
+  "social": {
+    "connected": true,
+    "channels": ["tiktok @usebabylog", "instagram @usebabylog"],
+    "posts": [
+      { "service": "instagram", "status": "scheduled", "dueAt": "2026-11-21T04:00:00.000Z", "sentAt": null, "text": "No sign-up. No ads. No subscription. Just a calm log for fee", "link": null, "metrics": {} },
+      { "service": "tiktok", "status": "sent", "dueAt": "2026-11-15T12:53:13.958Z", "sentAt": "2026-11-15T12:53:15.352Z", "text": "Logging a feed at 3am with one hand 🌙 Tap start, switch sid", "link": null, "metrics": {} },
+      { "service": "instagram", "status": "sent", "dueAt": "2026-11-15T03:06:59.693Z", "sentAt": "2026-11-15T03:07:56.148Z", "text": "Logging a feed at 3am with one hand 🌙 Tap start, switch sid", "link": "https://www.instagram.com/reel/DfvxzsfhC8F/", "metrics": {} },
+      { "service": "instagram", "status": "sent", "dueAt": "2026-11-15T03:06:59.281Z", "sentAt": "2026-11-15T03:07:10.117Z", "text": "\"Wait… which side did I start on?\" 😴", "link": "https://www.instagram.com/p/DfvxwhalYql/", "metrics": {} }
+    ],
+    "week": {
+      "tiktok": { "postCount": 0, "reactions": 0, "comments": 0, "engagementRate": 0, "views": 0, "shares": 0, "reach": 0, "totalTimeWatched": 0, "averageTimeWatched": 0 },
+      "instagram": { "postCount": 0, "reactions": 0, "comments": 0, "engagementRate": 0, "views": 0, "shares": 0, "saves": 0, "follows": 0, "reach": 0, "totalTimeWatched": 0, "averageTimeWatched": 0 }
+    }
+  },
+  "appStore": {
+    "connected": true,
+    "note": "Apple posts each day's numbers the next morning (Pacific).",
+    "app": "BabyLog – Feeding Tracker",
+    "latestReviews": [],
+    "sales": [
+      { "date": "2026-11-14", "downloads": 2, "redownloads": 0, "updates": 0, "countries": { "US": 2 } },
+      { "date": "2026-11-13", "unavailable": "not published yet / no sales" }
+    ]
+  }
+}

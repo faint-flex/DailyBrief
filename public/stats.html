@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="BabyLog's numbers, live: website visitors, Instagram and TikTok, App Store downloads.">
+<meta name="theme-color" content="#0d1014">
+<title>BabyLog stats</title>
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icons/icon-180.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Brief">
+<link rel="stylesheet" href="/stats.css">
+</head>
+<body>
+<nav class="apptabs" aria-label="Pages">
+  <a href="/">Brief</a>
+  <a href="/stats" aria-current="page">BabyLog stats</a>
+</nav>
+
+<header class="topbar">
+  <div class="brand">
+    <img src="/icons/babylog-192.png" alt="" width="34" height="34">
+    <div>
+      <div class="brand-name">BabyLog</div>
+      <div class="brand-sub">Live stats</div>
+    </div>
+  </div>
+  <button id="refresh" class="status" type="button" aria-label="Refresh"><i></i><span id="status-text">Loading</span></button>
+</header>
+
+<div class="tabs" role="tablist" aria-label="Views">
+  <button role="tab" data-view="overview" class="active" aria-selected="true">Overview</button>
+  <button role="tab" data-view="website" aria-selected="false">Website</button>
+  <button role="tab" data-view="social" aria-selected="false">Social</button>
+  <button role="tab" data-view="store" aria-selected="false">App Store</button>
+</div>
+
+<main>
+  <section id="gate" class="card pad" hidden>
+    <h2>Unlock</h2>
+    <p class="muted">Paste the same key you use for your brief.</p>
+    <form id="gate-form" class="row">
+      <input id="gate-input" type="password" autocomplete="current-password" placeholder="Key" aria-label="Key" required>
+      <button class="btn" type="submit">Unlock</button>
+    </form>
+    <p id="gate-status" class="muted small" role="status"></p>
+  </section>
+
+  <div id="banner" class="banner" hidden></div>
+  <section id="view-overview" class="view active" role="tabpanel"></section>
+  <section id="view-website" class="view" role="tabpanel"></section>
+  <section id="view-social" class="view" role="tabpanel"></section>
+  <section id="view-store" class="view" role="tabpanel"></section>
+  <p id="foot" class="foot"></p>
+</main>
+
+<script type="module" src="/js/stats.js"></script>
+</body>
+</html>

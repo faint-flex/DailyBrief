@@ -83,17 +83,22 @@ npx wrangler dev   # run locally
 
 For local runs, put `BRIEF_KEY=…` in `.dev.vars`.
 
-## App reports (BabyLog's evening numbers)
+## BabyLog stats (the Stats tab, /stats)
 
-Claude's 8:39 PM BabyLog run sends a report to `POST /api/report` (same key). It is kept
-apart from the brief, shows as a dark dashboard card (at the top in the evening), and
-the last 30 days are kept. Shape:
+A dark dashboard of BabyLog's numbers, in the style of the Production View app: tiles with
+day-over-day changes and sparklines, trend charts, top pages, countries, posts and reviews.
 
-```json
-{ "app": "babylog", "date": "2026-11-15", "headline": "One line",
-  "stats": [{ "label": "Site visitors", "value": "335", "change": "+12%", "sub": "today",
-              "trend": [120, 200, 335], "tone": "teal" }],
-  "lines": [{ "label": "Website", "text": "…" }], "suggestion": "One thing to try" }
-```
+- **Nightly:** the BabyLog Daily Report run (8:39 PM PT) POSTs the raw JSON printed by
+  faint-flex/BabyLog `scripts/report.mjs` to `POST /api/stats` (same key, 256 KB max), optionally
+  with top-level `headline` and `suggestion` strings. The worker distills it into a dated history
+  in KV (`stats:babylog:latest`, `stats:babylog:history`, about 13 months). Website days and App
+  Store sales merge by date, so a later run corrects an earlier partial day; social totals are
+  saved per night so the app can show changes since the last report. Re-posting a day overwrites
+  it; posting older days backfills history.
+- **Live:** `GET /api/stats` also reads the website (Cloudflare analytics) and Instagram/TikTok
+  (Buffer) fresh, at most once a minute, when the worker has its own read-only secrets:
+  `STATS_CF_TOKEN` (Zone Analytics Read + Zone Read on usebabylog.com; optional `STATS_CF_ZONE`)
+  and `STATS_BUFFER_KEY`. Without them the tab shows the nightly numbers. App Store numbers are
+  nightly only, since Apple publishes them once a day. The page refreshes every minute while open.
 
-`tone` is one of pink, teal, blue, lavender, gold. Up to 6 stats and 8 lines.
+`/api/report` (an earlier pre-formatted report card) still accepts reports but nothing shows them.
