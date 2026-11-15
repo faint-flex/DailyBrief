@@ -103,9 +103,9 @@ day-over-day changes and sparklines, trend charts, top pages, countries, posts a
 
 - **Direct TikTok / Instagram:** Buffer can't see Reel views or TikToks finished by hand, so the
   Stats tab can also read each network directly (src/social-direct.js). Each needs its own developer
-  app, with secrets `TIKTOK_CLIENT_KEY`/`TIKTOK_CLIENT_SECRET` (Login Kit: user.info.basic,
-  user.info.stats, video.list; redirect `/oauth/tiktok`) and `IG_APP_ID`/`IG_APP_SECRET` (Instagram
-  API with Instagram Login; redirect `/oauth/instagram`). Then tap Connect on the Social view once.
+  app, with secrets `TIKTOK_CLIENT_KEY`/`TIKTOK_CLIENT_SECRET` (sandbox app, Login Kit: user.info.basic,
+  user.info.stats, video.list; redirect `/oauth/tiktok`) and `IG_APP_ID`/`IG_APP_SECRET`/`IG_CONFIG_ID` (Meta app, Facebook Login for Business configuration with instagram_basic + instagram_manage_insights; optional `IG_USER_ID`) (Instagram
+  API; redirect `/oauth/instagram`). Then tap Connect on the Social view once.
   Tokens live in KV (`social-token:*`) and are refreshed by the worker. A connected network's
   numbers replace Buffer's, live and in the nightly history, and add follower counts.
 

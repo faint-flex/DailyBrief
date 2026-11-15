@@ -4,9 +4,14 @@
 // Each platform needs its own developer app; the worker holds the app's id/secret:
 //   TikTok     TIKTOK_CLIENT_KEY, TIKTOK_CLIENT_SECRET (Login Kit: user.info.basic,
 //              user.info.stats, video.list; redirect /oauth/tiktok)
-//   Instagram  IG_APP_ID, IG_APP_SECRET (Instagram API with Instagram Login:
-//              instagram_business_basic, instagram_business_manage_insights; redirect /oauth/instagram)
+//   Instagram  IG_APP_ID, IG_APP_SECRET, IG_CONFIG_ID (Meta app, Instagram API with Facebook
+//              Login for Business: a login configuration with instagram_basic +
+//              instagram_manage_insights; redirect /oauth/instagram). Optional IG_USER_ID if the
+//              Instagram account can't be found from the token.
 // LyFe signs in once from the Stats tab ("Connect"); tokens are kept in KV and refreshed here.
+
+const GRAPH = 'v21.0';
+const FB = `https://graph.facebook.com/${GRAPH}`;
 
 export const PLATFORMS = {
   tiktok: {
@@ -16,10 +21,10 @@ export const PLATFORMS = {
       response_type: 'code', redirect_uri: redirect, state })}`,
   },
   instagram: {
-    ready: (env) => !!(env.IG_APP_ID && env.IG_APP_SECRET),
-    authorize: (env, redirect, state) => `https://www.instagram.com/oauth/authorize?${new URLSearchParams({
-      client_id: env.IG_APP_ID, redirect_uri: redirect, response_type: 'code', state,
-      scope: 'instagram_business_basic,instagram_business_manage_insights' })}`,
+    ready: (env) => !!(env.IG_APP_ID && env.IG_APP_SECRET && env.IG_CONFIG_ID),
+    authorize: (env, redirect, state) => `https://www.facebook.com/${GRAPH}/dialog/oauth?${new URLSearchParams({
+      client_id: env.IG_APP_ID, redirect_uri: redirect, response_type: 'code', state, config_id: env.IG_CONFIG_ID,
+      override_default_response_type: 'true' })}`,
   },
 };
 
@@ -57,14 +62,36 @@ async function exchange(env, platform, code, redirect, fetcher) {
     return { access: t.access_token, refresh: t.refresh_token, expires: now + (t.expires_in || 86400) * 1000,
       refreshExpires: now + (t.refresh_expires_in || 31536000) * 1000, scope: t.scope, at: now };
   }
-  const short_ = await readJsonRes(await fetcher('https://api.instagram.com/oauth/access_token', {
-    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ client_id: env.IG_APP_ID, client_secret: env.IG_APP_SECRET,
-      grant_type: 'authorization_code', redirect_uri: redirect, code }),
-  }), 'Instagram');
-  const long = await readJsonRes(await fetcher(`https://graph.instagram.com/access_token?${new URLSearchParams({
-    grant_type: 'ig_exchange_token', client_secret: env.IG_APP_SECRET, access_token: short_.access_token })}`), 'Instagram');
-  return { access: long.access_token, expires: now + (long.expires_in || 5184000) * 1000, at: now, user: String(short_.user_id || '') };
+  // Facebook Login for Business: a system-user token (never expires) or a user token (made long-lived).
+  const t = await readJsonRes(await fetcher(`${FB}/oauth/access_token?${new URLSearchParams({
+    client_id: env.IG_APP_ID, client_secret: env.IG_APP_SECRET, redirect_uri: redirect, code })}`), 'Instagram');
+  let token = { access: t.access_token, expires: t.expires_in ? now + t.expires_in * 1000 : null, at: now };
+  if (t.expires_in && t.expires_in < 30 * 86400) token = await longLived(env, token, fetcher, now);
+  token.igUser = await findInstagram(env, token.access, fetcher);
+  return token;
+}
+
+async function longLived(env, token, fetcher, now = Date.now()) {
+  const r = await readJsonRes(await fetcher(`${FB}/oauth/access_token?${new URLSearchParams({
+    grant_type: 'fb_exchange_token', client_id: env.IG_APP_ID, client_secret: env.IG_APP_SECRET, fb_exchange_token: token.access })}`), 'Instagram');
+  return { ...token, access: r.access_token, expires: r.expires_in ? now + r.expires_in * 1000 : null, at: now };
+}
+
+/** The Instagram account id: set by hand, or found through the Facebook Page it's linked to. */
+async function findInstagram(env, access, fetcher) {
+  if (env.IG_USER_ID) return String(env.IG_USER_ID);
+  const tries = [
+    `${FB}/me/accounts?fields=instagram_business_account{id,username}&access_token=${encodeURIComponent(access)}`,
+    `${FB}/me?fields=instagram_business_account{id,username}&access_token=${encodeURIComponent(access)}`,
+  ];
+  for (const url of tries) {
+    try {
+      const r = await readJsonRes(await fetcher(url), 'Instagram');
+      const found = (r.data || [r]).map((x) => x.instagram_business_account?.id).find(Boolean);
+      if (found) return String(found);
+    } catch { /* try the next way */ }
+  }
+  return '';
 }
 
 /** The sign-in comes back here (GET /oauth/<platform>). Returns where to send the browser. */
@@ -99,13 +126,16 @@ async function freshToken(env, kv, platform, fetcher, now = Date.now()) {
     t = { ...t, access: r.access_token, refresh: r.refresh_token || t.refresh, expires: now + (r.expires_in || 86400) * 1000, at: now };
     await kv.put(tokenKey(platform), JSON.stringify(t));
   }
-  // Instagram long-lived tokens last 60 days; renew weekly (allowed once a token is a day old).
-  if (platform === 'instagram' && now - t.at > 7 * 864e5) {
+  // Instagram via Facebook: system-user tokens never expire; a user token is renewed when it gets old.
+  if (platform === 'instagram' && t.expires && t.expires - now < 10 * 864e5 && now - t.at > 864e5) {
     try {
-      const r = await readJsonRes(await fetcher(`https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=${encodeURIComponent(t.access)}`), 'Instagram refresh');
-      t = { ...t, access: r.access_token, expires: now + (r.expires_in || 5184000) * 1000, at: now };
+      t = await longLived(env, t, fetcher, now);
       await kv.put(tokenKey(platform), JSON.stringify(t));
     } catch { /* still valid until it expires; try again next time */ }
+  }
+  if (platform === 'instagram' && !t.igUser) {
+    t.igUser = await findInstagram(env, t.access, fetcher);
+    if (t.igUser) await kv.put(tokenKey(platform), JSON.stringify(t));
   }
   return t;
 }
@@ -128,10 +158,11 @@ async function readTikTok(token, fetcher) {
 }
 
 async function readInstagram(token, fetcher) {
-  const g = (path, params = {}) => fetcher(`https://graph.instagram.com/v21.0/${path}?${new URLSearchParams({ ...params, access_token: token.access })}`)
+  if (!token.igUser) throw new Error('Signed in, but no Instagram account was found. Add its id as IG_USER_ID.');
+  const g = (path, params = {}) => fetcher(`${FB}/${path}?${new URLSearchParams({ ...params, access_token: token.access })}`)
     .then((r) => readJsonRes(r, 'Instagram'));
-  const me = await g('me', { fields: 'username,followers_count,media_count' });
-  const media = await g('me/media', { fields: 'id,caption,media_product_type,permalink,timestamp,like_count,comments_count', limit: '20' });
+  const me = await g(token.igUser, { fields: 'username,followers_count,media_count' });
+  const media = await g(`${token.igUser}/media`, { fields: 'id,caption,media_product_type,permalink,timestamp,like_count,comments_count', limit: '20' });
   const posts = await Promise.all((media.data || []).map(async (m) => {
     const metrics = { reactions: m.like_count || 0, comments: m.comments_count || 0 };
     for (const set of ['views,reach,shares,saved', 'reach,shares,saved']) {
