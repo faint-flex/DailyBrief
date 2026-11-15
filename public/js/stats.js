@@ -397,6 +397,10 @@ document.addEventListener('click', async (event) => {
     S.view = 'social';
     document.querySelector('.tabs button[data-view=social]')?.click();
     history.replaceState(null, '', location.pathname);
+    // Show it briefly; tap to close sooner.
+    const hide = () => { $('notice').hidden = true; };
+    $('notice').addEventListener('click', hide, { once: true });
+    setTimeout(hide, done ? 6000 : 15000);
   }
 }
 document.querySelector('.tabs').addEventListener('click', (event) => {
