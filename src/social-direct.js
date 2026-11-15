@@ -6,7 +6,8 @@
 //              user.info.stats, video.list; redirect /oauth/tiktok)
 //   Instagram  IG_APP_ID, IG_APP_SECRET, IG_CONFIG_ID (Meta app, Instagram API with Facebook
 //              Login for Business: a login configuration with instagram_basic +
-//              instagram_manage_insights; redirect /oauth/instagram). Optional IG_USER_ID if the
+//              instagram_manage_insights; redirect /oauth/instagram). Or IG_ACCESS_TOKEN: a token pasted from the Meta dashboard ("Generate access tokens"), which
+//              the worker renews weekly. Optional IG_USER_ID if the
 //              Instagram account can't be found from the token.
 // LyFe signs in once from the Stats tab ("Connect"); tokens are kept in KV and refreshed here.
 
@@ -21,7 +22,7 @@ export const PLATFORMS = {
       response_type: 'code', redirect_uri: redirect, state })}`,
   },
   instagram: {
-    ready: (env) => !!(env.IG_APP_ID && env.IG_APP_SECRET && env.IG_CONFIG_ID),
+    ready: (env) => !!(env.IG_ACCESS_TOKEN || (env.IG_APP_ID && env.IG_APP_SECRET && env.IG_CONFIG_ID)),
     authorize: (env, redirect, state) => `https://www.facebook.com/${GRAPH}/dialog/oauth?${new URLSearchParams({
       client_id: env.IG_APP_ID, redirect_uri: redirect, response_type: 'code', state, config_id: env.IG_CONFIG_ID,
       override_default_response_type: 'true' })}`,
@@ -193,7 +194,8 @@ async function readTikTok(token, fetcher) {
 
 async function readInstagram(token, fetcher) {
   if (!token.igUser) throw new Error('Signed in, but no Instagram account was found. Add its id as IG_USER_ID.');
-  const g = (path, params = {}) => fetcher(`${FB}/${path}?${new URLSearchParams({ ...params, access_token: token.access })}`)
+  const base = token.base === 'ig' ? `https://graph.instagram.com/${GRAPH}` : FB;
+  const g = (path, params = {}) => fetcher(`${base}/${path}?${new URLSearchParams({ ...params, access_token: token.access })}`)
     .then((r) => readJsonRes(r, 'Instagram'));
   const me = await g(token.igUser, { fields: 'username,followers_count,media_count' });
   const media = await g(`${token.igUser}/media`, { fields: 'id,caption,media_product_type,permalink,timestamp,like_count,comments_count', limit: '20' });
@@ -212,12 +214,45 @@ async function readInstagram(token, fetcher) {
 }
 
 /** { tiktok: {connected, account, posts} | {connected:false, ...}, instagram: ... } */
+async function sha(text) {
+  const d = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
+  return [...d.slice(0, 8)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * A token pasted from the Meta dashboard ("Generate access tokens") as IG_ACCESS_TOKEN.
+ * Instagram tokens (IG…) last 60 days, so the worker renews its own copy weekly in KV;
+ * pasting a new secret starts over from it.
+ */
+async function instagramTokenFromSecret(env, kv, fetcher, now = Date.now()) {
+  const key = tokenKey('instagram-pasted');
+  const seed = await sha(env.IG_ACCESS_TOKEN);
+  let t = null;
+  try { t = JSON.parse((await kv.get(key)) || 'null'); } catch { t = null; }
+  if (!t || t.seed !== seed) {
+    const ig = env.IG_ACCESS_TOKEN.startsWith('IG');
+    t = { access: env.IG_ACCESS_TOKEN, seed, at: now, base: ig ? 'ig' : 'fb', igUser: ig ? 'me' : '' };
+    if (!ig) t.igUser = await findInstagram(env, t.access, fetcher);
+    await kv.put(key, JSON.stringify(t));
+  }
+  if (t.base === 'ig' && now - t.at > 7 * 864e5) {
+    try {
+      const r = await readJsonRes(await fetcher(`https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=${encodeURIComponent(t.access)}`), 'Instagram refresh');
+      t = { ...t, access: r.access_token, at: now };
+      await kv.put(key, JSON.stringify(t));
+    } catch { /* still valid for now; try again next time */ }
+  }
+  return t;
+}
+
 export async function readDirect(env, kv, fetcher = fetch) {
   const out = {};
   await Promise.all(Object.keys(PLATFORMS).map(async (platform) => {
     if (!PLATFORMS[platform].ready(env)) { out[platform] = { connected: false, setup: false }; return; }
     try {
-      const token = await freshToken(env, kv, platform, fetcher);
+      const token = platform === 'instagram' && env.IG_ACCESS_TOKEN
+        ? await instagramTokenFromSecret(env, kv, fetcher)
+        : await freshToken(env, kv, platform, fetcher);
       if (!token) { out[platform] = { connected: false, setup: true }; return; }
       out[platform] = { connected: true, ...(await (platform === 'tiktok' ? readTikTok : readInstagram)(token, fetcher)) };
     } catch (e) {
