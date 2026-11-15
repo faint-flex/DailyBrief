@@ -257,7 +257,7 @@ function socialView(x) {
       ${cell('Shares', t.shares, b?.shares)}${service === 'instagram' ? cell('Saves', t.saves, b?.saves) : cell('Reach', t.reach, b?.reach)}
       ${t.followers != null ? cell('Followers', t.followers, b?.followers ?? undefined)
     : `<div><span>Follows 7d</span><strong>${w.follows == null ? '–' : fmt(w.follows)}</strong></div>`}</div>
-      <p class="note">${direct.includes(service) ? `Straight from ${label}` : `From Buffer${connectLine(service, label)}`}</p></div>`;
+      <p class="note">${direct.includes(service) ? `Straight from ${label} · <button class="linkbtn" data-connect="${service}">Reconnect</button>` : `From Buffer${connectLine(service, label)}`}</p></div>`;
   };
   const posts = x.soc.posts || [];
   const s = x.socialSeries;
