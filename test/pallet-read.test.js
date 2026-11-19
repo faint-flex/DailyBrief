@@ -43,3 +43,16 @@ test('/pallets/read refuses other sites and bad input', async () => {
   assert.equal((await worker.fetch(post({ image: 'http://x/y.png' }), env)).status, 400);
   assert.equal((await worker.fetch(post({ image: IMG }), {})).status, 501);
 });
+
+test('stack mode returns every sheet with a pro#', async () => {
+  const { parseStack } = await import('../src/pallet-read.js');
+  const env = { AI: { run: async (model, input) => {
+    assert.match(input.messages[0].content[0].text, /fanned out/);
+    return { response: '{"sheets":[{"pro":"006365941","name":"A-1 VAC","street":"4069 W Charleston","city":"Las Vegas"},{"pro":"??","name":"x"}]}' };
+  } } };
+  const res = await worker.fetch(post({ image: IMG, mode: 'stack' }), env);
+  const out = await res.json();
+  assert.equal(out.sheets.length, 1);
+  assert.equal(out.sheets[0].pro, '006365941');
+  assert.equal(parseStack('nothing'), null);
+});
