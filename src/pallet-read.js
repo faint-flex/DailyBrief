@@ -21,6 +21,13 @@ Answer with JSON only, no other text:
 {"name": "consignee company", "street": "street address and suite", "city": "city, state zip", "pro": "pro number"}
 Use "" for anything you cannot read.`;
 
+export const STACK_PROMPT = `This photo shows a stack of freight delivery receipts fanned out, each sheet overlapping the next so the top strip of every sheet shows.
+For EVERY sheet in the photo, read the PRO LABEL NUMBER (top right, usually 9 digits like 006365941) and the CONSIGNEE (the company the freight goes to: left box under "CUSTOMER NUMBER", not the SHIPPER box on the right, not the DDP terminal address 2711 E Craig Rd).
+List the sheets in order from the TOP of the photo to the BOTTOM of the photo. Include sheets from other carriers too.
+Answer with JSON only, no other text:
+{"sheets": [{"pro": "006365941", "name": "consignee company", "street": "street", "city": "city, state zip"}]}
+Use "" for anything you cannot read. Do not invent sheets.`;
+
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -41,12 +48,29 @@ export function answerText(out) {
 
 const clean = (v) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
 
+/** Every sheet listed in a stack answer, with a usable pro#. */
+export function parseStack(text) {
+  const m = String(text).match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  let o;
+  try { o = JSON.parse(m[0]); } catch { return null; }
+  const list = Array.isArray(o) ? o : o.sheets;
+  if (!Array.isArray(list)) return null;
+  const sheets = list.slice(0, 60).map((x) => ({ name: clean(x?.name), street: clean(x?.street), city: clean(x?.city), pro: clean(x?.pro).replace(/[^0-9A-Za-z]/g, '') }))
+    .filter((x) => x.pro.length >= 6);
+  return sheets.length ? sheets : null;
+}
+
 /** Finds the JSON object in a model's answer and keeps only the fields we use. */
 export function parseAddress(text) {
   const m = String(text).match(/\{[\s\S]*\}/);
   if (!m) return null;
   let o;
   try { o = JSON.parse(m[0]); } catch { return null; }
+  return pickAddress(o);
+}
+
+function pickAddress(o) {
   const r = { name: clean(o.name), street: clean(o.street), city: clean(o.city), pro: clean(o.pro).replace(/[^0-9A-Za-z]/g, '') };
   return r.name || r.street ? r : null;
 }
@@ -69,10 +93,13 @@ export async function handlePalletRead(request, env) {
   if (limited(request.headers.get('CF-Connecting-IP') || 'local')) return json({ error: 'Too many photos at once. Wait a minute.' }, 429);
 
   let image;
+  let stack = false;
   try {
     const raw = await request.text();
     if (raw.length > MAX_IMAGE + 200) return json({ error: 'That photo is too big.' }, 413);
-    image = JSON.parse(raw).image;
+    const body = JSON.parse(raw);
+    image = body.image;
+    stack = body.mode === 'stack';
   } catch {
     return json({ error: 'Send JSON with an image.' }, 400);
   }
@@ -85,15 +112,21 @@ export async function handlePalletRead(request, env) {
         messages: [{
           role: 'user',
           content: [
-            { type: 'text', text: PROMPT },
+            { type: 'text', text: stack ? STACK_PROMPT : PROMPT },
             { type: 'image_url', image_url: { url: image } },
           ],
         }],
-        max_tokens: 200,
+        max_tokens: stack ? 2000 : 200,
         temperature: 0,
       });
-      const found = parseAddress(answerText(out));
-      if (found) return json({ ...found, model });
+      const text = answerText(out);
+      if (stack) {
+        const sheets = parseStack(text);
+        if (sheets) return json({ sheets, model });
+      } else {
+        const found = parseAddress(text);
+        if (found) return json({ ...found, model });
+      }
       tried.push(`${model}: no address in answer`);
     } catch (err) {
       tried.push(`${model}: ${String(err?.message || err).slice(0, 160)}`);
