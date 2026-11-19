@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101418">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Pallets">
+  <link rel="manifest" href="/pallets/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/pallets/icon.svg">
+  <link rel="icon" href="/pallets/icon.svg" type="image/svg+xml">
+  <title>Pallet Router</title>
+  <link rel="stylesheet" href="/pallets/pallets.css">
+</head>
+<body>
+  <header class="top">
+    <div class="title">Pallet Router</div>
+    <div class="status" id="status"></div>
+  </header>
+
+  <main>
+    <!-- Stacks: one per driver, scanned top sheet first -->
+    <section id="tab-stacks" class="tab">
+      <div id="stacks-list"></div>
+      <button class="big primary" id="add-driver">+ Add a driver's stack</button>
+      <div class="foot">
+        <button class="small ghost" id="new-day">Start a new day</button>
+      </div>
+    </section>
+
+    <!-- Scanning one driver's stack -->
+    <section id="tab-stack-scan" class="tab" hidden>
+      <div class="stack-head" id="stack-head"></div>
+      <p class="hint" id="stack-hint"></p>
+      <div id="stack-msg"></div>
+      <ol class="stops" id="stack-stops"></ol>
+      <div class="row">
+        <button class="big ghost" id="stack-undo">Undo last</button>
+        <button class="big primary" id="stack-done">Done</button>
+      </div>
+      <button class="small ghost danger" id="stack-delete">Delete this stack</button>
+    </section>
+
+    <!-- Pallets: scan a sticker, see where it goes -->
+    <section id="tab-pallets" class="tab" hidden>
+      <div id="result" class="result idle">
+        <div class="r-big">Scan a pallet</div>
+        <div class="r-mid">Pull the trigger on the pro# sticker</div>
+      </div>
+      <div class="summary" id="pallet-summary"></div>
+      <ol class="recent" id="recent"></ol>
+    </section>
+
+    <!-- Check: stops without a pallet, pallets without a stop -->
+    <section id="tab-check" class="tab" hidden>
+      <div id="check"></div>
+    </section>
+  </main>
+
+  <form class="manual" id="manual" autocomplete="off">
+    <input id="manual-input" inputmode="numeric" placeholder="Type a pro#" aria-label="Type a pro number">
+    <button type="submit" class="go">Go</button>
+    <button type="button" class="cam" id="cam-btn" aria-label="Scan with camera">📷</button>
+  </form>
+
+  <nav class="tabs">
+    <button data-tab="stacks" class="on">Stacks</button>
+    <button data-tab="pallets">Pallets</button>
+    <button data-tab="check">Check <span id="check-badge" class="badge" hidden></span></button>
+  </nav>
+
+  <!-- Add driver -->
+  <div class="sheet" id="driver-sheet" hidden>
+    <div class="sheet-card">
+      <h2>Whose stack?</h2>
+      <div class="chips" id="name-chips"></div>
+      <input id="driver-name" placeholder="Driver name" autocomplete="off" autocapitalize="words">
+      <div class="row">
+        <button class="big ghost" id="driver-cancel">Cancel</button>
+        <button class="big primary" id="driver-start">Scan stack</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Camera -->
+  <div class="camera" id="camera" hidden>
+    <div id="reader"></div>
+    <div class="cam-msg" id="cam-msg">Hold the barcode flat, inside the box</div>
+    <button class="big ghost" id="cam-close">Close camera</button>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="/pallets/html5-qrcode.min.js"></script>
+  <script type="module" src="/pallets/app.js"></script>
+</body>
+</html>

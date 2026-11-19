@@ -1,0 +1,414 @@
+// Pallet Router: scan each driver's paper stack (top sheet = stop 1), then scan
+// pallet stickers to see which driver and stop they belong to.
+// Everything is kept on this phone (localStorage). Works with a Bluetooth
+// scanner (it types like a keyboard and presses Enter) or the phone camera.
+import { norm, findStop, findExact, loadInfo } from './match.js';
+
+const KEY = 'pallet-router-v1';
+const COLORS = [
+  ['#1e5bd8', 'Blue'], ['#1b8a3a', 'Green'], ['#e07000', 'Orange'], ['#7b3fc4', 'Purple'],
+  ['#00838f', 'Teal'], ['#c2185b', 'Pink'], ['#6d4c41', 'Brown'], ['#283593', 'Navy'],
+  ['#827717', 'Olive'], ['#455a64', 'Gray'], ['#ad1457', 'Magenta'], ['#00695c', 'Pine'],
+];
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const timeOf = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+// ---------- state ----------
+function blank() {
+  return { startedAt: Date.now(), drivers: [], pallets: [], recentNames: load()?.recentNames || [] };
+}
+function load() {
+  try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch { return null; }
+}
+let state = load() || blank();
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { toast('Could not save on this phone'); }
+}
+
+let tab = 'stacks';
+let scanningId = null; // driver whose stack is being scanned
+let pendingMove = null; // { code, from } when a sheet is already on another stack
+let lastResult = null;
+
+const driverById = (id) => state.drivers.find((d) => d.id === id);
+const colorOf = (d) => COLORS[d.colorIndex % COLORS.length];
+
+function nextColorIndex() {
+  const used = new Set(state.drivers.map((d) => d.colorIndex % COLORS.length));
+  for (let i = 0; i < COLORS.length; i += 1) if (!used.has(i)) return i;
+  return state.drivers.length;
+}
+
+// ---------- feedback ----------
+let audio;
+function tone(freq, ms, when = 0, type = 'square') {
+  try {
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    if (audio.state === 'suspended') audio.resume();
+    const o = audio.createOscillator();
+    const g = audio.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.value = 0.15;
+    o.connect(g); g.connect(audio.destination);
+    const t = audio.currentTime + when;
+    o.start(t); o.stop(t + ms / 1000);
+  } catch { /* no sound available */ }
+}
+const buzz = (p) => { try { navigator.vibrate && navigator.vibrate(p); } catch { /* ignore */ } };
+const good = () => { tone(1320, 90); buzz(40); };
+const okay = () => { tone(880, 90); tone(880, 90, 0.14); buzz([40, 60, 40]); };
+const bad = () => { tone(220, 260, 0, 'sawtooth'); tone(180, 300, 0.32, 'sawtooth'); buzz([200, 100, 200]); };
+document.addEventListener('pointerdown', () => { if (audio?.state === 'suspended') audio.resume(); }, { passive: true });
+
+let toastTimer;
+function toast(text) {
+  const el = $('toast');
+  el.textContent = text; el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
+}
+
+// Keep the screen awake while the app is open (where the phone allows it).
+let wakeLock;
+async function keepAwake() {
+  try { if ('wakeLock' in navigator && document.visibilityState === 'visible') wakeLock = await navigator.wakeLock.request('screen'); } catch { /* not allowed */ }
+}
+document.addEventListener('visibilitychange', keepAwake);
+
+// ---------- scanning input ----------
+// A Bluetooth scanner types the code fast and ends with Enter (or Tab).
+let buffer = '';
+let lastKey = 0;
+document.addEventListener('keydown', (e) => {
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return; // the field handles itself
+  const now = Date.now();
+  if (now - lastKey > 600) buffer = '';
+  lastKey = now;
+  if (e.key === 'Enter' || e.key === 'Tab') {
+    if (buffer.length >= 3) { e.preventDefault(); handleScan(buffer); }
+    buffer = '';
+    return;
+  }
+  if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) buffer += e.key;
+});
+
+$('manual').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const v = $('manual-input').value.trim();
+  $('manual-input').value = '';
+  if (v) handleScan(v);
+});
+
+function handleScan(raw) {
+  const code = String(raw).trim();
+  if (norm(code).length < 3) return;
+  if (scanningId) stackScan(code);
+  else palletScan(code);
+}
+
+// ---------- stacks ----------
+function stackScan(code) {
+  const driver = driverById(scanningId);
+  if (!driver) return;
+  const hit = findExact(state.drivers, code);
+  pendingMove = null;
+  if (hit && hit.driver.id === driver.id) {
+    okay();
+    showStackMsg('warn', `Already scanned as stop ${hit.index + 1}.`);
+    return;
+  }
+  if (hit) {
+    bad();
+    pendingMove = { code, fromId: hit.driver.id };
+    showStackMsg('bad', `${esc(code)} is already on <b>${esc(hit.driver.name)}</b>'s stack (stop ${hit.index + 1}).`,
+      '<div class="row"><button class="small ghost" id="mv-no">Leave it</button><button class="small primary" id="mv-yes">Move it here</button></div>');
+    $('mv-no').onclick = () => { pendingMove = null; showStackMsg(); };
+    $('mv-yes').onclick = () => {
+      const from = driverById(pendingMove.fromId);
+      const i = findExact([from], pendingMove.code)?.index;
+      if (i !== undefined) from.stops.splice(i, 1);
+      driver.stops.push({ pro: pendingMove.code, at: Date.now() });
+      pendingMove = null; save(); good(); showStackMsg(); render();
+    };
+    return;
+  }
+  driver.stops.push({ pro: code, at: Date.now() });
+  save(); good(); showStackMsg(); render();
+}
+
+function showStackMsg(kind, html = '', extra = '') {
+  $('stack-msg').innerHTML = kind ? `<div class="msg ${kind}">${html}${extra}</div>` : '';
+}
+
+function openStack(id) {
+  scanningId = id; pendingMove = null; showStackMsg();
+  stopCamera();
+  render();
+  keepAwake();
+}
+
+$('add-driver').onclick = () => {
+  const taken = new Set(state.drivers.map((d) => d.name.toLowerCase()));
+  const names = state.recentNames.filter((n) => !taken.has(n.toLowerCase())).slice(0, 16);
+  $('name-chips').innerHTML = names.map((n) => `<button class="chip" data-name="${esc(n)}">${esc(n)}</button>`).join('');
+  $('name-chips').querySelectorAll('.chip').forEach((b) => { b.onclick = () => startDriver(b.dataset.name); });
+  $('driver-name').value = '';
+  $('driver-sheet').hidden = false;
+  if (!names.length) setTimeout(() => $('driver-name').focus(), 50);
+};
+$('driver-cancel').onclick = () => { $('driver-sheet').hidden = true; };
+$('driver-start').onclick = () => startDriver($('driver-name').value);
+$('driver-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); startDriver($('driver-name').value); } });
+
+function startDriver(rawName) {
+  const name = String(rawName || '').trim().replace(/\s+/g, ' ');
+  if (!name) { $('driver-name').focus(); return; }
+  $('driver-sheet').hidden = true;
+  $('driver-name').blur();
+  let driver = state.drivers.find((d) => d.name.toLowerCase() === name.toLowerCase());
+  if (!driver) {
+    driver = { id: `d${Date.now().toString(36)}`, name, colorIndex: nextColorIndex(), stops: [] };
+    state.drivers.push(driver);
+  }
+  state.recentNames = [name, ...state.recentNames.filter((n) => n.toLowerCase() !== name.toLowerCase())].slice(0, 30);
+  save();
+  openStack(driver.id);
+}
+
+$('stack-undo').onclick = () => {
+  const d = driverById(scanningId);
+  if (d && d.stops.length) { const s = d.stops.pop(); save(); toast(`Removed ${s.pro}`); showStackMsg(); render(); }
+};
+$('stack-done').onclick = () => { scanningId = null; pendingMove = null; stopCamera(); render(); };
+let deleteArmed = 0;
+$('stack-delete').onclick = () => {
+  if (Date.now() - deleteArmed > 3000) { deleteArmed = Date.now(); $('stack-delete').textContent = 'Tap again to delete'; return; }
+  state.drivers = state.drivers.filter((d) => d.id !== scanningId);
+  scanningId = null; save(); render();
+};
+
+let newDayArmed = 0;
+$('new-day').onclick = () => {
+  if (Date.now() - newDayArmed > 3000) { newDayArmed = Date.now(); $('new-day').textContent = 'Tap again to clear all stacks and pallets'; return; }
+  state = blank(); save(); lastResult = null; render(); toast('New day started');
+};
+
+// ---------- pallets ----------
+function palletScan(code) {
+  if (tab !== 'pallets') setTab('pallets');
+  const hit = findStop(state.drivers, code);
+  const entry = { code, at: Date.now(), driverId: hit?.driver.id || null, pro: hit ? hit.driver.stops[hit.index].pro : null };
+  state.pallets.push(entry);
+  save();
+  if (hit) {
+    const key = norm(entry.pro);
+    const count = state.pallets.filter((p) => p.pro && norm(p.pro) === key).length;
+    lastResult = { ok: true, driverId: hit.driver.id, pro: entry.pro, code, count };
+    good();
+  } else {
+    lastResult = { ok: false, code };
+    bad();
+  }
+  render();
+}
+
+// ---------- camera ----------
+let cam = null;
+let camLast = { code: '', at: 0 };
+$('cam-btn').onclick = startCamera;
+$('cam-close').onclick = stopCamera;
+
+async function startCamera() {
+  if (!window.Html5Qrcode) { toast('Camera scanner did not load'); return; }
+  $('camera').hidden = false;
+  $('cam-msg').textContent = 'Hold the barcode flat, inside the box';
+  try {
+    const F = window.Html5QrcodeSupportedFormats;
+    cam = new window.Html5Qrcode('reader', {
+      formatsToSupport: [F.CODE_128, F.CODE_39, F.ITF, F.CODABAR, F.CODE_93, F.EAN_13, F.UPC_A, F.QR_CODE],
+      useBarCodeDetectorIfSupported: true,
+      verbose: false,
+    });
+    await cam.start(
+      { facingMode: 'environment' },
+      { fps: 12, qrbox: (w, h) => ({ width: Math.floor(w * 0.9), height: Math.floor(Math.min(h, w) * 0.4) }) },
+      (text) => {
+        const now = Date.now();
+        if (text === camLast.code && now - camLast.at < 2500) return;
+        camLast = { code: text, at: now };
+        $('cam-msg').textContent = `Read ${text}`;
+        handleScan(text);
+        if (!scanningId) stopCamera(); // show the big result right away
+      },
+      () => {},
+    );
+    keepAwake();
+  } catch (err) {
+    $('cam-msg').textContent = 'Camera blocked. Allow camera access for this site, then try again.';
+    cam = null;
+  }
+}
+async function stopCamera() {
+  $('camera').hidden = true;
+  if (cam) { try { await cam.stop(); cam.clear(); } catch { /* already stopped */ } cam = null; }
+}
+
+// ---------- tabs ----------
+document.querySelectorAll('.tabs button').forEach((b) => { b.onclick = () => setTab(b.dataset.tab); });
+function setTab(name) {
+  tab = name;
+  if (name !== 'stacks') scanningId = null;
+  render();
+}
+
+// ---------- render ----------
+function stopsStatus() {
+  const scanned = new Set(state.pallets.filter((p) => p.pro).map((p) => norm(p.pro)));
+  let total = 0; let have = 0;
+  for (const d of state.drivers) for (const s of d.stops) { total += 1; if (scanned.has(norm(s.pro))) have += 1; }
+  const unknown = state.pallets.filter((p) => !p.driverId).length;
+  return { scanned, total, have, unknown };
+}
+
+function render() {
+  rematch();
+  document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+  $('tab-stacks').hidden = !(tab === 'stacks' && !scanningId);
+  $('tab-stack-scan').hidden = !(tab === 'stacks' && scanningId);
+  $('tab-pallets').hidden = tab !== 'pallets';
+  $('tab-check').hidden = tab !== 'check';
+
+  const st = stopsStatus();
+  $('status').textContent = state.drivers.length
+    ? `${state.drivers.length} drivers · ${st.total} stops` : `Started ${timeOf(state.startedAt)}`;
+  const issues = (st.total - st.have) + st.unknown;
+  $('check-badge').hidden = !(state.pallets.length && issues);
+  $('check-badge').textContent = issues;
+  $('manual-input').placeholder = scanningId ? 'Type a sheet pro#' : 'Type a pallet pro#';
+
+  renderStacks(st);
+  if (scanningId) renderStackScan();
+  renderPallets(st);
+  renderCheck(st);
+}
+
+function renderStacks(st) {
+  $('new-day').textContent = 'Start a new day';
+  if (!state.drivers.length) {
+    $('stacks-list').innerHTML = '<div class="empty">No stacks yet.<br>Once the stacks are sorted, add each driver and scan their sheets from the top down.</div>';
+    return;
+  }
+  $('stacks-list').innerHTML = state.drivers.map((d) => {
+    const [c, cname] = colorOf(d);
+    const have = d.stops.filter((s) => st.scanned.has(norm(s.pro))).length;
+    const pal = state.pallets.length ? ` · ${have}/${d.stops.length} have a pallet` : '';
+    return `<button class="driver" data-id="${d.id}"><span class="stripe" style="background:${c}"></span>
+      <span class="info"><span class="name">${esc(d.name)}</span><br><span class="meta">${cname} · ${d.stops.length} stop${d.stops.length === 1 ? '' : 's'}${pal}</span></span>
+      <span class="go">›</span></button>`;
+  }).join('');
+  $('stacks-list').querySelectorAll('.driver').forEach((b) => { b.onclick = () => openStack(b.dataset.id); });
+}
+
+function renderStackScan() {
+  const d = driverById(scanningId);
+  if (!d) { scanningId = null; return; }
+  const [c] = colorOf(d);
+  $('stack-head').style.background = c;
+  $('stack-head').innerHTML = `${esc(d.name)}<small>${d.stops.length} stop${d.stops.length === 1 ? '' : 's'} scanned</small>`;
+  $('stack-hint').textContent = d.stops.length
+    ? 'Keep going down the stack. Next sheet is stop ' + (d.stops.length + 1) + '.'
+    : 'Scan the TOP sheet first. That is stop 1.';
+  $('stack-delete').textContent = 'Delete this stack';
+  $('stack-stops').innerHTML = d.stops.map((s, i) => `<li><span class="num">${i + 1}</span><span class="pro">${esc(s.pro)}</span><button class="x" data-i="${i}" aria-label="Remove">✕</button></li>`).reverse().join('');
+  $('stack-stops').querySelectorAll('.x').forEach((b) => {
+    b.onclick = () => { const s = d.stops.splice(Number(b.dataset.i), 1)[0]; save(); toast(`Removed ${s.pro}`); render(); };
+  });
+}
+
+function renderPallets(st) {
+  const el = $('result');
+  const r = lastResult;
+  if (!r) {
+    el.className = 'result idle';
+    el.style.background = '';
+    el.innerHTML = state.drivers.length
+      ? '<div class="r-big">Scan a pallet</div><div class="r-mid">Pull the trigger on the pro# sticker</div>'
+      : '<div class="r-big">No stacks yet</div><div class="r-mid">Scan the drivers\' paper stacks first (Stacks tab)</div>';
+  } else if (r.ok && driverById(r.driverId)) {
+    const d = driverById(r.driverId);
+    const [c, cname] = colorOf(d);
+    const index = Math.max(0, d.stops.findIndex((s) => norm(s.pro) === norm(r.pro)));
+    const info = loadInfo(index, d.stops.length);
+    el.className = 'result r-pop';
+    el.style.background = c;
+    el.innerHTML = `<div class="r-color">${cname}</div><div class="r-name">${esc(d.name)}</div>
+      <div class="r-big">Stop ${info.stop} of ${info.total}</div>
+      <div class="r-mid">${info.where}</div>
+      <div class="r-small">${esc(r.code)}${r.count > 1 ? ` · pallet #${r.count} for this pro` : ''}</div>`;
+  } else {
+    el.className = 'result bad r-pop';
+    el.style.background = '';
+    el.innerHTML = `<div class="r-big">✕ NOT IN ANY STACK</div><div class="r-mid">${esc(r.code)}</div><div class="r-small">Set it aside and check the paperwork</div>`;
+  }
+  // restart the pop animation
+  void el.offsetWidth;
+
+  $('pallet-summary').textContent = st.total
+    ? `${st.have} of ${st.total} stops have a pallet${st.unknown ? ` · ${st.unknown} not in any stack` : ''}` : '';
+  const recent = state.pallets.slice(-8).reverse();
+  $('recent').innerHTML = recent.map((p) => {
+    const d = p.driverId && driverById(p.driverId);
+    const i = d ? d.stops.findIndex((s) => norm(s.pro) === norm(p.pro)) : -1;
+    const label = d ? `${esc(d.name)}${i >= 0 ? ` · stop ${i + 1}` : ''}` : '<span class="miss">Not in any stack</span>';
+    return `<li><span class="dot" style="background:${d ? colorOf(d)[0] : '#d32f2f'}"></span><span class="pro">${esc(p.code)}</span><span>${label}</span></li>`;
+  }).join('');
+}
+
+function renderCheck(st) {
+  const out = [];
+  if (!state.drivers.length) {
+    $('check').innerHTML = '<div class="empty">Nothing to check yet.</div>';
+    return;
+  }
+  if (st.total && st.have === st.total && !st.unknown) out.push('<div class="all-good">✓ Every stop has a pallet</div>');
+
+  const unknown = state.pallets.filter((p) => !p.driverId);
+  if (unknown.length) {
+    out.push(`<div class="check-group"><h3 style="background:#8e1414"><span>Pallets not in any stack</span><span>${unknown.length}</span></h3><ul>${
+      unknown.map((p) => `<li><span class="pro">${esc(p.code)}</span><span>${timeOf(p.at)} <button class="x" data-del="${p.at}" aria-label="Clear">✕</button></span></li>`).join('')}</ul></div>`);
+  }
+  for (const d of state.drivers) {
+    const [c] = colorOf(d);
+    const counts = new Map();
+    for (const p of state.pallets) if (p.pro) counts.set(norm(p.pro), (counts.get(norm(p.pro)) || 0) + 1);
+    const missing = d.stops.filter((s) => !counts.get(norm(s.pro))).length;
+    out.push(`<div class="check-group"><h3 style="background:${c}"><span>${esc(d.name)}</span><span>${missing ? `${missing} missing` : '✓ all here'}</span></h3><ul>${
+      d.stops.map((s, i) => {
+        const n = counts.get(norm(s.pro)) || 0;
+        return `<li><span>${i + 1}. <span class="pro">${esc(s.pro)}</span></span>${n ? `<span class="ok">✓ ${n > 1 ? `${n} pallets` : 'pallet'}</span>` : '<span class="miss">no pallet yet</span>'}</li>`;
+      }).join('') || '<li>No sheets scanned</li>'}</ul></div>`);
+  }
+  $('check').innerHTML = out.join('');
+  $('check').querySelectorAll('[data-del]').forEach((b) => {
+    b.onclick = () => { state.pallets = state.pallets.filter((p) => String(p.at) !== b.dataset.del || p.driverId); save(); render(); };
+  });
+}
+
+// When a stack changes, an earlier "not in any stack" pallet may now match: re-check them.
+function rematch() {
+  let changed = false;
+  for (const p of state.pallets) {
+    const hit = findStop(state.drivers, p.code);
+    const id = hit?.driver.id || null;
+    const pro = hit ? hit.driver.stops[hit.index].pro : null;
+    if (id !== p.driverId || pro !== p.pro) { p.driverId = id; p.pro = pro; changed = true; }
+  }
+  if (changed) save();
+}
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/pallets/sw.js', { scope: '/pallets/' }).catch(() => {});
+keepAwake();
+render();
