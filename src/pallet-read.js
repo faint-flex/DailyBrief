@@ -22,11 +22,15 @@ Answer with JSON only, no other text:
 Use "" for anything you cannot read.`;
 
 export const STACK_PROMPT = `This photo shows a stack of freight delivery receipts fanned out, each sheet overlapping the next so the top strip of every sheet shows.
-For EVERY sheet in the photo, read the PRO LABEL NUMBER (top right, usually 9 digits like 006365941) and the CONSIGNEE (the company the freight goes to: left box under "CUSTOMER NUMBER", not the SHIPPER box on the right, not the DDP terminal address 2711 E Craig Rd).
-List the sheets in order from the TOP of the photo to the BOTTOM of the photo. Include sheets from other carriers too.
-Answer with JSON only, no other text:
-{"sheets": [{"pro": "006365941", "name": "consignee company", "street": "street", "city": "city, state zip"}]}
-Use "" for anything you cannot read. Do not invent sheets.`;
+Each DDP sheet strip has two company boxes side by side:
+- LEFT box = CONSIGNEE (who receives the freight). It is almost always in LAS VEGAS or NORTH LAS VEGAS, NV.
+- RIGHT box = SHIPPER (who sent it). It is usually in California, Arizona or another state. IGNORE the shipper.
+Never use the terminal address in the header (2711 E Craig Rd).
+For EVERY sheet, read the PRO LABEL NUMBER (the 9 digits under the barcode at the top right, like 006365941) and the LEFT consignee company and street.
+List each sheet once, from the TOP of the photo to the BOTTOM. Do not repeat sheets and do not invent sheets.
+Answer with JSON only:
+{"sheets": [{"pro": "006365941", "name": "consignee company", "street": "street", "city": "city, NV zip"}]}
+Use "" for anything you cannot read.`;
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -58,6 +62,14 @@ export function parseStack(text) {
   if (!Array.isArray(list)) return null;
   const sheets = list.slice(0, 60).map((x) => ({ name: clean(x?.name), street: clean(x?.street), city: clean(x?.city), pro: clean(x?.pro).replace(/[^0-9A-Za-z]/g, '') }))
     .filter((x) => x.pro.length >= 6);
+  // Some models list the sheets twice (second time without names): keep the first good copy of each pro.
+  const seen = new Map();
+  for (const x of sheets) {
+    const prev = seen.get(x.pro);
+    if (!prev || (!prev.name && x.name)) seen.set(x.pro, x);
+  }
+  sheets.length = 0;
+  sheets.push(...seen.values());
   return sheets.length ? sheets : null;
 }
 
