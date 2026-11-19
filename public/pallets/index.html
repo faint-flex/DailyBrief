@@ -39,6 +39,7 @@
         <button class="big ghost" id="stack-undo">Undo last</button>
         <button class="big primary" id="stack-done">Done</button>
       </div>
+      <button class="big photo" id="stack-photo">📷 Photo of the whole stack · fill in addresses</button>
       <button class="small ghost danger" id="stack-delete">Delete this stack</button>
     </section>
 
@@ -92,6 +93,7 @@
 
   <!-- Address photo: opens the phone camera -->
   <input type="file" id="photo-input" accept="image/*" capture="environment" hidden>
+  <input type="file" id="stack-input" accept="image/*" capture="environment" hidden>
   <div class="viewer" id="viewer" hidden><img id="viewer-img" alt="Address photo"><div class="cam-msg">Tap to close</div></div>
 
   <div class="toast" id="toast" hidden></div>

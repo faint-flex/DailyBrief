@@ -2,7 +2,7 @@
 // pallet stickers to see which driver and stop they belong to.
 // Everything is kept on this phone (localStorage). Works with a Bluetooth
 // scanner (it types like a keyboard and presses Enter) or the phone camera.
-import { norm, findStop, findExact, loadInfo } from './match.js';
+import { norm, findStop, findExact, loadInfo, pairSheets } from './match.js';
 import { putPhoto, photoUrl, photoBlob, deletePhoto, clearPhotos, shrink } from './photos.js';
 
 const KEY = 'pallet-router-v1';
@@ -204,12 +204,58 @@ async function readAddress(pro, blob) {
   stopsFor(pro).forEach((s) => { s.addr = addr; });
   save(); render();
 }
+// One photo of the whole fanned-out stack fills in addresses for the stops
+// already scanned by barcode (the barcodes stay the source of truth for order).
+$('stack-photo').onclick = () => {
+  const d = driverById(scanningId);
+  if (!d || !d.stops.length) { toast('Scan the sheets first, then take the stack photo'); return; }
+  $('stack-input').value = '';
+  $('stack-input').click();
+};
+$('stack-input').addEventListener('change', async () => {
+  const file = $('stack-input').files[0];
+  const d = driverById(scanningId);
+  if (!file || !d) return;
+  const btn = $('stack-photo');
+  btn.disabled = true;
+  btn.textContent = 'Reading the stack… (up to a minute)';
+  try {
+    const blob = await shrink(file, 1600);
+    const image = await new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result);
+      fr.onerror = reject;
+      fr.readAsDataURL(blob);
+    });
+    const res = await fetch('/pallets/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image, mode: 'stack' }) });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok || !Array.isArray(out.sheets)) throw new Error(out.error || 'no sheets');
+    let filled = 0;
+    for (const { index, sheet } of pairSheets(d.stops, out.sheets)) {
+      const stop = d.stops[index];
+      if (!sheet.name && !sheet.street) continue;
+      if (stop.addr?.name && stop.addr.from !== 'stack') { filled += 1; continue; } // a close-up photo wins
+      stop.addr = { name: sheet.name, street: sheet.street, city: sheet.city, from: 'stack' };
+      filled += 1;
+    }
+    save(); good(); render();
+    toast(`Filled ${filled} of ${d.stops.length} addresses`);
+  } catch {
+    bad();
+    toast('Could not read that photo. Try closer, with the stack flat and well lit.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📷 Photo of the whole stack · fill in addresses';
+  }
+});
+
 function addrHtml(s, big = false) {
   const a = s.addr;
   if (!a) return '';
   if (a.status === 'reading') return '<div class="addr muted">Reading address…</div>';
   if (a.status === 'failed') return `<div class="addr muted"><button class="retry" data-retry="${esc(s.pro)}">Couldn't read it · tap to retry</button></div>`;
-  const warn = a.check ? `<div class="addr warn">⚠ Photo shows pro ${esc(a.check)}. Right sheet?</div>` : '';
+  const approx = a.from === 'stack' ? '<div class="addr muted">From the stack photo: double-check the street #</div>' : '';
+  const warn = (a.check ? `<div class="addr warn">⚠ Photo shows pro ${esc(a.check)}. Right sheet?</div>` : '') + (big ? approx : '');
   return big
     ? `<div class="r-addr"><b>${esc(a.name)}</b><br>${esc(a.street)}<br>${esc(a.city)}</div>${warn}`
     : `<div class="addr"><b>${esc(a.name)}</b> · ${esc(a.street)}</div>${warn}`;
