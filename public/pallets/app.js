@@ -3,7 +3,7 @@
 // Everything is kept on this phone (localStorage). Works with a Bluetooth
 // scanner (it types like a keyboard and presses Enter) or the phone camera.
 import { norm, findStop, findExact, loadInfo } from './match.js';
-import { putPhoto, photoUrl, deletePhoto, clearPhotos, shrink } from './photos.js';
+import { putPhoto, photoUrl, photoBlob, deletePhoto, clearPhotos, shrink } from './photos.js';
 
 const KEY = 'pallet-router-v1';
 const COLORS = [
@@ -41,6 +41,11 @@ let lastResult = null;
 
 const driverById = (id) => state.drivers.find((d) => d.id === id);
 const colorOf = (d) => COLORS[d.colorIndex % COLORS.length];
+// A "stack" is one run for one driver. Drivers often have more than one run.
+const sameName = (a, b) => a.toLowerCase() === b.toLowerCase();
+const runsOf = (name) => state.drivers.filter((d) => sameName(d.name, name)).sort((a, b) => (a.run || 1) - (b.run || 1));
+const multiRun = (d) => runsOf(d.name).length > 1 || (d.run || 1) > 1;
+const label = (d) => (multiRun(d) ? `${d.name} · Run ${d.run || 1}` : d.name);
 
 function nextColorIndex() {
   const used = new Set([...ROSTER.keys(), ...state.drivers.map((d) => d.colorIndex % COLORS.length)]);
@@ -130,7 +135,7 @@ function stackScan(code) {
   if (hit) {
     bad();
     pendingMove = { code, fromId: hit.driver.id };
-    showStackMsg('bad', `${esc(code)} is already on <b>${esc(hit.driver.name)}</b>'s stack (stop ${hit.index + 1}).`,
+    showStackMsg('bad', `${esc(code)} is already on <b>${esc(label(hit.driver))}</b> (stop ${hit.index + 1}).`,
       '<div class="row"><button class="small ghost" id="mv-no">Leave it</button><button class="small primary" id="mv-yes">Move it here</button></div>');
     $('mv-no').onclick = () => { pendingMove = null; showStackMsg(); };
     $('mv-yes').onclick = () => {
@@ -163,14 +168,56 @@ $('photo-input').addEventListener('change', async () => {
   photoFor = null;
   if (!file || !pro) return;
   try {
-    await putPhoto(norm(pro), await shrink(file));
+    const blob = await shrink(file);
+    await putPhoto(norm(pro), blob);
     for (const d of state.drivers) for (const s of d.stops) if (norm(s.pro) === norm(pro)) s.photo = true;
     save(); good(); showStackMsg(); render();
     toast('Address photo saved');
+    readAddress(pro, blob);
   } catch {
     toast('Could not save that photo');
   }
 });
+// Reads the consignee name and address off the photo (Workers AI on this site).
+const stopsFor = (pro) => state.drivers.flatMap((d) => d.stops).filter((s) => norm(s.pro) === norm(pro));
+async function readAddress(pro, blob) {
+  blob = blob || await photoBlob(norm(pro)).catch(() => null);
+  if (!blob) return;
+  stopsFor(pro).forEach((s) => { s.addr = { status: 'reading' }; });
+  render();
+  let addr = { status: 'failed' };
+  try {
+    const image = await new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result);
+      fr.onerror = reject;
+      fr.readAsDataURL(blob);
+    });
+    const res = await fetch('/pallets/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image }) });
+    const out = await res.json().catch(() => ({}));
+    if (res.ok && (out.name || out.street)) {
+      addr = { name: out.name, street: out.street, city: out.city };
+      // The pro# read off the photo should be this sheet's; flag it if it clearly isn't.
+      if (out.pro && norm(out.pro).length >= 6 && norm(out.pro) !== norm(pro)) addr.check = out.pro;
+    }
+  } catch { /* offline: leave it as failed, tap to retry */ }
+  stopsFor(pro).forEach((s) => { s.addr = addr; });
+  save(); render();
+}
+function addrHtml(s, big = false) {
+  const a = s.addr;
+  if (!a) return '';
+  if (a.status === 'reading') return '<div class="addr muted">Reading address…</div>';
+  if (a.status === 'failed') return `<div class="addr muted"><button class="retry" data-retry="${esc(s.pro)}">Couldn't read it · tap to retry</button></div>`;
+  const warn = a.check ? `<div class="addr warn">⚠ Photo shows pro ${esc(a.check)}. Right sheet?</div>` : '';
+  return big
+    ? `<div class="r-addr"><b>${esc(a.name)}</b><br>${esc(a.street)}<br>${esc(a.city)}</div>${warn}`
+    : `<div class="addr"><b>${esc(a.name)}</b> · ${esc(a.street)}</div>${warn}`;
+}
+function wireRetry(root) {
+  root.querySelectorAll('[data-retry]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); readAddress(b.dataset.retry); }; });
+}
+
 // Fills <img data-photo="pro"> elements once their photo is loaded.
 function fillPhotos(root) {
   root.querySelectorAll('img[data-photo]').forEach(async (img) => {
@@ -211,14 +258,16 @@ $('driver-cancel').onclick = () => { $('driver-sheet').hidden = true; };
 $('driver-start').onclick = () => startDriver($('driver-name').value);
 $('driver-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); startDriver($('driver-name').value); } });
 
-function startDriver(rawName) {
+function startDriver(rawName, run = 1) {
   const name = String(rawName || '').trim().replace(/\s+/g, ' ');
   if (!name) { $('driver-name').focus(); return; }
   $('driver-sheet').hidden = true;
   $('driver-name').blur();
-  let driver = state.drivers.find((d) => d.name.toLowerCase() === name.toLowerCase());
+  let driver = state.drivers.find((d) => sameName(d.name, name) && (d.run || 1) === run);
   if (!driver) {
-    driver = { id: `d${Date.now().toString(36)}`, name, colorIndex: rosterIndex(name) >= 0 ? rosterIndex(name) : nextColorIndex(), stops: [] };
+    const sibling = runsOf(name)[0];
+    const colorIndex = rosterIndex(name) >= 0 ? rosterIndex(name) : sibling ? sibling.colorIndex : nextColorIndex();
+    driver = { id: `d${Date.now().toString(36)}`, name: sibling ? sibling.name : name, run, colorIndex, stops: [] };
     state.drivers.push(driver);
   }
   state.recentNames = [name, ...state.recentNames.filter((n) => n.toLowerCase() !== name.toLowerCase())].slice(0, 30);
@@ -345,20 +394,28 @@ function render() {
 
 function renderStacks(st) {
   $('new-day').textContent = 'Start a new day';
-  // Regular drivers first (in roster order, even before their stack is scanned), then anyone else added today.
-  const rows = ROSTER.map((name, i) => state.drivers.find((d) => d.name.toLowerCase() === name.toLowerCase())
-    || { id: null, name, colorIndex: i, stops: [] });
-  for (const d of state.drivers) if (rosterIndex(d.name) < 0) rows.push(d);
-  $('stacks-list').innerHTML = rows.map((d) => {
-    const [c, cname] = colorOf(d);
-    const have = d.stops.filter((s) => st.scanned.has(norm(s.pro))).length;
-    const pal = state.pallets.length && d.stops.length ? ` · ${have}/${d.stops.length} have a pallet` : '';
-    const meta = d.stops.length ? `${cname} · ${d.stops.length} stop${d.stops.length === 1 ? '' : 's'}${pal}` : 'Tap to scan stack';
-    return `<button class="driver${d.stops.length ? '' : ' todo'}" data-name="${esc(d.name)}"><span class="stripe" style="background:${c}"></span>
-      <span class="info"><span class="name">${esc(d.name)}</span><br><span class="meta">${meta}</span></span>
-      <span class="go">›</span></button>`;
+  // Regular drivers first (in roster order, even before a stack is scanned), then anyone else added today.
+  const names = [...ROSTER];
+  for (const d of state.drivers) if (!names.some((n) => sameName(n, d.name))) names.push(d.name);
+  $('stacks-list').innerHTML = names.map((name) => {
+    const runs = runsOf(name);
+    const i = rosterIndex(name);
+    const [c, cname] = runs[0] ? colorOf(runs[0]) : COLORS[i >= 0 ? i : 0];
+    if (!runs.length) {
+      return `<button class="driver todo" data-name="${esc(name)}" data-run="1"><span class="stripe" style="background:${c}"></span>
+        <span class="info"><span class="name">${esc(name)}</span><br><span class="meta">Tap to scan Run 1</span></span><span class="go">›</span></button>`;
+    }
+    const chips = runs.map((d) => {
+      const have = d.stops.filter((s) => st.scanned.has(norm(s.pro))).length;
+      const pal = state.pallets.length && d.stops.length ? ` · ${have}/${d.stops.length} ✓` : '';
+      return `<button class="run" data-name="${esc(name)}" data-run="${d.run || 1}"><b>Run ${d.run || 1}</b><span>${d.stops.length} stop${d.stops.length === 1 ? '' : 's'}${pal}</span></button>`;
+    }).join('');
+    const next = Math.max(...runs.map((d) => d.run || 1)) + 1;
+    return `<div class="driver"><span class="stripe" style="background:${c}"></span>
+      <div class="info"><span class="name">${esc(name)}</span> <span class="meta">${cname}</span>
+      <div class="runs">${chips}<button class="run add" data-name="${esc(name)}" data-run="${next}">+ Run ${next}</button></div></div></div>`;
   }).join('');
-  $('stacks-list').querySelectorAll('.driver').forEach((b) => { b.onclick = () => startDriver(b.dataset.name); });
+  $('stacks-list').querySelectorAll('[data-run]').forEach((b) => { b.onclick = () => startDriver(b.dataset.name, Number(b.dataset.run)); });
 }
 
 function renderStackScan() {
@@ -366,18 +423,19 @@ function renderStackScan() {
   if (!d) { scanningId = null; return; }
   const [c] = colorOf(d);
   $('stack-head').style.background = c;
-  $('stack-head').innerHTML = `${esc(d.name)}<small>${d.stops.length} stop${d.stops.length === 1 ? '' : 's'} scanned</small>`;
+  $('stack-head').innerHTML = `${esc(d.name)} · Run ${d.run || 1}<small>${d.stops.length} stop${d.stops.length === 1 ? '' : 's'} scanned</small>`;
   $('stack-hint').textContent = d.stops.length
     ? 'Keep going down the stack. Next sheet is stop ' + (d.stops.length + 1) + '.'
     : 'Scan the TOP sheet first. That is stop 1.';
   $('stack-delete').textContent = 'Delete this stack';
-  $('stack-stops').innerHTML = d.stops.map((s, i) => `<li><span class="num">${i + 1}</span><span class="pro">${esc(s.pro)}</span>${
+  $('stack-stops').innerHTML = d.stops.map((s, i) => `<li><span class="num">${i + 1}</span><span class="pro">${esc(s.pro)}${addrHtml(s)}</span>${
     s.photo ? `<img class="thumb" data-photo="${esc(s.pro)}" data-view="${esc(s.pro)}" alt="Address photo">`
       : `<button class="snap-sm" data-snap="${esc(s.pro)}" aria-label="Take address photo">📷</button>`
   }<button class="x" data-i="${i}" aria-label="Remove">✕</button></li>`).reverse().join('');
   $('stack-stops').querySelectorAll('[data-snap]').forEach((b) => { b.onclick = () => takePhoto(b.dataset.snap); });
   $('stack-stops').querySelectorAll('[data-view]').forEach((b) => { b.onclick = () => showPhoto(b.dataset.view); });
   fillPhotos($('stack-stops'));
+  wireRetry($('stack-stops'));
   $('stack-stops').querySelectorAll('.x').forEach((b) => {
     b.onclick = () => { const s = d.stops.splice(Number(b.dataset.i), 1)[0]; if (s.photo) deletePhoto(norm(s.pro)).catch(() => {}); save(); toast(`Removed ${s.pro}`); render(); };
   });
@@ -400,12 +458,15 @@ function renderPallets(st) {
     el.className = 'result r-pop';
     el.style.background = c;
     el.innerHTML = `<div class="r-color">${cname}</div><div class="r-name">${esc(d.name)}</div>
+      ${multiRun(d) ? `<div class="r-run">RUN ${d.run || 1}</div>` : ''}
       <div class="r-big">Stop ${info.stop} of ${info.total}</div>
       <div class="r-mid">${info.where}</div>
       <div class="r-small">${esc(r.code)}${r.count > 1 ? ` · pallet #${r.count} for this pro` : ''}</div>
+      ${d.stops[index] ? addrHtml(d.stops[index], true) : ''}
       ${d.stops[index]?.photo ? `<img class="r-photo" data-photo="${esc(d.stops[index].pro)}" data-view="${esc(d.stops[index].pro)}" alt="Address photo">` : ''}`;
     el.querySelectorAll('[data-view]').forEach((b) => { b.onclick = () => showPhoto(b.dataset.view); });
     fillPhotos(el);
+    wireRetry(el);
   } else {
     el.className = 'result bad r-pop';
     el.style.background = '';
@@ -420,8 +481,8 @@ function renderPallets(st) {
   $('recent').innerHTML = recent.map((p) => {
     const d = p.driverId && driverById(p.driverId);
     const i = d ? d.stops.findIndex((s) => norm(s.pro) === norm(p.pro)) : -1;
-    const label = d ? `${esc(d.name)}${i >= 0 ? ` · stop ${i + 1}` : ''}` : '<span class="miss">Not in any stack</span>';
-    return `<li><span class="dot" style="background:${d ? colorOf(d)[0] : '#d32f2f'}"></span><span class="pro">${esc(p.code)}</span><span>${label}</span></li>`;
+    const where = d ? `${esc(label(d))}${i >= 0 ? ` · stop ${i + 1}` : ''}` : '<span class="miss">Not in any stack</span>';
+    return `<li><span class="dot" style="background:${d ? colorOf(d)[0] : '#d32f2f'}"></span><span class="pro">${esc(p.code)}</span><span>${where}</span></li>`;
   }).join('');
 }
 
@@ -438,15 +499,16 @@ function renderCheck(st) {
     out.push(`<div class="check-group"><h3 style="background:#8e1414"><span>Pallets not in any stack</span><span>${unknown.length}</span></h3><ul>${
       unknown.map((p) => `<li><span class="pro">${esc(p.code)}</span><span>${timeOf(p.at)} <button class="x" data-del="${p.at}" aria-label="Clear">✕</button></span></li>`).join('')}</ul></div>`);
   }
-  for (const d of state.drivers) {
+  const sorted = [...state.drivers].sort((a, b) => a.name.localeCompare(b.name) || (a.run || 1) - (b.run || 1));
+  for (const d of sorted) {
     const [c] = colorOf(d);
     const counts = new Map();
     for (const p of state.pallets) if (p.pro) counts.set(norm(p.pro), (counts.get(norm(p.pro)) || 0) + 1);
     const missing = d.stops.filter((s) => !counts.get(norm(s.pro))).length;
-    out.push(`<div class="check-group"><h3 style="background:${c}"><span>${esc(d.name)}</span><span>${missing ? `${missing} missing` : '✓ all here'}</span></h3><ul>${
+    out.push(`<div class="check-group"><h3 style="background:${c}"><span>${esc(label(d))}</span><span>${missing ? `${missing} missing` : '✓ all here'}</span></h3><ul>${
       d.stops.map((s, i) => {
         const n = counts.get(norm(s.pro)) || 0;
-        return `<li><span>${i + 1}. <span class="pro">${esc(s.pro)}</span>${s.photo ? ` <button class="snap-sm" data-view="${esc(s.pro)}" aria-label="Show address photo">🖼</button>` : ''}</span>${n ? `<span class="ok">✓ ${n > 1 ? `${n} pallets` : 'pallet'}</span>` : '<span class="miss">no pallet yet</span>'}</li>`;
+        return `<li><span>${i + 1}. <span class="pro">${esc(s.pro)}</span>${s.addr?.name ? ` <span class="muted">${esc(s.addr.name)}</span>` : ''}${s.photo ? ` <button class="snap-sm" data-view="${esc(s.pro)}" aria-label="Show address photo">🖼</button>` : ''}</span>${n ? `<span class="ok">✓ ${n > 1 ? `${n} pallets` : 'pallet'}</span>` : '<span class="miss">no pallet yet</span>'}</li>`;
       }).join('') || '<li>No sheets scanned</li>'}</ul></div>`);
   }
   $('check').innerHTML = out.join('');

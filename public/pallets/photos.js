@@ -36,6 +36,9 @@ export async function photoUrl(key) {
   urls.set(key, url);
   return url;
 }
+export async function photoBlob(key) {
+  return tx('readonly', (s) => s.get(key));
+}
 export async function deletePhoto(key) {
   await tx('readwrite', (s) => s.delete(key));
   if (urls.has(key)) { URL.revokeObjectURL(urls.get(key)); urls.delete(key); }

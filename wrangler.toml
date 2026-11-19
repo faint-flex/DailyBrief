@@ -8,7 +8,7 @@ keep_vars = true
 [assets]
 directory = "./public"
 binding = "ASSETS"
-run_worker_first = ["/api/*", "/oauth/*"]
+run_worker_first = ["/api/*", "/oauth/*", "/pallets/read"]
 
 # Where the daily briefs are kept (your BRIEFS namespace; the id is not a secret).
 [[kv_namespaces]]
@@ -31,3 +31,7 @@ service = "grocerylist"
 IG_APP_ID = "1876152856717996"
 IG_CONFIG_ID = "1895911921565221"
 IG_USER_ID = "17841426600007858"
+
+# Pallet Router reads the address off receipt photos with Workers AI (free daily allowance).
+[ai]
+binding = "AI"
