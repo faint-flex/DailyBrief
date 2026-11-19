@@ -110,3 +110,19 @@ day-over-day changes and sparklines, trend charts, top pages, countries, posts a
   numbers replace Buffer's, live and in the nightly history, and add follower counts.
 
 `/api/report` (an earlier pre-formatted report card) still accepts reports but nothing shows them.
+
+## Pallet Router (`/pallets/`)
+
+A separate little tool on the same site for routing pallets on the dock. It has
+nothing to do with the brief and needs no key.
+
+1. **Stacks:** once the paper receipts are sorted into one stack per driver, add
+   the driver and scan the stack from the top sheet down. The top sheet is stop 1.
+2. **Pallets:** scan a pallet's pro# sticker and it shows the driver (in that
+   driver's color), the stop number, and where it goes on the truck (stop 1 loads
+   last, at the doors).
+3. **Check:** stops with no pallet scanned yet, and pallets that aren't in any stack.
+
+Works with a Bluetooth barcode scanner (it types like a keyboard), the phone
+camera (📷 button, using the vendored `html5-qrcode`, Apache-2.0), or typing.
+Everything is stored on the phone; "Start a new day" clears it.

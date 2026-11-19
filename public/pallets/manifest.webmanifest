@@ -1,0 +1,10 @@
+{
+  "name": "Pallet Router",
+  "short_name": "Pallets",
+  "start_url": "/pallets/",
+  "scope": "/pallets/",
+  "display": "standalone",
+  "background_color": "#101418",
+  "theme_color": "#101418",
+  "icons": [{ "src": "/pallets/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
