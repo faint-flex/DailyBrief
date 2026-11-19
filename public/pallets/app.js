@@ -3,6 +3,7 @@
 // Everything is kept on this phone (localStorage). Works with a Bluetooth
 // scanner (it types like a keyboard and presses Enter) or the phone camera.
 import { norm, findStop, findExact, loadInfo } from './match.js';
+import { putPhoto, photoUrl, deletePhoto, clearPhotos, shrink } from './photos.js';
 
 const KEY = 'pallet-router-v1';
 const COLORS = [
@@ -135,15 +136,56 @@ function stackScan(code) {
     $('mv-yes').onclick = () => {
       const from = driverById(pendingMove.fromId);
       const i = findExact([from], pendingMove.code)?.index;
-      if (i !== undefined) from.stops.splice(i, 1);
-      driver.stops.push({ pro: pendingMove.code, at: Date.now() });
+      const moved = i !== undefined ? from.stops.splice(i, 1)[0] : null;
+      driver.stops.push({ pro: pendingMove.code, at: Date.now(), ...(moved?.photo ? { photo: true } : {}) });
       pendingMove = null; save(); good(); showStackMsg(); render();
     };
     return;
   }
   driver.stops.push({ pro: code, at: Date.now() });
-  save(); good(); showStackMsg(); render();
+  save(); good(); offerPhoto(code, driver.stops.length); render();
 }
+
+// ---------- address photos ----------
+let photoFor = null; // pro# the next photo belongs to
+function offerPhoto(pro, stopNo) {
+  $('stack-msg').innerHTML = `<button class="big photo" id="snap">📷 Photo of address · stop ${stopNo}</button>`;
+  $('snap').onclick = () => takePhoto(pro);
+}
+function takePhoto(pro) {
+  photoFor = pro;
+  $('photo-input').value = '';
+  $('photo-input').click();
+}
+$('photo-input').addEventListener('change', async () => {
+  const file = $('photo-input').files[0];
+  const pro = photoFor;
+  photoFor = null;
+  if (!file || !pro) return;
+  try {
+    await putPhoto(norm(pro), await shrink(file));
+    for (const d of state.drivers) for (const s of d.stops) if (norm(s.pro) === norm(pro)) s.photo = true;
+    save(); good(); showStackMsg(); render();
+    toast('Address photo saved');
+  } catch {
+    toast('Could not save that photo');
+  }
+});
+// Fills <img data-photo="pro"> elements once their photo is loaded.
+function fillPhotos(root) {
+  root.querySelectorAll('img[data-photo]').forEach(async (img) => {
+    const url = await photoUrl(norm(img.dataset.photo)).catch(() => null);
+    if (url) img.src = url; else img.remove();
+  });
+}
+function showPhoto(pro) {
+  photoUrl(norm(pro)).then((url) => {
+    if (!url) return;
+    $('viewer-img').src = url;
+    $('viewer').hidden = false;
+  });
+}
+$('viewer').onclick = () => { $('viewer').hidden = true; };
 
 function showStackMsg(kind, html = '', extra = '') {
   $('stack-msg').innerHTML = kind ? `<div class="msg ${kind}">${html}${extra}</div>` : '';
@@ -186,7 +228,7 @@ function startDriver(rawName) {
 
 $('stack-undo').onclick = () => {
   const d = driverById(scanningId);
-  if (d && d.stops.length) { const s = d.stops.pop(); save(); toast(`Removed ${s.pro}`); showStackMsg(); render(); }
+  if (d && d.stops.length) { const s = d.stops.pop(); if (s.photo) deletePhoto(norm(s.pro)).catch(() => {}); save(); toast(`Removed ${s.pro}`); showStackMsg(); render(); }
 };
 $('stack-done').onclick = () => { scanningId = null; pendingMove = null; stopCamera(); render(); };
 let deleteArmed = 0;
@@ -199,7 +241,7 @@ $('stack-delete').onclick = () => {
 let newDayArmed = 0;
 $('new-day').onclick = () => {
   if (Date.now() - newDayArmed > 3000) { newDayArmed = Date.now(); $('new-day').textContent = 'Tap again to clear all stacks and pallets'; return; }
-  state = blank(); save(); lastResult = null; render(); toast('New day started');
+  state = blank(); save(); lastResult = null; clearPhotos().catch(() => {}); render(); toast('New day started');
 };
 
 // ---------- pallets ----------
@@ -329,9 +371,15 @@ function renderStackScan() {
     ? 'Keep going down the stack. Next sheet is stop ' + (d.stops.length + 1) + '.'
     : 'Scan the TOP sheet first. That is stop 1.';
   $('stack-delete').textContent = 'Delete this stack';
-  $('stack-stops').innerHTML = d.stops.map((s, i) => `<li><span class="num">${i + 1}</span><span class="pro">${esc(s.pro)}</span><button class="x" data-i="${i}" aria-label="Remove">✕</button></li>`).reverse().join('');
+  $('stack-stops').innerHTML = d.stops.map((s, i) => `<li><span class="num">${i + 1}</span><span class="pro">${esc(s.pro)}</span>${
+    s.photo ? `<img class="thumb" data-photo="${esc(s.pro)}" data-view="${esc(s.pro)}" alt="Address photo">`
+      : `<button class="snap-sm" data-snap="${esc(s.pro)}" aria-label="Take address photo">📷</button>`
+  }<button class="x" data-i="${i}" aria-label="Remove">✕</button></li>`).reverse().join('');
+  $('stack-stops').querySelectorAll('[data-snap]').forEach((b) => { b.onclick = () => takePhoto(b.dataset.snap); });
+  $('stack-stops').querySelectorAll('[data-view]').forEach((b) => { b.onclick = () => showPhoto(b.dataset.view); });
+  fillPhotos($('stack-stops'));
   $('stack-stops').querySelectorAll('.x').forEach((b) => {
-    b.onclick = () => { const s = d.stops.splice(Number(b.dataset.i), 1)[0]; save(); toast(`Removed ${s.pro}`); render(); };
+    b.onclick = () => { const s = d.stops.splice(Number(b.dataset.i), 1)[0]; if (s.photo) deletePhoto(norm(s.pro)).catch(() => {}); save(); toast(`Removed ${s.pro}`); render(); };
   });
 }
 
@@ -354,7 +402,10 @@ function renderPallets(st) {
     el.innerHTML = `<div class="r-color">${cname}</div><div class="r-name">${esc(d.name)}</div>
       <div class="r-big">Stop ${info.stop} of ${info.total}</div>
       <div class="r-mid">${info.where}</div>
-      <div class="r-small">${esc(r.code)}${r.count > 1 ? ` · pallet #${r.count} for this pro` : ''}</div>`;
+      <div class="r-small">${esc(r.code)}${r.count > 1 ? ` · pallet #${r.count} for this pro` : ''}</div>
+      ${d.stops[index]?.photo ? `<img class="r-photo" data-photo="${esc(d.stops[index].pro)}" data-view="${esc(d.stops[index].pro)}" alt="Address photo">` : ''}`;
+    el.querySelectorAll('[data-view]').forEach((b) => { b.onclick = () => showPhoto(b.dataset.view); });
+    fillPhotos(el);
   } else {
     el.className = 'result bad r-pop';
     el.style.background = '';
@@ -395,10 +446,11 @@ function renderCheck(st) {
     out.push(`<div class="check-group"><h3 style="background:${c}"><span>${esc(d.name)}</span><span>${missing ? `${missing} missing` : '✓ all here'}</span></h3><ul>${
       d.stops.map((s, i) => {
         const n = counts.get(norm(s.pro)) || 0;
-        return `<li><span>${i + 1}. <span class="pro">${esc(s.pro)}</span></span>${n ? `<span class="ok">✓ ${n > 1 ? `${n} pallets` : 'pallet'}</span>` : '<span class="miss">no pallet yet</span>'}</li>`;
+        return `<li><span>${i + 1}. <span class="pro">${esc(s.pro)}</span>${s.photo ? ` <button class="snap-sm" data-view="${esc(s.pro)}" aria-label="Show address photo">🖼</button>` : ''}</span>${n ? `<span class="ok">✓ ${n > 1 ? `${n} pallets` : 'pallet'}</span>` : '<span class="miss">no pallet yet</span>'}</li>`;
       }).join('') || '<li>No sheets scanned</li>'}</ul></div>`);
   }
   $('check').innerHTML = out.join('');
+  $('check').querySelectorAll('[data-view]').forEach((b) => { b.onclick = () => showPhoto(b.dataset.view); });
   $('check').querySelectorAll('[data-del]').forEach((b) => {
     b.onclick = () => { state.pallets = state.pallets.filter((p) => String(p.at) !== b.dataset.del || p.driverId); save(); render(); };
   });

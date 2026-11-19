@@ -90,6 +90,10 @@
     <button class="big ghost" id="cam-close">Close camera</button>
   </div>
 
+  <!-- Address photo: opens the phone camera -->
+  <input type="file" id="photo-input" accept="image/*" capture="environment" hidden>
+  <div class="viewer" id="viewer" hidden><img id="viewer-img" alt="Address photo"><div class="cam-msg">Tap to close</div></div>
+
   <div class="toast" id="toast" hidden></div>
 
   <script src="/pallets/html5-qrcode.min.js"></script>
