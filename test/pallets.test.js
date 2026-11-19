@@ -40,3 +40,17 @@ test('stop 1 loads last, the last stop loads first', () => {
   assert.equal(loadInfo(2, 8).where, 'Load 6th of 8');
   assert.equal(loadInfo(0, 1).where, 'Only stop');
 });
+
+test('stack photo sheets pair with scanned stops, allowing one misread digit', async () => {
+  const { pairSheets, nearlySame } = await import('../public/pallets/match.js');
+  assert.ok(nearlySame('006341874', '006541874'));
+  assert.ok(nearlySame('006371046', '0063701046'));
+  assert.ok(!nearlySame('006341874', '006541883'));
+  const stops = [{ pro: '006341874' }, { pro: '006341883' }, { pro: '006371046' }];
+  const pairs = pairSheets(stops, [
+    { pro: '006541874', name: 'GALLEHERDUFFY' }, // one digit off, unique
+    { pro: '0063701046', name: 'ONE MONROE' }, // extra digit
+    { pro: '999999999', name: 'nobody' },
+  ]);
+  assert.deepEqual(pairs.map((p) => [p.index, p.sheet.name]), [[0, 'GALLEHERDUFFY'], [2, 'ONE MONROE']]);
+});

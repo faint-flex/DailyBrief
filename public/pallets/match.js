@@ -68,3 +68,38 @@ export function ordinal(n) {
   const v = n % 100;
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
+
+/** True when two pro#s differ by at most one character (a misread, an extra or a missing digit). */
+export function nearlySame(a, b) {
+  a = norm(a); b = norm(b);
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1 || Math.min(a.length, b.length) < 6) return false;
+  let i = 0; let j = 0; let edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i += 1; j += 1; continue; }
+    edits += 1;
+    if (edits > 1) return false;
+    if (a.length > b.length) i += 1;
+    else if (b.length > a.length) j += 1;
+    else { i += 1; j += 1; }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1;
+}
+
+/**
+ * Pairs sheets read off a stack photo with the stops scanned by barcode.
+ * Exact pro# first; otherwise a unique near match. Returns [{ index, sheet }].
+ */
+export function pairSheets(stops, sheets) {
+  const out = [];
+  const used = new Set();
+  for (const sheet of sheets) {
+    let index = stops.findIndex((s, k) => !used.has(k) && norm(s.pro) === norm(sheet.pro));
+    if (index === -1) {
+      const near = stops.map((s, k) => k).filter((k) => !used.has(k) && nearlySame(stops[k].pro, sheet.pro));
+      if (near.length === 1) [index] = near;
+    }
+    if (index !== -1) { used.add(index); out.push({ index, sheet }); }
+  }
+  return out;
+}
