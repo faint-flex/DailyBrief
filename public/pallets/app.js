@@ -11,6 +11,11 @@ const COLORS = [
   ['#827717', 'Olive'], ['#455a64', 'Gray'], ['#ad1457', 'Magenta'], ['#00695c', 'Pine'],
 ];
 
+// The regular drivers, always shown as one-tap buttons on the Stacks tab.
+// Each keeps the same color every day.
+const ROSTER = ['Martin', 'Jason', 'Rudy', 'Leo', 'Justin'];
+const rosterIndex = (name) => ROSTER.findIndex((n) => n.toLowerCase() === String(name).toLowerCase());
+
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const timeOf = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -23,6 +28,7 @@ function load() {
   try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch { return null; }
 }
 let state = load() || blank();
+for (const d of state.drivers) if (rosterIndex(d.name) >= 0) d.colorIndex = rosterIndex(d.name); // keep roster colors fixed
 function save() {
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { toast('Could not save on this phone'); }
 }
@@ -36,7 +42,7 @@ const driverById = (id) => state.drivers.find((d) => d.id === id);
 const colorOf = (d) => COLORS[d.colorIndex % COLORS.length];
 
 function nextColorIndex() {
-  const used = new Set(state.drivers.map((d) => d.colorIndex % COLORS.length));
+  const used = new Set([...ROSTER.keys(), ...state.drivers.map((d) => d.colorIndex % COLORS.length)]);
   for (let i = 0; i < COLORS.length; i += 1) if (!used.has(i)) return i;
   return state.drivers.length;
 }
@@ -151,7 +157,7 @@ function openStack(id) {
 }
 
 $('add-driver').onclick = () => {
-  const taken = new Set(state.drivers.map((d) => d.name.toLowerCase()));
+  const taken = new Set([...ROSTER, ...state.drivers.map((d) => d.name)].map((n) => n.toLowerCase()));
   const names = state.recentNames.filter((n) => !taken.has(n.toLowerCase())).slice(0, 16);
   $('name-chips').innerHTML = names.map((n) => `<button class="chip" data-name="${esc(n)}">${esc(n)}</button>`).join('');
   $('name-chips').querySelectorAll('.chip').forEach((b) => { b.onclick = () => startDriver(b.dataset.name); });
@@ -170,7 +176,7 @@ function startDriver(rawName) {
   $('driver-name').blur();
   let driver = state.drivers.find((d) => d.name.toLowerCase() === name.toLowerCase());
   if (!driver) {
-    driver = { id: `d${Date.now().toString(36)}`, name, colorIndex: nextColorIndex(), stops: [] };
+    driver = { id: `d${Date.now().toString(36)}`, name, colorIndex: rosterIndex(name) >= 0 ? rosterIndex(name) : nextColorIndex(), stops: [] };
     state.drivers.push(driver);
   }
   state.recentNames = [name, ...state.recentNames.filter((n) => n.toLowerCase() !== name.toLowerCase())].slice(0, 30);
@@ -297,19 +303,20 @@ function render() {
 
 function renderStacks(st) {
   $('new-day').textContent = 'Start a new day';
-  if (!state.drivers.length) {
-    $('stacks-list').innerHTML = '<div class="empty">No stacks yet.<br>Once the stacks are sorted, add each driver and scan their sheets from the top down.</div>';
-    return;
-  }
-  $('stacks-list').innerHTML = state.drivers.map((d) => {
+  // Regular drivers first (in roster order, even before their stack is scanned), then anyone else added today.
+  const rows = ROSTER.map((name, i) => state.drivers.find((d) => d.name.toLowerCase() === name.toLowerCase())
+    || { id: null, name, colorIndex: i, stops: [] });
+  for (const d of state.drivers) if (rosterIndex(d.name) < 0) rows.push(d);
+  $('stacks-list').innerHTML = rows.map((d) => {
     const [c, cname] = colorOf(d);
     const have = d.stops.filter((s) => st.scanned.has(norm(s.pro))).length;
-    const pal = state.pallets.length ? ` · ${have}/${d.stops.length} have a pallet` : '';
-    return `<button class="driver" data-id="${d.id}"><span class="stripe" style="background:${c}"></span>
-      <span class="info"><span class="name">${esc(d.name)}</span><br><span class="meta">${cname} · ${d.stops.length} stop${d.stops.length === 1 ? '' : 's'}${pal}</span></span>
+    const pal = state.pallets.length && d.stops.length ? ` · ${have}/${d.stops.length} have a pallet` : '';
+    const meta = d.stops.length ? `${cname} · ${d.stops.length} stop${d.stops.length === 1 ? '' : 's'}${pal}` : 'Tap to scan stack';
+    return `<button class="driver${d.stops.length ? '' : ' todo'}" data-name="${esc(d.name)}"><span class="stripe" style="background:${c}"></span>
+      <span class="info"><span class="name">${esc(d.name)}</span><br><span class="meta">${meta}</span></span>
       <span class="go">›</span></button>`;
   }).join('');
-  $('stacks-list').querySelectorAll('.driver').forEach((b) => { b.onclick = () => openStack(b.dataset.id); });
+  $('stacks-list').querySelectorAll('.driver').forEach((b) => { b.onclick = () => startDriver(b.dataset.name); });
 }
 
 function renderStackScan() {
