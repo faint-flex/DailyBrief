@@ -1,6 +1,6 @@
 // Pallet Router offline shell: network first, cached copy when the dock has no signal.
-const CACHE = 'pallet-router-v2';
-const SHELL = ['/pallets/', '/pallets/pallets.css', '/pallets/app.js', '/pallets/match.js',
+const CACHE = 'pallet-router-v3';
+const SHELL = ['/pallets/', '/pallets/pallets.css', '/pallets/app.js', '/pallets/match.js', '/pallets/photos.js',
   '/pallets/html5-qrcode.min.js', '/pallets/manifest.webmanifest', '/pallets/icon.svg'];
 
 self.addEventListener('install', (event) => {
