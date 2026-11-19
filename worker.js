@@ -13,6 +13,7 @@
 import { normalizeBrief, briefStore } from './src/brief.js';
 import { normalizeReport, reportStore } from './src/report.js';
 import { distillNightly, statsStore, liveCached } from './src/stats.js';
+import { handlePalletRead } from './src/pallet-read.js';
 import { startConnect, finishConnect, readDirect, probeInstagram, PLATFORMS } from './src/social-direct.js';
 
 const MAX_BODY = 64 * 1024;
@@ -137,6 +138,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname.startsWith('/api/')) return handleApi(request, env, url);
+    if (url.pathname === '/pallets/read') return handlePalletRead(request, env);
     // TikTok / Instagram send the browser back here after sign-in (checked by a one-time state).
     const back = url.pathname.match(/^\/oauth\/(tiktok|instagram)$/);
     if (back && env.BRIEFS) return Response.redirect(`${url.origin}${await finishConnect(env, env.BRIEFS, back[1], url)}`, 302);
