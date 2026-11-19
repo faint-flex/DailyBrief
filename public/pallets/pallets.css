@@ -150,3 +150,5 @@ ol.recent li .dot { width: 14px; height: 14px; border-radius: 50%; flex: none; }
   position: fixed; left: 16px; right: 16px; top: calc(60px + env(safe-area-inset-top, 0px)); z-index: 40;
   background: #263238; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font-size: 17px; text-align: center;
 }
+
+.driver.todo .meta { color: #7fb0ff; }
