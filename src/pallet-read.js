@@ -13,26 +13,45 @@ export const MODELS = [
   '@cf/mistralai/mistral-small-3.1-24b-instruct',
 ];
 
+// The models sometimes swap the consignee and shipper boxes, so they are asked for
+// both and the Worker keeps the one in the Las Vegas area (see chooseConsignee).
 export const PROMPT = `This is a photo of a freight delivery receipt. It may be from DDP Delivery Services or another carrier (TOTAL Transportation, Daylight, Southwestern Motor Transport, and so on).
-Read the CONSIGNEE: the company the freight is delivered to (look for the word CONSIGNEE; on DDP sheets it is the left box under "CUSTOMER NUMBER").
-Do NOT use the SHIPPER, the BILL TO, or the carrier's own address in the header (like 2711 E Craig Rd or 210 East Lambert Road).
+Read BOTH company boxes:
+- "consignee": the box labeled CONSIGNEE (on DDP sheets the left box, under "CUSTOMER NUMBER").
+- "shipper": the box labeled SHIPPER (on DDP sheets the right box).
+Do not use BILL TO or the carrier's own address in the header (like 2711 E Craig Rd or 210 East Lambert Road).
 Also read:
 - "pro": the printed PRO number (DDP: "PRO LABEL NUMBER", usually 9 digits like 006365941; other carriers: "PRO NO", for example 3546485-00).
 - "handwritten": any number written by hand on the sheet (often a 7 to 9 digit warehouse pro like 6356235), or "" if none.
 Answer with JSON only, no other text:
-{"name": "consignee company", "street": "street address and suite", "city": "city, state zip", "pro": "printed pro number", "handwritten": "handwritten number"}
+{"consignee": {"name": "", "street": "", "city": "city, state zip"}, "shipper": {"name": "", "street": "", "city": ""}, "pro": "", "handwritten": ""}
 Use "" for anything you cannot read.`;
 
 export const STACK_PROMPT = `This photo shows a stack of freight delivery receipts fanned out, each sheet overlapping the next so the top strip of every sheet shows.
-Each DDP sheet strip has two company boxes side by side:
-- LEFT box = CONSIGNEE (who receives the freight). It is almost always in LAS VEGAS or NORTH LAS VEGAS, NV.
-- RIGHT box = SHIPPER (who sent it). It is usually in California, Arizona or another state. IGNORE the shipper.
+Each sheet strip has two company boxes side by side, a LEFT box and a RIGHT box. Read BOTH, exactly as printed, for every sheet.
 Never use the terminal address in the header (2711 E Craig Rd).
-For EVERY sheet, read the PRO LABEL NUMBER (the 9 digits under the barcode at the top right, like 006365941) and the LEFT consignee company and street.
+For EVERY sheet also read the PRO LABEL NUMBER (the 9 digits under the barcode at the top right, like 006365941).
 List each sheet once, from the TOP of the photo to the BOTTOM. Do not repeat sheets and do not invent sheets.
 Answer with JSON only:
-{"sheets": [{"pro": "006365941", "name": "consignee company", "street": "street", "city": "city, NV zip"}]}
+{"sheets": [{"pro": "006365941", "left": {"name": "", "street": "", "city": "city, state zip"}, "right": {"name": "", "street": "", "city": "city, state zip"}}]}
 Use "" for anything you cannot read.`;
+
+/** True when an address is in the Las Vegas area, where every delivery from this terminal goes. */
+export function isLocal(a) {
+  const t = `${a?.street || ''} ${a?.city || ''}`.toUpperCase();
+  return /\bNV\b|NEVADA|LAS VEGAS|HENDERSON|BOULDER CITY|\b89\d{3}\b/.test(t);
+}
+
+const addrOf = (x) => ({ name: clean(x?.name), street: clean(x?.street), city: clean(x?.city) });
+
+/** Picks the consignee: the box that is local, or the first one when both or neither are. */
+export function chooseConsignee(first, second) {
+  const a = addrOf(first);
+  const b = addrOf(second);
+  if (!a.name && !a.street) return b;
+  if (isLocal(b) && !isLocal(a)) return b;
+  return a;
+}
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -62,7 +81,10 @@ export function parseStack(text) {
   try { o = JSON.parse(m[0]); } catch { return null; }
   const list = Array.isArray(o) ? o : o.sheets;
   if (!Array.isArray(list)) return null;
-  const sheets = list.slice(0, 60).map((x) => ({ name: clean(x?.name), street: clean(x?.street), city: clean(x?.city), pro: clean(x?.pro).replace(/[^0-9A-Za-z]/g, '') }))
+  const sheets = list.slice(0, 60).map((x) => ({
+    ...(x?.left || x?.right ? chooseConsignee(x.left, x.right) : addrOf(x)),
+    pro: clean(x?.pro).replace(/[^0-9A-Za-z]/g, ''),
+  }))
     .filter((x) => x.pro.length >= 6);
   // Some models list the sheets twice (second time without names): keep the first good copy of each pro.
   const seen = new Map();
@@ -86,7 +108,8 @@ export function parseAddress(text) {
 
 function pickAddress(o) {
   const digits = (v) => clean(v).replace(/[^0-9A-Za-z]/g, '');
-  const r = { name: clean(o.name), street: clean(o.street), city: clean(o.city), pro: digits(o.pro), handwritten: digits(o.handwritten) };
+  const place = o.consignee || o.shipper ? chooseConsignee(o.consignee, o.shipper) : addrOf(o);
+  const r = { ...place, pro: digits(o.pro), handwritten: digits(o.handwritten) };
   return r.name || r.street ? r : null;
 }
 
