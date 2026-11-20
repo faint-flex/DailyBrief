@@ -626,7 +626,7 @@ async function syncNow() {
     const mine = canon(state);
     const dirty = mine !== synced;
     const { res, out } = await post({ code: share.code, ver: share.ver ?? -1, doc: dirty ? JSON.parse(mine) : null });
-    if (res.status === 404) { stopSharing('That shared day has ended.'); return; }
+    if (res.status === 404) { synced = ''; again = true; return; } // the code was forgotten: send this phone's copy to set it up again
     if (!res.ok) throw new Error(out.error);
     if (out.doc) takeRemote(out.doc);
     share.ver = out.ver; saveShare();
@@ -786,7 +786,7 @@ function render() {
     ? `${state.drivers.length} drivers · ${st.total} stops` : `Started ${timeOf(state.startedAt)}`;
   $('status').classList.toggle('live', !!share.code && online);
   if (share.code) $('status').textContent += online ? ` · 🔗 ${share.code}` : ' · ⚠ offline';
-  $('share-btn').textContent = share.code ? `🔗 Shared · code ${share.code}` : '🔗 Share with a coworker';
+  $('share-btn').textContent = share.code ? `🔗 Linked · code ${share.code}` : '🔗 Share with a coworker';
   const issues = (st.total - st.have) + st.unknown;
   $('check-badge').hidden = !(state.pallets.length && issues);
   $('check-badge').textContent = issues;
