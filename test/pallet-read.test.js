@@ -56,3 +56,16 @@ test('stack mode returns every sheet with a pro#', async () => {
   assert.equal(out.sheets[0].pro, '006365941');
   assert.equal(parseStack('nothing'), null);
 });
+
+test('the Las Vegas box wins when the model swaps consignee and shipper', async () => {
+  const { parseStack, parseAddress } = await import('../src/pallet-read.js');
+  const sheets = parseStack(JSON.stringify({ sheets: [
+    { pro: '900602915', left: { name: 'ECOLAB SAN BERNARDINO DC', street: '531 E CENTRAL AVE', city: 'SAN BERNARDINO, CA 92408' },
+      right: { name: 'BRADY LINEN SERVICES', street: '2501 LOSEE RD', city: 'NORTH LAS VEGAS, NV 89030' } },
+    { pro: '006365941', left: { name: 'A-1 VAC & SEWING', street: '4069 W CHARLESTON BLVD', city: 'LAS VEGAS, NV 89102' },
+      right: { name: 'CHINA FEIYUE USA', street: '5556 EDISON AVE', city: 'CHINO, CA 91710' } },
+  ] }));
+  assert.deepEqual(sheets.map((x) => x.name), ['BRADY LINEN SERVICES', 'A-1 VAC & SEWING']);
+  const one = parseAddress('{"consignee":{"name":"SML MEDICAL","street":"1 Main","city":"Ontario, CA 91761"},"shipper":{"name":"Desert Clinic","street":"9 Rd","city":"Henderson, NV 89011"},"pro":"6"}');
+  assert.equal(one.name, 'Desert Clinic');
+});
