@@ -10,7 +10,7 @@ const post = (body, headers = {}) => new Request('https://x.test/pallets/read', 
 
 test('parseAddress pulls the JSON out of a chatty answer', () => {
   const r = parseAddress('Sure! ```json\n{"name":"A-1 VAC & SEWING","street":"4069 W Charleston Blvd","city":"Las Vegas, NV 89102","pro":"006-365-941"}\n```');
-  assert.deepEqual(r, { name: 'A-1 VAC & SEWING', street: '4069 W Charleston Blvd', city: 'Las Vegas, NV 89102', pro: '006365941' });
+  assert.deepEqual(r, { name: 'A-1 VAC & SEWING', street: '4069 W Charleston Blvd', city: 'Las Vegas, NV 89102', pro: '006365941', handwritten: '' });
   assert.equal(parseAddress('no idea'), null);
   assert.equal(parseAddress('{"name":"","street":""}'), null);
 });

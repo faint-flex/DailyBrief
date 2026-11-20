@@ -13,12 +13,14 @@ export const MODELS = [
   '@cf/mistralai/mistral-small-3.1-24b-instruct',
 ];
 
-export const PROMPT = `This is a photo of a freight delivery receipt from DDP Delivery Services (or another carrier).
-Read the CONSIGNEE box: the company the freight is delivered to. On DDP sheets it is on the left, under "CUSTOMER NUMBER", with the word CONSIGNEE printed sideways.
-Do NOT use the SHIPPER box on the right, the BILL TO box, or the DDP terminal address in the header (2711 E Craig Rd).
-Also read the PRO LABEL NUMBER (top right, usually 9 digits such as 006365941).
+export const PROMPT = `This is a photo of a freight delivery receipt. It may be from DDP Delivery Services or another carrier (TOTAL Transportation, Daylight, Southwestern Motor Transport, and so on).
+Read the CONSIGNEE: the company the freight is delivered to (look for the word CONSIGNEE; on DDP sheets it is the left box under "CUSTOMER NUMBER").
+Do NOT use the SHIPPER, the BILL TO, or the carrier's own address in the header (like 2711 E Craig Rd or 210 East Lambert Road).
+Also read:
+- "pro": the printed PRO number (DDP: "PRO LABEL NUMBER", usually 9 digits like 006365941; other carriers: "PRO NO", for example 3546485-00).
+- "handwritten": any number written by hand on the sheet (often a 7 to 9 digit warehouse pro like 6356235), or "" if none.
 Answer with JSON only, no other text:
-{"name": "consignee company", "street": "street address and suite", "city": "city, state zip", "pro": "pro number"}
+{"name": "consignee company", "street": "street address and suite", "city": "city, state zip", "pro": "printed pro number", "handwritten": "handwritten number"}
 Use "" for anything you cannot read.`;
 
 export const STACK_PROMPT = `This photo shows a stack of freight delivery receipts fanned out, each sheet overlapping the next so the top strip of every sheet shows.
@@ -83,7 +85,8 @@ export function parseAddress(text) {
 }
 
 function pickAddress(o) {
-  const r = { name: clean(o.name), street: clean(o.street), city: clean(o.city), pro: clean(o.pro).replace(/[^0-9A-Za-z]/g, '') };
+  const digits = (v) => clean(v).replace(/[^0-9A-Za-z]/g, '');
+  const r = { name: clean(o.name), street: clean(o.street), city: clean(o.city), pro: digits(o.pro), handwritten: digits(o.handwritten) };
   return r.name || r.street ? r : null;
 }
 

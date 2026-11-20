@@ -2,7 +2,7 @@
 // pallet stickers to see which driver and stop they belong to.
 // Everything is kept on this phone (localStorage). Works with a Bluetooth
 // scanner (it types like a keyboard and presses Enter) or the phone camera.
-import { norm, findStop, findExact, loadInfo, pairSheets } from './match.js';
+import { norm, findStop, findExact, loadInfo, pairSheets, nearlySame } from './match.js';
 import { putPhoto, photoUrl, photoBlob, deletePhoto, clearPhotos, shrink } from './photos.js';
 
 const KEY = 'pallet-router-v1';
@@ -199,12 +199,52 @@ async function readAddress(pro, blob) {
     if (res.ok && (out.name || out.street)) {
       addr = { name: out.name, street: out.street, city: out.city };
       // The pro# read off the photo should be this sheet's; flag it if it clearly isn't.
-      if (out.pro && norm(out.pro).length >= 6 && norm(out.pro) !== norm(pro)) addr.check = out.pro;
+      const seen = [out.pro, out.handwritten].filter((v) => v && norm(v).length >= 6);
+      if (seen.length && !seen.some((v) => nearlySame(v, pro))) addr.check = seen[0];
     }
   } catch { /* offline: leave it as failed, tap to retry */ }
   stopsFor(pro).forEach((s) => { s.addr = addr; });
   save(); render();
 }
+// A sheet with no usable barcode (TOTAL, some interline sheets): one photo adds
+// it as the next stop, using the handwritten warehouse pro# if there is one.
+$('sheet-photo').onclick = () => { $('sheet-input').value = ''; $('sheet-input').click(); };
+$('sheet-input').addEventListener('change', async () => {
+  const file = $('sheet-input').files[0];
+  const d = driverById(scanningId);
+  if (!file || !d) return;
+  const btn = $('sheet-photo');
+  btn.disabled = true;
+  btn.textContent = 'Reading the sheet…';
+  try {
+    const blob = await shrink(file);
+    const image = await new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result);
+      fr.onerror = reject;
+      fr.readAsDataURL(blob);
+    });
+    const res = await fetch('/pallets/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image }) });
+    const out = await res.json().catch(() => ({}));
+    const pro = (out.handwritten && norm(out.handwritten).length >= 6 ? out.handwritten : out.pro) || `SHEET${d.stops.length + 1}`;
+    if (findExact(state.drivers, pro)) { toast(`${pro} is already in a stack`); return; }
+    const stop = { pro, at: Date.now(), photo: true };
+    if (res.ok && (out.name || out.street)) stop.addr = { name: out.name, street: out.street, city: out.city };
+    await putPhoto(norm(pro), blob);
+    d.stops.push(stop);
+    save(); good(); render();
+    // Let them check the number against the pallet sticker.
+    openEdit(d.id, d.stops.length - 1);
+    $('edit-title').textContent = `Stop ${d.stops.length}: is this the pro# on the pallet sticker?`;
+  } catch {
+    bad();
+    toast('Could not read that photo. Type the pro# instead.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📷 Add a sheet with no barcode';
+  }
+});
+
 // One photo of the whole fanned-out stack fills in addresses for the stops
 // already scanned by barcode (the barcodes stay the source of truth for order).
 $('stack-photo').onclick = () => {
