@@ -22,14 +22,32 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 const timeOf = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 // ---------- state ----------
-function blank() {
-  return { pool: [], startedAt: Date.now(), drivers: [], pallets: [], recentNames: load()?.recentNames || [] };
+function blank(pool = []) {
+  return { pool, startedAt: Date.now(), drivers: [], pallets: [], recentNames: load()?.recentNames || [] };
+}
+const KEEP_DAYS = 7;
+// Addresses carry over between days by pro#: freight from yesterday's manifest can
+// ride today. Rows older than KEEP_DAYS drop off. Today's stop addresses join too.
+function carryPool() {
+  const cutoff = Date.now() - KEEP_DAYS * 86400000;
+  const pool = (state.pool || []).filter((r) => (r.at || 0) >= cutoff);
+  const known = new Set(pool.map((r) => norm(r.pro)));
+  for (const d of state.drivers) {
+    for (const stop of d.stops) {
+      const a = stop.addr;
+      if (!a?.name || known.has(norm(stop.pro))) continue;
+      pool.push({ pro: stop.pro, alt: '', name: a.name, street: a.street || '', city: a.city || '', at: stop.at || Date.now() });
+      known.add(norm(stop.pro));
+    }
+  }
+  return pool;
 }
 function load() {
   try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch { return null; }
 }
 let state = load() || blank();
 state.pool = state.pool || [];
+for (const r of state.pool) if (!r.at) r.at = state.startedAt || Date.now();
 for (const d of state.drivers) if (rosterIndex(d.name) >= 0) d.colorIndex = rosterIndex(d.name); // keep roster colors fixed
 function save() {
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { toast('Could not save on this phone'); }
@@ -275,13 +293,11 @@ $('manifest-input').addEventListener('change', async () => {
     const res = await fetch('/pallets/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image, mode: 'manifest' }) });
     const out = await res.json().catch(() => ({}));
     if (!res.ok || !Array.isArray(out.rows)) throw new Error(out.error || 'no rows');
-    const known = new Set(state.pool.map((r) => norm(r.pro)));
     let added = 0;
     for (const r of out.rows) {
-      if (known.has(norm(r.pro))) continue;
-      state.pool.push({ pro: r.pro, alt: r.alt || '', name: r.name, street: r.street, city: r.city });
-      known.add(norm(r.pro));
-      added += 1;
+      const row = { pro: r.pro, alt: r.alt || '', name: r.name, street: r.street, city: r.city, at: Date.now() };
+      const i = state.pool.findIndex((p) => norm(p.pro) === norm(r.pro));
+      if (i === -1) { state.pool.push(row); added += 1; } else state.pool[i] = row; // today's manifest wins
     }
     save(); good();
     toast(`Manifest: added ${added} address${added === 1 ? '' : 'es'} to the pool`);
@@ -521,8 +537,8 @@ $('stack-delete').onclick = () => {
 
 let newDayArmed = 0;
 $('new-day').onclick = () => {
-  if (Date.now() - newDayArmed > 3000) { newDayArmed = Date.now(); $('new-day').textContent = 'Tap again to clear all stacks and pallets'; return; }
-  state = blank(); save(); lastResult = null; clearPhotos().catch(() => {}); render(); toast('New day started');
+  if (Date.now() - newDayArmed > 3000) { newDayArmed = Date.now(); $('new-day').textContent = 'Tap again to clear stacks and pallets (addresses are kept)'; return; }
+  state = blank(carryPool()); save(); lastResult = null; clearPhotos().catch(() => {}); render(); toast('New day started');
 };
 
 // ---------- pallets ----------
@@ -628,7 +644,11 @@ function render() {
 function renderStacks(st) {
   const n = state.pool?.length || 0;
   $('manifest-photo').textContent = readingManifests ? `⏳ Reading ${readingManifests} manifest${readingManifests === 1 ? '' : 's'}… tap to add another` : '📷 Manifest photo · addresses for every stop';
-  $('pool-status').textContent = n ? `Address pool: ${n} pro#s from the manifest. Add more pages any time.` : 'Snap each manifest page once. Stops fill in their address by pro#.';
+  const today = (state.pool || []).filter((r) => (r.at || 0) >= state.startedAt).length;
+  const older = n - today;
+  $('pool-status').textContent = n
+    ? `Address pool: ${today} pro#s from today's manifest${older ? `, ${older} kept from the last ${KEEP_DAYS} days` : ''}. Add more pages any time.`
+    : 'Snap each manifest page once. Stops fill in their address by pro#.';
   $('new-day').textContent = 'Start a new day';
   // Regular drivers first (in roster order, even before a stack is scanned), then anyone else added today.
   const names = [...ROSTER];
