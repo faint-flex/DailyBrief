@@ -38,7 +38,7 @@ Use "" for anything you cannot read.`;
 
 export const MANIFEST_PROMPT = `This is a photo of a printed LINE MANIFEST from a freight terminal. Each row (separated by dashed lines) is one shipment with:
 PRO # (a 7 to 9 digit number at the start of the row), CONSIGNEE NAME/CITY (company, street, city: this is who receives it, in or near Las Vegas), and SHIPPER NAME/CITY (ignore the shipper).
-Some rows are interline ("**I/L -"): they show a long line pro such as 00277715130 and a carrier code such as SMTL, and the DDP pro (like 980005646) under it. Put the DDP pro in "pro" and the long line pro in "alt".
+Some rows are interline ("**I/L -"): they show a long line pro such as 00277715130 and a carrier code such as SMTL, and the DDP pro (like 980005646) under it. Put the DDP pro in "pro" and the long line pro in "alt". On those rows the consignee is still the company in the CONSIGNEE column (for example ACUDOR, 4216 NORTH PECOS RD, LAS VEGAS), not the carrier name (like SOUTHWESTERN MOTOR T) in the shipper column.
 List EVERY row once, top to bottom. Do not invent rows.
 Answer with JSON only:
 {"rows": [{"pro": "5252550", "alt": "", "name": "VIP TRANSPORT", "street": "6425 S JONES BLVD #1", "city": "LAS VEGAS"}]}
@@ -57,6 +57,7 @@ export function parseManifest(text) {
   for (const x of list.slice(0, 120)) {
     const row = { ...addrOf(x), pro: digits(x?.pro), alt: digits(x?.alt) };
     if (row.pro.length < 6 || (!row.name && !row.street)) continue;
+    if (!isLocal(row)) continue; // every consignee here is in the Las Vegas area; anything else is a misread shipper
     if (!seen.has(row.pro)) seen.set(row.pro, row);
   }
   return seen.size ? [...seen.values()] : null;
