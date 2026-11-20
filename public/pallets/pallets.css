@@ -178,3 +178,7 @@ div.driver .meta { margin-left: 6px; }
 .retry { background: none; color: #7fb0ff; font-size: 14px; padding: 4px 0; text-decoration: underline; }
 .r-addr { margin-top: 12px; background: rgba(0,0,0,.28); border-radius: 12px; padding: 10px 12px; font-size: 18px; line-height: 1.3; }
 .r-addr b { font-size: 21px; }
+
+/* Tap a pro# to fix it */
+.pro-edit { background: none; padding: 4px 0; font-size: 18px; letter-spacing: .5px; font-variant-numeric: tabular-nums; text-align: left; }
+.pencil { color: var(--muted); font-size: 15px; margin-left: 4px; }

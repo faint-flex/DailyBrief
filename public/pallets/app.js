@@ -115,7 +115,8 @@ $('manual').addEventListener('submit', (e) => {
 });
 
 function handleScan(raw) {
-  const code = String(raw).trim();
+  // Some barcodes carry a check or stop character (like a trailing %); keep only the number.
+  const code = String(raw).trim().replace(/^[^0-9A-Za-z]+|[^0-9A-Za-z]+$/g, '');
   if (norm(code).length < 3) return;
   if (scanningId) stackScan(code);
   else palletScan(code);
@@ -248,6 +249,44 @@ $('stack-input').addEventListener('change', async () => {
     btn.textContent = '📷 Photo of the whole stack · fill in addresses';
   }
 });
+
+// ---------- fix a misread pro# ----------
+let editing = null; // { driverId, index }
+function openEdit(driverId, index) {
+  const d = driverById(driverId);
+  if (!d || !d.stops[index]) return;
+  editing = { driverId, index };
+  $('edit-title').textContent = `Fix stop ${index + 1}`;
+  $('edit-pro').value = d.stops[index].pro;
+  $('edit-sheet').hidden = false;
+  setTimeout(() => { $('edit-pro').focus(); $('edit-pro').select(); }, 50);
+}
+function closeEdit() { editing = null; $('edit-sheet').hidden = true; $('edit-pro').blur(); }
+$('edit-cancel').onclick = closeEdit;
+$('edit-pro').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveEdit(); } });
+$('edit-save').onclick = saveEdit;
+async function saveEdit() {
+  if (!editing) return;
+  const d = driverById(editing.driverId);
+  const stop = d?.stops[editing.index];
+  const pro = $('edit-pro').value.trim().replace(/^[^0-9A-Za-z]+|[^0-9A-Za-z]+$/g, '');
+  if (!stop || norm(pro).length < 3) { toast('Type the pro# from the sheet'); return; }
+  const other = findExact(state.drivers, pro);
+  if (other && !(other.driver.id === d.id && other.index === editing.index)) {
+    toast(`${pro} is already ${label(other.driver)} stop ${other.index + 1}`);
+    return;
+  }
+  const old = stop.pro;
+  stop.pro = pro;
+  if (stop.photo && norm(old) !== norm(pro)) {
+    // Move the address photo to the new pro#.
+    const blob = await photoBlob(norm(old)).catch(() => null);
+    if (blob) { await putPhoto(norm(pro), blob).catch(() => {}); deletePhoto(norm(old)).catch(() => {}); }
+  }
+  closeEdit();
+  save(); good(); render();
+  toast(`Saved ${pro}`);
+}
 
 function addrHtml(s, big = false) {
   const a = s.addr;
@@ -474,10 +513,11 @@ function renderStackScan() {
     ? 'Keep going down the stack. Next sheet is stop ' + (d.stops.length + 1) + '.'
     : 'Scan the TOP sheet first. That is stop 1.';
   $('stack-delete').textContent = 'Delete this stack';
-  $('stack-stops').innerHTML = d.stops.map((s, i) => `<li><span class="num">${i + 1}</span><span class="pro">${esc(s.pro)}${addrHtml(s)}</span>${
+  $('stack-stops').innerHTML = d.stops.map((s, i) => `<li><span class="num">${i + 1}</span><span class="pro"><button class="pro-edit" data-edit="${i}" aria-label="Edit pro number">${esc(s.pro)} <span class="pencil">✎</span></button>${addrHtml(s)}</span>${
     s.photo ? `<img class="thumb" data-photo="${esc(s.pro)}" data-view="${esc(s.pro)}" alt="Address photo">`
       : `<button class="snap-sm" data-snap="${esc(s.pro)}" aria-label="Take address photo">📷</button>`
   }<button class="x" data-i="${i}" aria-label="Remove">✕</button></li>`).reverse().join('');
+  $('stack-stops').querySelectorAll('[data-edit]').forEach((b) => { b.onclick = () => openEdit(d.id, Number(b.dataset.edit)); });
   $('stack-stops').querySelectorAll('[data-snap]').forEach((b) => { b.onclick = () => takePhoto(b.dataset.snap); });
   $('stack-stops').querySelectorAll('[data-view]').forEach((b) => { b.onclick = () => showPhoto(b.dataset.view); });
   fillPhotos($('stack-stops'));
