@@ -251,13 +251,15 @@ $('stack-photo').onclick = () => {
   $('stack-input').value = '';
   $('stack-input').click();
 };
+// Stack photos read in the background, so you can move on to the next run.
+const readingStacks = new Set(); // driver (run) ids with a stack photo being read
 $('stack-input').addEventListener('change', async () => {
   const file = $('stack-input').files[0];
   const d = driverById(scanningId);
   if (!file || !d) return;
-  const btn = $('stack-photo');
-  btn.disabled = true;
-  btn.textContent = 'Reading the stack… (up to a minute)';
+  readingStacks.add(d.id);
+  render();
+  toast('Reading in the background. Go ahead to the next run.');
   try {
     const blob = await shrink(file, 1600);
     const image = await new Promise((resolve, reject) => {
@@ -277,14 +279,14 @@ $('stack-input').addEventListener('change', async () => {
       stop.addr = { name: sheet.name, street: sheet.street, city: sheet.city, from: 'stack' };
       filled += 1;
     }
-    save(); good(); render();
-    toast(`Filled ${filled} of ${d.stops.length} addresses`);
+    save(); good();
+    toast(`${label(d)}: filled ${filled} of ${d.stops.length} addresses`);
   } catch {
     bad();
-    toast('Could not read that photo. Try closer, with the stack flat and well lit.');
+    toast(`${label(d)}: could not read that photo. Try closer, flat and well lit.`);
   } finally {
-    btn.disabled = false;
-    btn.textContent = '📷 Photo of the whole stack · fill in addresses';
+    readingStacks.delete(d.id);
+    render();
   }
 });
 
@@ -579,7 +581,7 @@ function renderStacks(st) {
     const chips = runs.map((d) => {
       const have = d.stops.filter((s) => st.scanned.has(norm(s.pro))).length;
       const pal = state.pallets.length && d.stops.length ? ` · ${have}/${d.stops.length} ✓` : '';
-      return `<button class="run" data-name="${esc(name)}" data-run="${d.run || 1}"><b>Run ${d.run || 1}</b><span>${d.stops.length} stop${d.stops.length === 1 ? '' : 's'}${pal}</span></button>`;
+      return `<button class="run" data-name="${esc(name)}" data-run="${d.run || 1}"><b>Run ${d.run || 1}</b><span>${readingStacks.has(d.id) ? '⏳ reading photo' : `${d.stops.length} stop${d.stops.length === 1 ? '' : 's'}${pal}`}</span></button>`;
     }).join('');
     const next = Math.max(...runs.map((d) => d.run || 1)) + 1;
     return `<div class="driver"><span class="stripe" style="background:${c}"></span>
@@ -599,6 +601,9 @@ function renderStackScan() {
     ? 'Keep going down the stack. Next sheet is stop ' + (d.stops.length + 1) + '.'
     : 'Scan the TOP sheet first. That is stop 1.';
   $('stack-delete').textContent = 'Delete this stack';
+  const reading = readingStacks.has(d.id);
+  $('stack-photo').disabled = reading;
+  $('stack-photo').textContent = reading ? '⏳ Reading this stack photo… tap Done and keep going' : '📷 Photo of the whole stack · fill in addresses';
   $('stack-stops').innerHTML = d.stops.map((s, i) => `<li><span class="num">${i + 1}</span><span class="pro"><button class="pro-edit" data-edit="${i}" aria-label="Edit pro number">${esc(s.pro)} <span class="pencil">✎</span></button>${addrHtml(s)}</span>${
     s.photo ? `<img class="thumb" data-photo="${esc(s.pro)}" data-view="${esc(s.pro)}" alt="Address photo">`
       : `<button class="snap-sm" data-snap="${esc(s.pro)}" aria-label="Take address photo">📷</button>`
