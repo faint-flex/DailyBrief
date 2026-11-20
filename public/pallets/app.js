@@ -25,7 +25,7 @@ const timeOf = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minu
 function blank(pool = []) {
   return { pool, startedAt: Date.now(), drivers: [], pallets: [], recentNames: load()?.recentNames || [] };
 }
-const KEEP_DAYS = 7;
+const KEEP_DAYS = 60; // pro#s are never reused, so old rows can't mismatch; ~100 rows a day stays well under storage limits
 // Addresses carry over between days by pro#: freight from yesterday's manifest can
 // ride today. Rows older than KEEP_DAYS drop off. Today's stop addresses join too.
 function carryPool() {
