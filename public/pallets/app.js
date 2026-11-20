@@ -100,19 +100,17 @@ document.addEventListener('keydown', (e) => {
   if (now - lastKey > 600) buffer = '';
   lastKey = now;
   if (e.key === 'Enter' || e.key === 'Tab') {
-    if (buffer.length >= 3) { e.preventDefault(); handleScan(buffer); }
+    if (buffer.length >= 3) {
+      e.preventDefault();
+      if (editOpen()) { editValue = buffer.replace(/^[^0-9A-Za-z]+|[^0-9A-Za-z]+$/g, ''); showValue(); good(); } else handleScan(buffer);
+    }
     buffer = '';
     return;
   }
   if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) buffer += e.key;
 });
 
-$('manual').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const v = $('manual-input').value.trim();
-  $('manual-input').value = '';
-  if (v) handleScan(v);
-});
+
 
 function handleScan(raw) {
   // Some barcodes carry a check or stop character (like a trailing %); keep only the number.
@@ -235,7 +233,7 @@ $('sheet-input').addEventListener('change', async () => {
     save(); good(); render();
     // Let them check the number against the pallet sticker.
     openEdit(d.id, d.stops.length - 1);
-    $('edit-title').textContent = `Stop ${d.stops.length}: is this the pro# on the pallet sticker?`;
+    $('edit-title').textContent = `Stop ${d.stops.length}: is this the pro# on the sticker?`;
   } catch {
     bad();
     toast('Could not read that photo. Type the pro# instead.');
@@ -290,27 +288,75 @@ $('stack-input').addEventListener('change', async () => {
   }
 });
 
-// ---------- fix a misread pro# ----------
-let editing = null; // { driverId, index }
+// ---------- pro# keypad: fix a stop, move it, or enter a number by hand ----------
+// A Bluetooth scanner hides the phone's keyboard, so this has its own number pad,
+// and scanning a barcode while it is open fills in the number.
+let editing = null; // { mode: 'edit', driverId, index } or { mode: 'enter' }
+let editValue = '';
+function showValue() {
+  $('edit-pro').textContent = editValue || ' ';
+  $('edit-pro').classList.toggle('empty', !editValue);
+}
 function openEdit(driverId, index) {
   const d = driverById(driverId);
   if (!d || !d.stops[index]) return;
-  editing = { driverId, index };
-  $('edit-title').textContent = `Fix stop ${index + 1}`;
-  $('edit-pro').value = d.stops[index].pro;
+  editing = { mode: 'edit', driverId, index };
+  editValue = d.stops[index].pro;
+  $('edit-title').textContent = `Stop ${index + 1} of ${d.stops.length}`;
+  $('edit-move').hidden = false;
+  $('edit-save').textContent = 'Save';
+  showValue();
   $('edit-sheet').hidden = false;
-  setTimeout(() => { $('edit-pro').focus(); $('edit-pro').select(); }, 50);
 }
-function closeEdit() { editing = null; $('edit-sheet').hidden = true; $('edit-pro').blur(); }
+function openEntry() {
+  editing = { mode: 'enter' };
+  editValue = '';
+  $('edit-title').textContent = scanningId ? 'Enter a sheet pro#' : 'Enter a pallet pro#';
+  $('edit-move').hidden = true;
+  $('edit-save').textContent = 'Go';
+  showValue();
+  $('edit-sheet').hidden = false;
+}
+const editOpen = () => !$('edit-sheet').hidden;
+function closeEdit() { editing = null; $('edit-sheet').hidden = true; }
 $('edit-cancel').onclick = closeEdit;
-$('edit-pro').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveEdit(); } });
 $('edit-save').onclick = saveEdit;
+$('enter-btn').onclick = openEntry;
+document.querySelectorAll('#keypad [data-k]').forEach((b) => {
+  b.onclick = () => {
+    const k = b.dataset.k;
+    if (k === 'back') editValue = editValue.slice(0, -1);
+    else if (k === 'clear') editValue = '';
+    else if (editValue.length < 20) editValue += k;
+    showValue();
+  };
+});
+function moveStop(step) {
+  const d = driverById(editing?.driverId);
+  if (!d) return;
+  const from = editing.index;
+  const to = from + step;
+  if (to < 0 || to >= d.stops.length) return;
+  const [stop] = d.stops.splice(from, 1);
+  d.stops.splice(to, 0, stop);
+  editing.index = to;
+  $('edit-title').textContent = `Stop ${to + 1} of ${d.stops.length}`;
+  save(); render();
+}
+$('edit-up').onclick = () => moveStop(-1);
+$('edit-down').onclick = () => moveStop(1);
+
 async function saveEdit() {
   if (!editing) return;
+  const pro = editValue.trim().replace(/^[^0-9A-Za-z]+|[^0-9A-Za-z]+$/g, '');
+  if (editing.mode === 'enter') {
+    closeEdit();
+    if (norm(pro).length >= 3) handleScan(pro);
+    return;
+  }
   const d = driverById(editing.driverId);
   const stop = d?.stops[editing.index];
-  const pro = $('edit-pro').value.trim().replace(/^[^0-9A-Za-z]+|[^0-9A-Za-z]+$/g, '');
-  if (!stop || norm(pro).length < 3) { toast('Type the pro# from the sheet'); return; }
+  if (!stop || norm(pro).length < 3) { toast('Enter the pro# from the sheet'); return; }
   const other = findExact(state.drivers, pro);
   if (other && !(other.driver.id === d.id && other.index === editing.index)) {
     toast(`${pro} is already ${label(other.driver)} stop ${other.index + 1}`);
@@ -509,7 +555,7 @@ function render() {
   const issues = (st.total - st.have) + st.unknown;
   $('check-badge').hidden = !(state.pallets.length && issues);
   $('check-badge').textContent = issues;
-  $('manual-input').placeholder = scanningId ? 'Type a sheet pro#' : 'Type a pallet pro#';
+  $('enter-btn').textContent = scanningId ? '⌨ Enter a sheet pro#' : '⌨ Enter a pallet pro#';
 
   renderStacks(st);
   if (scanningId) renderStackScan();

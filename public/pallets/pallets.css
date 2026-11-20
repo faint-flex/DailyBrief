@@ -182,3 +182,14 @@ div.driver .meta { margin-left: 6px; }
 /* Tap a pro# to fix it */
 .pro-edit { background: none; padding: 4px 0; font-size: 18px; letter-spacing: .5px; font-variant-numeric: tabular-nums; text-align: left; }
 .pencil { color: var(--muted); font-size: 15px; margin-left: 4px; }
+
+/* Keypad (the phone keyboard is hidden while a Bluetooth scanner is connected) */
+.manual .enter { flex: 1; background: var(--card); border: 1px solid var(--line); border-radius: 12px; font-size: 19px; font-weight: 700; min-height: 52px; }
+.display { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font-size: 30px; font-weight: 800; letter-spacing: 1px; font-variant-numeric: tabular-nums; min-height: 60px; }
+.display.empty { color: var(--muted); }
+.small-hint { font-size: 15px; margin: 6px 0; }
+.keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0; }
+.keypad button { background: #26303b; border-radius: 12px; min-height: 56px; font-size: 26px; font-weight: 800; }
+.keypad button.fn { font-size: 18px; color: #cdd6e0; }
+#edit-move { margin-bottom: 2px; }
+.sheet-card { max-height: 100vh; overflow-y: auto; }

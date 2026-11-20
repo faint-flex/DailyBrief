@@ -60,11 +60,10 @@
     </section>
   </main>
 
-  <form class="manual" id="manual" autocomplete="off">
-    <input id="manual-input" inputmode="numeric" placeholder="Type a pro#" aria-label="Type a pro number">
-    <button type="submit" class="go">Go</button>
+  <div class="manual">
+    <button type="button" class="enter" id="enter-btn">⌨ Enter a pro#</button>
     <button type="button" class="cam" id="cam-btn" aria-label="Scan with camera">📷</button>
-  </form>
+  </div>
 
   <nav class="tabs">
     <button data-tab="stacks" class="on">Stacks</button>
@@ -85,11 +84,22 @@
     </div>
   </div>
 
-  <!-- Fix a misread pro# -->
+  <!-- Pro# keypad: fix or move a stop, or enter a number by hand -->
   <div class="sheet" id="edit-sheet" hidden>
     <div class="sheet-card">
       <h2 id="edit-title">Fix pro#</h2>
-      <input id="edit-pro" inputmode="numeric" autocomplete="off" aria-label="Pro number">
+      <div class="display" id="edit-pro" aria-live="polite"></div>
+      <p class="hint small-hint">Tap the numbers, or scan the barcode to fill it in.</p>
+      <div class="keypad" id="keypad">
+        <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
+        <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
+        <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
+        <button data-k="clear" class="fn">Clear</button><button data-k="0">0</button><button data-k="back" class="fn" aria-label="Delete">⌫</button>
+      </div>
+      <div class="row" id="edit-move">
+        <button class="small ghost" id="edit-up">▲ Move up</button>
+        <button class="small ghost" id="edit-down">▼ Move down</button>
+      </div>
       <div class="row">
         <button class="big ghost" id="edit-cancel">Cancel</button>
         <button class="big primary" id="edit-save">Save</button>
