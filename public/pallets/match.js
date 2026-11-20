@@ -112,3 +112,35 @@ export function poolMatch(pool, pro) {
   const near = pool.filter((r) => nearlySame(r.pro, pro));
   return near.length === 1 ? near[0] : null;
 }
+
+/**
+ * Address lookup by pro# for the Stops tab: every manifest row and every stop that
+ * has an address. Best first: exact (or the interline pro), then one digit off,
+ * then a pro# that contains what was typed (3+ digits). At most `limit` results.
+ * Each result: { pro, alt, name, street, city, at, driver, index, rank }.
+ */
+export function lookupAddress(drivers, pool, query, limit = 10) {
+  const q = norm(query);
+  if (q.length < 3) return [];
+  const byPro = new Map();
+  for (const r of pool || []) byPro.set(norm(r.pro), { pro: r.pro, alt: r.alt || '', name: r.name, street: r.street, city: r.city, at: r.at });
+  for (const driver of drivers || []) {
+    driver.stops.forEach((s, index) => {
+      const k = norm(s.pro);
+      const have = byPro.get(k);
+      const a = s.addr?.name ? s.addr : null;
+      const closeUp = a && a.from !== 'stack' && a.from !== 'manifest';
+      if (have) Object.assign(have, { driver, index }, closeUp || !have.name ? { name: a?.name || have.name, street: a?.street || have.street, city: a?.city || have.city } : {});
+      else byPro.set(k, { pro: s.pro, alt: '', name: a?.name || '', street: a?.street || '', city: a?.city || '', at: s.at, driver, index });
+    });
+  }
+  const out = [];
+  for (const r of byPro.values()) {
+    let rank = -1;
+    if (norm(r.pro) === q || (r.alt && norm(r.alt) === q)) rank = 0;
+    else if (nearlySame(r.pro, q)) rank = 1;
+    else if (norm(r.pro).includes(q) || (r.alt && norm(r.alt).includes(q))) rank = 2;
+    if (rank >= 0) out.push({ ...r, rank });
+  }
+  return out.sort((a, b) => a.rank - b.rank || (b.at || 0) - (a.at || 0)).slice(0, limit);
+}

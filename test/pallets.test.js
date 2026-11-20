@@ -63,3 +63,19 @@ test('manifest pool matches a stop by pro, interline pro, or one digit off', asy
   assert.equal(poolMatch(pool, '005252551').name, 'VIP TRANSPORT');
   assert.equal(poolMatch(pool, '111111111'), null);
 });
+
+test('Stops lookup finds manifest addresses, route stops and partial pro#s', async () => {
+  const { lookupAddress } = await import('../public/pallets/match.js');
+  const pool = [
+    { pro: '980005646', alt: '00277715130', name: 'ACUDOR', street: '4216 N PECOS RD', city: 'LAS VEGAS', at: 2 },
+    { pro: '006365941', name: 'HASA', street: '1 A ST', city: 'HENDERSON', at: 1 },
+  ];
+  const drv = [{ id: 'r', name: 'Rudy', stops: [{ pro: '6365941' }, { pro: '7777777', addr: { name: 'TOTAL', street: '5 B', city: 'LV' } }] }];
+  assert.equal(lookupAddress(drv, pool, '6365941')[0].name, 'HASA');
+  assert.equal(lookupAddress(drv, pool, '6365941')[0].driver.name, 'Rudy');
+  assert.equal(lookupAddress(drv, pool, '277715130')[0].name, 'ACUDOR');
+  assert.equal(lookupAddress(drv, pool, '980005647')[0].name, 'ACUDOR'); // one digit off
+  assert.equal(lookupAddress(drv, pool, '7777777')[0].name, 'TOTAL');
+  assert.equal(lookupAddress(drv, pool, '5646')[0].name, 'ACUDOR'); // part of the number
+  assert.equal(lookupAddress(drv, pool, '12').length, 0);
+});
