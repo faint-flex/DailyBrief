@@ -2,7 +2,7 @@
 // pallet stickers to see which driver and stop they belong to.
 // Everything is kept on this phone (localStorage). Works with a Bluetooth
 // scanner (it types like a keyboard and presses Enter) or the phone camera.
-import { norm, findStop, findExact, loadInfo, pairSheets, nearlySame, poolMatch, lookupAddress } from './match.js';
+import { norm, findStop, findExact, loadInfo, pairSheets, nearlySame, poolMatch, lookupAddress, addressBook } from './match.js';
 import { mergeDocs, canon, palletKey } from './merge.js';
 import { putPhoto, photoUrl, photoBlob, deletePhoto, clearPhotos, shrink } from './photos.js';
 
@@ -806,28 +806,45 @@ function render() {
 
 // ---------- Stops: look up any pro#'s address, on a route or not ----------
 let lookupQuery = '';
+let lookupFilter = 'all'; // 'all', 'route', 'off', or a day like '2026-11-16'
+const dayKey = (t) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const dayName = (key) => {
+  if (key === dayKey(Date.now())) return 'Today';
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' });
+};
 function renderLookup() {
   if (tab !== 'lookup') return;
-  const n = state.pool?.length || 0;
   const q = lookupQuery;
-  $('lookup-q').textContent = q || 'Scan or tap ⌨ to look up a pro#';
+  $('lookup-q').innerHTML = q ? `${esc(q)} <button class="clear-q" id="clear-q">✕ Clear</button>` : 'Scan or tap ⌨ to search a pro#';
   $('lookup-q').classList.toggle('empty', !q);
-  if (!q) {
-    $('lookup-list').innerHTML = `<div class="empty">${n ? `${n} addresses saved from manifests and photos (last 7 days).` : 'No addresses yet. Take manifest photos on the Stacks tab.'}</div>`;
+  if (q) $('clear-q').onclick = () => { lookupQuery = ''; render(); };
+
+  const book = addressBook(state.drivers, state.pool);
+  const days = [...new Set(book.filter((r) => r.at).map((r) => dayKey(r.at)))].sort().reverse();
+  if (!['all', 'route', 'off'].includes(lookupFilter) && !days.includes(lookupFilter)) lookupFilter = 'all';
+  const chips = [['all', `All ${book.length}`], ...days.map((k) => [k, dayName(k)]), ['route', 'On a route'], ['off', 'Not on a route']];
+  $('lookup-filters').innerHTML = chips.map(([k, t]) => `<button class="chip ${lookupFilter === k ? 'on' : ''}" data-f="${k}">${esc(t)}</button>`).join('');
+  $('lookup-filters').querySelectorAll('[data-f]').forEach((b) => { b.onclick = () => { lookupFilter = b.dataset.f; renderLookup(); }; });
+  const keep = (r) => lookupFilter === 'all' || (lookupFilter === 'route' ? !!r.driver : lookupFilter === 'off' ? !r.driver : r.at && dayKey(r.at) === lookupFilter);
+
+  if (!book.length) {
+    $('lookup-list').innerHTML = '<div class="empty">No stops yet. Take manifest photos or scan stacks on the Stacks tab.</div>';
     return;
   }
-  const found = lookupAddress(state.drivers, state.pool, q);
+  const found = q ? lookupAddress(state.drivers, state.pool, q, 50).filter(keep) : book.filter(keep).slice(0, 400);
   if (!found.length) {
-    $('lookup-list').innerHTML = norm(q).length < 3 ? '<div class="empty">Keep typing…</div>' : `<div class="msg bad">No address saved for <b>${esc(q)}</b>. Snap that manifest page on the Stacks tab.</div>`;
+    $('lookup-list').innerHTML = q && norm(q).length < 3 ? '<div class="empty">Keep typing…</div>'
+      : q ? `<div class="msg bad">No address saved for <b>${esc(q)}</b>${lookupFilter === 'all' ? '' : ' with this filter'}.</div>` : '<div class="empty">No stops for this filter.</div>';
     return;
   }
-  $('lookup-list').innerHTML = found.map((r) => {
+  $('lookup-list').innerHTML = (q ? '' : `<div class="hint small-hint">${found.length} stop${found.length === 1 ? '' : 's'}</div>`) + found.map((r) => {
     const route = r.driver
       ? `<span class="tag" style="background:${colorOf(r.driver)[0]}">${esc(label(r.driver))} · stop ${r.index + 1}</span>`
       : '<span class="tag off">Not on a route</span>';
     const close = r.rank === 1 ? '<div class="addr warn">One digit off from what you entered</div>' : '';
-    const old = r.at && r.at < state.startedAt ? `<div class="addr muted">From ${new Date(r.at).toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' })}</div>` : '';
-    return `<div class="look ${r.rank === 0 ? 'best' : ''}"><div class="look-top"><span class="pro">${esc(r.pro)}${r.alt ? ` <span class="muted">· ${esc(r.alt)}</span>` : ''}</span>${route}</div>
+    const old = r.at && dayKey(r.at) !== dayKey(Date.now()) ? `<div class="addr muted">From ${new Date(r.at).toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' })}</div>` : '';
+    return `<div class="look ${q && r.rank === 0 ? 'best' : ''}"><div class="look-top"><span class="pro">${esc(r.pro)}${r.alt ? ` <span class="muted">· ${esc(r.alt)}</span>` : ''}</span>${route}</div>
       ${r.name || r.street ? `<div class="look-name">${esc(r.name)}</div><div>${esc(r.street)}</div><div>${esc(r.city)}</div>` : '<div class="muted">No address yet</div>'}${close}${old}</div>`;
   }).join('');
 }
