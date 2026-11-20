@@ -2,7 +2,7 @@
 // pallet stickers to see which driver and stop they belong to.
 // Everything is kept on this phone (localStorage). Works with a Bluetooth
 // scanner (it types like a keyboard and presses Enter) or the phone camera.
-import { norm, findStop, findExact, loadInfo, pairSheets, nearlySame, poolMatch } from './match.js';
+import { norm, findStop, findExact, loadInfo, pairSheets, nearlySame, poolMatch, lookupAddress } from './match.js';
 import { mergeDocs, canon, palletKey } from './merge.js';
 import { putPhoto, photoUrl, photoBlob, deletePhoto, clearPhotos, shrink } from './photos.js';
 
@@ -148,7 +148,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' || e.key === 'Tab') {
     if (buffer.length >= 3) {
       e.preventDefault();
-      if (editOpen()) { editValue = buffer.replace(/^[^0-9A-Za-z]+|[^0-9A-Za-z]+$/g, ''); showValue(); good(); } else handleScan(buffer);
+      if (editOpen()) { editValue = buffer.replace(/^[^0-9A-Za-z]+|[^0-9A-Za-z]+$/g, ''); showValue(); good(); if (editing?.mode === 'lookup') { lookupQuery = editValue; renderLookup(); } } else handleScan(buffer);
     }
     buffer = '';
     return;
@@ -163,6 +163,7 @@ function handleScan(raw) {
   const code = String(raw).trim().replace(/^[^0-9A-Za-z]+|[^0-9A-Za-z]+$/g, '');
   if (norm(code).length < 3) return;
   if (scanningId) stackScan(code);
+  else if (tab === 'lookup') { lookupQuery = code; good(); render(); }
   else palletScan(code);
 }
 
@@ -424,7 +425,8 @@ function openJoin() {
 function openEntry() {
   editing = { mode: 'enter' };
   editValue = '';
-  $('edit-title').textContent = scanningId ? 'Enter a sheet pro#' : 'Enter a pallet pro#';
+  editing = { mode: tab === 'lookup' && !scanningId ? 'lookup' : 'enter' };
+  $('edit-title').textContent = scanningId ? 'Enter a sheet pro#' : editing.mode === 'lookup' ? 'Look up a pro#' : 'Enter a pallet pro#';
   $('edit-move').hidden = true;
   $('edit-save').textContent = 'Go';
   showValue();
@@ -442,6 +444,7 @@ document.querySelectorAll('#keypad [data-k]').forEach((b) => {
     else if (k === 'clear') editValue = '';
     else if (editValue.length < 20) editValue += k;
     showValue();
+    if (editing?.mode === 'lookup') { lookupQuery = editValue; renderLookup(); } // results update as you type
   };
 });
 function moveStop(step) {
@@ -469,6 +472,7 @@ async function saveEdit() {
     joinSharing(code);
     return;
   }
+  if (editing.mode === 'lookup') { lookupQuery = pro; closeEdit(); render(); return; }
   if (editing.mode === 'enter') {
     closeEdit();
     if (norm(pro).length >= 3) handleScan(pro);
@@ -790,12 +794,42 @@ function render() {
   const issues = (st.total - st.have) + st.unknown;
   $('check-badge').hidden = !(state.pallets.length && issues);
   $('check-badge').textContent = issues;
-  $('enter-btn').textContent = scanningId ? '⌨ Enter a sheet pro#' : '⌨ Enter a pallet pro#';
+  $('enter-btn').textContent = scanningId ? '⌨ Enter a sheet pro#' : tab === 'lookup' ? '⌨ Look up a pro#' : '⌨ Enter a pallet pro#';
+  $('tab-lookup').hidden = tab !== 'lookup';
 
   renderStacks(st);
   if (scanningId) renderStackScan();
   renderPallets(st);
   renderCheck(st);
+  renderLookup();
+}
+
+// ---------- Stops: look up any pro#'s address, on a route or not ----------
+let lookupQuery = '';
+function renderLookup() {
+  if (tab !== 'lookup') return;
+  const n = state.pool?.length || 0;
+  const q = lookupQuery;
+  $('lookup-q').textContent = q || 'Scan or tap ⌨ to look up a pro#';
+  $('lookup-q').classList.toggle('empty', !q);
+  if (!q) {
+    $('lookup-list').innerHTML = `<div class="empty">${n ? `${n} addresses saved from manifests and photos (last 7 days).` : 'No addresses yet. Take manifest photos on the Stacks tab.'}</div>`;
+    return;
+  }
+  const found = lookupAddress(state.drivers, state.pool, q);
+  if (!found.length) {
+    $('lookup-list').innerHTML = norm(q).length < 3 ? '<div class="empty">Keep typing…</div>' : `<div class="msg bad">No address saved for <b>${esc(q)}</b>. Snap that manifest page on the Stacks tab.</div>`;
+    return;
+  }
+  $('lookup-list').innerHTML = found.map((r) => {
+    const route = r.driver
+      ? `<span class="tag" style="background:${colorOf(r.driver)[0]}">${esc(label(r.driver))} · stop ${r.index + 1}</span>`
+      : '<span class="tag off">Not on a route</span>';
+    const close = r.rank === 1 ? '<div class="addr warn">One digit off from what you entered</div>' : '';
+    const old = r.at && r.at < state.startedAt ? `<div class="addr muted">From ${new Date(r.at).toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' })}</div>` : '';
+    return `<div class="look ${r.rank === 0 ? 'best' : ''}"><div class="look-top"><span class="pro">${esc(r.pro)}${r.alt ? ` <span class="muted">· ${esc(r.alt)}</span>` : ''}</span>${route}</div>
+      ${r.name || r.street ? `<div class="look-name">${esc(r.name)}</div><div>${esc(r.street)}</div><div>${esc(r.city)}</div>` : '<div class="muted">No address yet</div>'}${close}${old}</div>`;
+  }).join('');
 }
 
 function renderStacks(st) {

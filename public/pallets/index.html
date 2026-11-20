@@ -57,6 +57,12 @@
       <ol class="recent" id="recent"></ol>
     </section>
 
+    <!-- Stops: look up the address for any pro# -->
+    <section id="tab-lookup" class="tab" hidden>
+      <div class="display" id="lookup-q"></div>
+      <div id="lookup-list"></div>
+    </section>
+
     <!-- Check: stops without a pallet, pallets without a stop -->
     <section id="tab-check" class="tab" hidden>
       <div id="check"></div>
@@ -71,6 +77,7 @@
   <nav class="tabs">
     <button data-tab="stacks" class="on">Stacks</button>
     <button data-tab="pallets">Pallets</button>
+    <button data-tab="lookup">Stops</button>
     <button data-tab="check">Check <span id="check-badge" class="badge" hidden></span></button>
   </nav>
 

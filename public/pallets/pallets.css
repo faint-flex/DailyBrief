@@ -194,3 +194,10 @@ div.driver .meta { margin-left: 6px; }
 #edit-move { margin-bottom: 2px; }
 .sheet-card { max-height: 100vh; overflow-y: auto; }
 .share-code { font-size: 56px; font-weight: 900; letter-spacing: 6px; text-align: center; font-variant-numeric: tabular-nums; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin: 10px 0; }
+.look { background: var(--card); border-radius: 14px; padding: 12px 14px; margin: 10px 0; font-size: 18px; line-height: 1.35; }
+.look.best { border: 2px solid var(--accent); }
+.look-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+.look-name { font-size: 22px; font-weight: 800; }
+.tag { color: #fff; border-radius: 10px; padding: 3px 10px; font-size: 14px; font-weight: 700; white-space: nowrap; }
+.tag.off { background: var(--line); color: #cdd6e0; }
+#lookup-q { margin-bottom: 4px; }
