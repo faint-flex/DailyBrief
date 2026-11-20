@@ -201,3 +201,8 @@ div.driver .meta { margin-left: 6px; }
 .tag { color: #fff; border-radius: 10px; padding: 3px 10px; font-size: 14px; font-weight: 700; white-space: nowrap; }
 .tag.off { background: var(--line); color: #cdd6e0; }
 #lookup-q { margin-bottom: 4px; }
+.filters { flex-wrap: nowrap; overflow-x: auto; margin: 10px -16px 4px; padding: 0 16px; scrollbar-width: none; }
+.filters .chip { flex: none; padding: 10px 14px; font-size: 16px; }
+.chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.clear-q { float: right; background: var(--line); border-radius: 10px; font-size: 15px; padding: 6px 10px; margin-top: 4px; }
+#lookup-q.empty { font-size: 18px; font-weight: 600; }

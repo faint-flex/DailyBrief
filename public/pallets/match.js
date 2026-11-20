@@ -122,6 +122,19 @@ export function poolMatch(pool, pro) {
 export function lookupAddress(drivers, pool, query, limit = 10) {
   const q = norm(query);
   if (q.length < 3) return [];
+  const out = [];
+  for (const r of addressBook(drivers, pool)) {
+    let rank = -1;
+    if (norm(r.pro) === q || (r.alt && norm(r.alt) === q)) rank = 0;
+    else if (nearlySame(r.pro, q)) rank = 1;
+    else if (norm(r.pro).includes(q) || (r.alt && norm(r.alt).includes(q))) rank = 2;
+    if (rank >= 0) out.push({ ...r, rank });
+  }
+  return out.sort((a, b) => a.rank - b.rank || (b.at || 0) - (a.at || 0)).slice(0, limit);
+}
+
+/** Every pro# with an address or on a route, newest first: manifest rows merged with route stops. */
+export function addressBook(drivers, pool) {
   const byPro = new Map();
   for (const r of pool || []) byPro.set(norm(r.pro), { pro: r.pro, alt: r.alt || '', name: r.name, street: r.street, city: r.city, at: r.at });
   for (const driver of drivers || []) {
@@ -134,13 +147,5 @@ export function lookupAddress(drivers, pool, query, limit = 10) {
       else byPro.set(k, { pro: s.pro, alt: '', name: a?.name || '', street: a?.street || '', city: a?.city || '', at: s.at, driver, index });
     });
   }
-  const out = [];
-  for (const r of byPro.values()) {
-    let rank = -1;
-    if (norm(r.pro) === q || (r.alt && norm(r.alt) === q)) rank = 0;
-    else if (nearlySame(r.pro, q)) rank = 1;
-    else if (norm(r.pro).includes(q) || (r.alt && norm(r.alt).includes(q))) rank = 2;
-    if (rank >= 0) out.push({ ...r, rank });
-  }
-  return out.sort((a, b) => a.rank - b.rank || (b.at || 0) - (a.at || 0)).slice(0, limit);
+  return [...byPro.values()].sort((a, b) => (b.at || 0) - (a.at || 0) || norm(a.pro).localeCompare(norm(b.pro)));
 }

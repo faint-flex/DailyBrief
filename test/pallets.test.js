@@ -79,3 +79,12 @@ test('Stops lookup finds manifest addresses, route stops and partial pro#s', asy
   assert.equal(lookupAddress(drv, pool, '5646')[0].name, 'ACUDOR'); // part of the number
   assert.equal(lookupAddress(drv, pool, '12').length, 0);
 });
+
+test('the address book lists every stop once, newest first', async () => {
+  const { addressBook } = await import('../public/pallets/match.js');
+  const pool = [{ pro: '111111', name: 'A', at: 1 }, { pro: '222222', name: 'B', at: 3 }];
+  const drv = [{ id: 'r', name: 'Rudy', stops: [{ pro: '0111111', at: 5 }, { pro: '333333', at: 2 }] }];
+  const book = addressBook(drv, pool);
+  assert.deepEqual(book.map((r) => norm(r.pro)), ['222222', '333333', '111111']);
+  assert.equal(book.find((r) => r.name === 'A').driver.name, 'Rudy');
+});
