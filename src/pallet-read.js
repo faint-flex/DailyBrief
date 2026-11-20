@@ -36,6 +36,32 @@ Answer with JSON only:
 {"sheets": [{"pro": "006365941", "left": {"name": "", "street": "", "city": "city, state zip"}, "right": {"name": "", "street": "", "city": "city, state zip"}}]}
 Use "" for anything you cannot read.`;
 
+export const MANIFEST_PROMPT = `This is a photo of a printed LINE MANIFEST from a freight terminal. Each row (separated by dashed lines) is one shipment with:
+PRO # (a 7 to 9 digit number at the start of the row), CONSIGNEE NAME/CITY (company, street, city: this is who receives it, in or near Las Vegas), and SHIPPER NAME/CITY (ignore the shipper).
+Some rows are interline ("**I/L -"): they show a long line pro such as 00277715130 and a carrier code such as SMTL, and the DDP pro (like 980005646) under it. Put the DDP pro in "pro" and the long line pro in "alt".
+List EVERY row once, top to bottom. Do not invent rows.
+Answer with JSON only:
+{"rows": [{"pro": "5252550", "alt": "", "name": "VIP TRANSPORT", "street": "6425 S JONES BLVD #1", "city": "LAS VEGAS"}]}
+Use "" for anything you cannot read.`;
+
+/** Rows read off a line manifest, each with a usable pro#. */
+export function parseManifest(text) {
+  const m = String(text).match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  let o;
+  try { o = JSON.parse(m[0]); } catch { return null; }
+  const list = Array.isArray(o) ? o : o.rows;
+  if (!Array.isArray(list)) return null;
+  const digits = (v) => clean(v).replace(/[^0-9A-Za-z]/g, '');
+  const seen = new Map();
+  for (const x of list.slice(0, 120)) {
+    const row = { ...addrOf(x), pro: digits(x?.pro), alt: digits(x?.alt) };
+    if (row.pro.length < 6 || (!row.name && !row.street)) continue;
+    if (!seen.has(row.pro)) seen.set(row.pro, row);
+  }
+  return seen.size ? [...seen.values()] : null;
+}
+
 /** True when an address is in the Las Vegas area, where every delivery from this terminal goes. */
 export function isLocal(a) {
   const t = `${a?.street || ''} ${a?.city || ''}`.toUpperCase();
@@ -132,12 +158,14 @@ export async function handlePalletRead(request, env) {
 
   let image;
   let stack = false;
+  let manifest = false;
   try {
     const raw = await request.text();
     if (raw.length > MAX_IMAGE + 200) return json({ error: 'That photo is too big.' }, 413);
     const body = JSON.parse(raw);
     image = body.image;
     stack = body.mode === 'stack';
+    manifest = body.mode === 'manifest';
   } catch {
     return json({ error: 'Send JSON with an image.' }, 400);
   }
@@ -150,15 +178,18 @@ export async function handlePalletRead(request, env) {
         messages: [{
           role: 'user',
           content: [
-            { type: 'text', text: stack ? STACK_PROMPT : PROMPT },
+            { type: 'text', text: manifest ? MANIFEST_PROMPT : stack ? STACK_PROMPT : PROMPT },
             { type: 'image_url', image_url: { url: image } },
           ],
         }],
-        max_tokens: stack ? 2000 : 200,
+        max_tokens: manifest || stack ? 2500 : 200,
         temperature: 0,
       });
       const text = answerText(out);
-      if (stack) {
+      if (manifest) {
+        const rows = parseManifest(text);
+        if (rows) return json({ rows, model });
+      } else if (stack) {
         const sheets = parseStack(text);
         if (sheets) return json({ sheets, model });
       } else {

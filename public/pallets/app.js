@@ -2,7 +2,7 @@
 // pallet stickers to see which driver and stop they belong to.
 // Everything is kept on this phone (localStorage). Works with a Bluetooth
 // scanner (it types like a keyboard and presses Enter) or the phone camera.
-import { norm, findStop, findExact, loadInfo, pairSheets, nearlySame } from './match.js';
+import { norm, findStop, findExact, loadInfo, pairSheets, nearlySame, poolMatch } from './match.js';
 import { putPhoto, photoUrl, photoBlob, deletePhoto, clearPhotos, shrink } from './photos.js';
 
 const KEY = 'pallet-router-v1';
@@ -23,12 +23,13 @@ const timeOf = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minu
 
 // ---------- state ----------
 function blank() {
-  return { startedAt: Date.now(), drivers: [], pallets: [], recentNames: load()?.recentNames || [] };
+  return { pool: [], startedAt: Date.now(), drivers: [], pallets: [], recentNames: load()?.recentNames || [] };
 }
 function load() {
   try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch { return null; }
 }
 let state = load() || blank();
+state.pool = state.pool || [];
 for (const d of state.drivers) if (rosterIndex(d.name) >= 0) d.colorIndex = rosterIndex(d.name); // keep roster colors fixed
 function save() {
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { toast('Could not save on this phone'); }
@@ -253,6 +254,64 @@ $('stack-photo').onclick = () => {
 };
 // Stack photos read in the background, so you can move on to the next run.
 const readingStacks = new Set(); // driver (run) ids with a stack photo being read
+
+// ---------- manifest: one photo of the line manifest gives every stop its address ----------
+let readingManifests = 0;
+$('manifest-photo').onclick = () => { $('manifest-input').value = ''; $('manifest-input').click(); };
+$('manifest-input').addEventListener('change', async () => {
+  const file = $('manifest-input').files[0];
+  if (!file) return;
+  readingManifests += 1;
+  render();
+  toast('Reading the manifest in the background (up to a minute).');
+  try {
+    const blob = await shrink(file, 1800);
+    const image = await new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result);
+      fr.onerror = reject;
+      fr.readAsDataURL(blob);
+    });
+    const res = await fetch('/pallets/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image, mode: 'manifest' }) });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok || !Array.isArray(out.rows)) throw new Error(out.error || 'no rows');
+    const known = new Set(state.pool.map((r) => norm(r.pro)));
+    let added = 0;
+    for (const r of out.rows) {
+      if (known.has(norm(r.pro))) continue;
+      state.pool.push({ pro: r.pro, alt: r.alt || '', name: r.name, street: r.street, city: r.city });
+      known.add(norm(r.pro));
+      added += 1;
+    }
+    save(); good();
+    toast(`Manifest: added ${added} address${added === 1 ? '' : 'es'} to the pool`);
+  } catch {
+    bad();
+    toast('Could not read that manifest. Try again flat, close and well lit.');
+  } finally {
+    readingManifests -= 1;
+    render();
+  }
+});
+
+// Fills stops from the manifest pool. A close-up sheet photo still wins; the
+// manifest (printed, clean) beats a stack photo.
+function applyPool() {
+  if (!state.pool?.length) return;
+  let changed = false;
+  for (const d of state.drivers) {
+    for (const stop of d.stops) {
+      const from = stop.addr?.from;
+      if (stop.addr?.name && from !== 'stack' && from !== 'manifest') continue;
+      const row = poolMatch(state.pool, stop.pro);
+      if (!row) continue;
+      if (from === 'manifest' && stop.addr.name === row.name && stop.addr.street === row.street) continue;
+      stop.addr = { name: row.name, street: row.street, city: row.city, from: 'manifest' };
+      changed = true;
+    }
+  }
+  if (changed) save();
+}
 $('stack-input').addEventListener('change', async () => {
   const file = $('stack-input').files[0];
   const d = driverById(scanningId);
@@ -545,6 +604,7 @@ function stopsStatus() {
 
 function render() {
   rematch();
+  applyPool();
   document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
   $('tab-stacks').hidden = !(tab === 'stacks' && !scanningId);
   $('tab-stack-scan').hidden = !(tab === 'stacks' && scanningId);
@@ -566,6 +626,9 @@ function render() {
 }
 
 function renderStacks(st) {
+  const n = state.pool?.length || 0;
+  $('manifest-photo').textContent = readingManifests ? `⏳ Reading ${readingManifests} manifest${readingManifests === 1 ? '' : 's'}… tap to add another` : '📷 Manifest photo · addresses for every stop';
+  $('pool-status').textContent = n ? `Address pool: ${n} pro#s from the manifest. Add more pages any time.` : 'Snap each manifest page once. Stops fill in their address by pro#.';
   $('new-day').textContent = 'Start a new day';
   // Regular drivers first (in roster order, even before a stack is scanned), then anyone else added today.
   const names = [...ROSTER];

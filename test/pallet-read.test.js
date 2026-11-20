@@ -69,3 +69,12 @@ test('the Las Vegas box wins when the model swaps consignee and shipper', async 
   const one = parseAddress('{"consignee":{"name":"SML MEDICAL","street":"1 Main","city":"Ontario, CA 91761"},"shipper":{"name":"Desert Clinic","street":"9 Rd","city":"Henderson, NV 89011"},"pro":"6"}');
   assert.equal(one.name, 'Desert Clinic');
 });
+
+test('manifest mode returns every row with its consignee', async () => {
+  const env = { AI: { run: async (model, input) => {
+    assert.match(input.messages[0].content[0].text, /LINE MANIFEST/);
+    return { response: '{"rows":[{"pro":"5252550","alt":"","name":"VIP TRANSPORT","street":"6425 S JONES BLVD #1","city":"LAS VEGAS"},{"pro":"980005646","alt":"00277715130","name":"ACUDOR","street":"4216 NORTH PECOS RD","city":"LAS VEGAS"},{"pro":"x","name":"junk"}]}' };
+  } } };
+  const out = await (await worker.fetch(post({ image: IMG, mode: 'manifest' }), env)).json();
+  assert.deepEqual(out.rows.map((r) => [r.pro, r.alt, r.name]), [['5252550', '', 'VIP TRANSPORT'], ['980005646', '00277715130', 'ACUDOR']]);
+});
