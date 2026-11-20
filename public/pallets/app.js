@@ -3,6 +3,7 @@
 // Everything is kept on this phone (localStorage). Works with a Bluetooth
 // scanner (it types like a keyboard and presses Enter) or the phone camera.
 import { norm, findStop, findExact, loadInfo, pairSheets, nearlySame, poolMatch } from './match.js';
+import { mergeDocs, canon, palletKey } from './merge.js';
 import { putPhoto, photoUrl, photoBlob, deletePhoto, clearPhotos, shrink } from './photos.js';
 
 const KEY = 'pallet-router-v1';
@@ -23,7 +24,7 @@ const timeOf = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minu
 
 // ---------- state ----------
 function blank(pool = []) {
-  return { pool, startedAt: Date.now(), drivers: [], pallets: [], recentNames: load()?.recentNames || [] };
+  return { pool, gone: {}, startedAt: Date.now(), drivers: [], pallets: [], recentNames: load()?.recentNames || [] };
 }
 const KEEP_DAYS = 7;
 // Addresses carry over between days by pro#: freight from yesterday's manifest can
@@ -47,10 +48,36 @@ function load() {
 }
 let state = load() || blank();
 state.pool = state.pool || [];
+state.gone = state.gone || {};
 for (const r of state.pool) if (!r.at) r.at = state.startedAt || Date.now();
 for (const d of state.drivers) if (rosterIndex(d.name) >= 0) d.colorIndex = rosterIndex(d.name); // keep roster colors fixed
+// Stamps each stack with the time of its last change (rev), and remembers deleted
+// stacks and cleared pallets, so a shared day merges right on both phones.
+let knownDrivers = new Map(); // id -> stack as last saved
+let knownPallets = new Set();
+const body = (d) => { const { rev, ...rest } = d; return JSON.stringify(rest); };
+function remember() {
+  knownDrivers = new Map(state.drivers.map((d) => [d.id, body(d)]));
+  knownPallets = new Set(state.pallets.map(palletKey));
+}
+function stamp() {
+  const now = Date.now();
+  const ids = new Set();
+  for (const d of state.drivers) {
+    ids.add(d.id);
+    const b = body(d);
+    if (knownDrivers.get(d.id) !== b) { d.rev = now; knownDrivers.set(d.id, b); }
+  }
+  for (const id of knownDrivers.keys()) if (!ids.has(id)) { state.gone[`d:${id}`] = now; knownDrivers.delete(id); }
+  const keys = new Set(state.pallets.map(palletKey));
+  for (const k of knownPallets) if (!keys.has(k)) state.gone[`p:${k}`] = now;
+  knownPallets = keys;
+}
+remember();
 function save() {
+  stamp();
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { toast('Could not save on this phone'); }
+  if (share.code) { clearTimeout(pushTimer); pushTimer = setTimeout(syncNow, 300); }
 }
 
 let tab = 'stacks';
@@ -385,6 +412,15 @@ function openEdit(driverId, index) {
   showValue();
   $('edit-sheet').hidden = false;
 }
+function openJoin() {
+  editing = { mode: 'join' };
+  editValue = '';
+  $('edit-title').textContent = state.drivers.length ? 'Code from the other phone (replaces the stacks on this phone)' : 'Code from the other phone';
+  $('edit-move').hidden = true;
+  $('edit-save').textContent = 'Join';
+  showValue();
+  $('edit-sheet').hidden = false;
+}
 function openEntry() {
   editing = { mode: 'enter' };
   editValue = '';
@@ -426,6 +462,13 @@ $('edit-down').onclick = () => moveStop(1);
 async function saveEdit() {
   if (!editing) return;
   const pro = editValue.trim().replace(/^[^0-9A-Za-z]+|[^0-9A-Za-z]+$/g, '');
+  if (editing.mode === 'join') {
+    const code = editValue.replace(/\D/g, '');
+    if (code.length !== 6) { toast('The code is 6 digits'); return; }
+    closeEdit();
+    joinSharing(code);
+    return;
+  }
   if (editing.mode === 'enter') {
     closeEdit();
     if (norm(pro).length >= 3) handleScan(pro);
@@ -538,7 +581,118 @@ $('stack-delete').onclick = () => {
 let newDayArmed = 0;
 $('new-day').onclick = () => {
   if (Date.now() - newDayArmed > 3000) { newDayArmed = Date.now(); $('new-day').textContent = 'Tap again to clear stacks and pallets (addresses are kept)'; return; }
-  state = blank(carryPool()); save(); lastResult = null; clearPhotos().catch(() => {}); render(); toast('New day started');
+  // Mark today's stacks and pallets as cleared, so a shared phone doesn't bring them back.
+  const now = Date.now();
+  const gone = Object.fromEntries(Object.entries(state.gone || {}).filter(([, t]) => now - t < 2 * 86400000));
+  for (const d of state.drivers) gone[`d:${d.id}`] = now;
+  for (const p of state.pallets) gone[`p:${palletKey(p)}`] = now;
+  state = blank(carryPool()); state.gone = gone; remember(); save(); lastResult = null; clearPhotos().catch(() => {}); render(); toast('New day started');
+};
+
+// ---------- sharing: two phones, one day ----------
+// "Share" gives a 6-digit code; the other phone joins with it. Both phones then
+// keep the same stacks, pallets and addresses (address photos stay on the phone
+// that took them). The server merges both copies (see merge.js).
+const SHARE_KEY = 'pallet-router-share';
+let share = (() => { try { return JSON.parse(localStorage.getItem(SHARE_KEY) || 'null') || {}; } catch { return {}; } })();
+let pushTimer;
+let syncing = false;
+let again = false;
+let online = true;
+let synced = ''; // the server's copy, in canon form
+function saveShare() { try { localStorage.setItem(SHARE_KEY, JSON.stringify(share)); } catch { /* ignore */ } }
+
+async function post(input) {
+  const res = await fetch('/pallets/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
+  const out = await res.json().catch(() => ({}));
+  return { res, out };
+}
+
+function takeRemote(doc) {
+  const merged = mergeDocs(state, doc);
+  const { recentNames } = state;
+  state = { ...merged, recentNames };
+  remember();
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* ignore */ }
+  synced = canon(doc);
+  render();
+}
+
+async function syncNow() {
+  if (!share.code) return;
+  if (syncing) { again = true; return; }
+  syncing = true;
+  try {
+    const mine = canon(state);
+    const dirty = mine !== synced;
+    const { res, out } = await post({ code: share.code, ver: share.ver ?? -1, doc: dirty ? JSON.parse(mine) : null });
+    if (res.status === 404) { stopSharing('That shared day has ended.'); return; }
+    if (!res.ok) throw new Error(out.error);
+    if (out.doc) takeRemote(out.doc);
+    share.ver = out.ver; saveShare();
+    if (!online) { online = true; render(); }
+    if (canon(state) !== synced) again = true; // edits made while this was on the way
+  } catch {
+    if (online) { online = false; render(); }
+  } finally {
+    syncing = false;
+    if (again) { again = false; setTimeout(syncNow, 200); }
+  }
+}
+setInterval(() => { if (share.code && document.visibilityState === 'visible') syncNow(); }, 3000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncNow(); });
+
+async function startSharing() {
+  for (let i = 0; i < 5; i += 1) {
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    try {
+      const { res, out } = await post({ code, create: true, doc: JSON.parse(canon(state)) });
+      if (res.status === 409) continue;
+      if (!res.ok) throw new Error(out.error);
+      share = { code, ver: out.ver }; saveShare();
+      takeRemote(out.doc); openShare();
+      return;
+    } catch { break; }
+  }
+  bad(); toast('Could not start sharing. Check the signal and try again.');
+}
+async function joinSharing(code) {
+  try {
+    const { res, out } = await post({ code, ver: -1 });
+    if (res.status === 404 || res.status === 400) { bad(); toast(`No one is sharing with ${code}. Check the code.`); return; }
+    if (!res.ok || !out.doc) throw new Error(out.error);
+    // Take their day: this phone's stacks give way, addresses are kept.
+    state.startedAt = out.doc.startedAt; state.drivers = []; state.pallets = []; state.gone = {};
+    remember();
+    share = { code, ver: out.ver }; saveShare();
+    scanningId = null; lastResult = null;
+    takeRemote(out.doc);
+    good(); toast(`Joined ${code}. You now see the same stacks.`);
+    syncNow();
+  } catch { bad(); toast('Could not join. Check the signal and try again.'); }
+}
+function stopSharing(why) {
+  share = {}; saveShare(); synced = '';
+  $('share-sheet').hidden = true;
+  if (why) toast(why);
+  render();
+}
+function openShare() {
+  const on = !!share.code;
+  $('share-off').hidden = on;
+  $('share-on').hidden = !on;
+  if (on) $('share-code').textContent = share.code.replace(/(\d{3})(\d{3})/, '$1 $2');
+  $('share-sheet').hidden = false;
+}
+$('share-btn').onclick = openShare;
+$('share-close').onclick = () => { $('share-sheet').hidden = true; };
+$('share-start').onclick = startSharing;
+$('share-join').onclick = () => { $('share-sheet').hidden = true; openJoin(); };
+let stopArmed = 0;
+$('share-stop').onclick = () => {
+  if (Date.now() - stopArmed > 3000) { stopArmed = Date.now(); $('share-stop').textContent = 'Tap again to stop sharing on this phone'; return; }
+  $('share-stop').textContent = 'Stop sharing on this phone';
+  stopSharing('Sharing stopped. This phone keeps its copy.');
 };
 
 // ---------- pallets ----------
@@ -630,6 +784,9 @@ function render() {
   const st = stopsStatus();
   $('status').textContent = state.drivers.length
     ? `${state.drivers.length} drivers · ${st.total} stops` : `Started ${timeOf(state.startedAt)}`;
+  $('status').classList.toggle('live', !!share.code && online);
+  if (share.code) $('status').textContent += online ? ` · 🔗 ${share.code}` : ' · ⚠ offline';
+  $('share-btn').textContent = share.code ? `🔗 Shared · code ${share.code}` : '🔗 Share with a coworker';
   const issues = (st.total - st.have) + st.unknown;
   $('check-badge').hidden = !(state.pallets.length && issues);
   $('check-badge').textContent = issues;
@@ -793,3 +950,4 @@ function rematch() {
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/pallets/sw.js', { scope: '/pallets/' }).catch(() => {});
 keepAwake();
 render();
+syncNow();

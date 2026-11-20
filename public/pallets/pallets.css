@@ -193,3 +193,4 @@ div.driver .meta { margin-left: 6px; }
 .keypad button.fn { font-size: 18px; color: #cdd6e0; }
 #edit-move { margin-bottom: 2px; }
 .sheet-card { max-height: 100vh; overflow-y: auto; }
+.share-code { font-size: 56px; font-weight: 900; letter-spacing: 6px; text-align: center; font-variant-numeric: tabular-nums; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin: 10px 0; }

@@ -8,7 +8,7 @@ keep_vars = true
 [assets]
 directory = "./public"
 binding = "ASSETS"
-run_worker_first = ["/api/*", "/oauth/*", "/pallets/read"]
+run_worker_first = ["/api/*", "/oauth/*", "/pallets/read", "/pallets/sync"]
 
 # Where the daily briefs are kept (your BRIEFS namespace; the id is not a secret).
 [[kv_namespaces]]
@@ -35,3 +35,12 @@ IG_USER_ID = "17841426600007858"
 # Pallet Router reads the address off receipt photos with Workers AI (free daily allowance).
 [ai]
 binding = "AI"
+
+# Pallet Router sharing: one Durable Object per 6-digit code (SQLite storage, free plan).
+[[durable_objects.bindings]]
+name = "PALLET_ROOMS"
+class_name = "PalletRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PalletRoom"]
