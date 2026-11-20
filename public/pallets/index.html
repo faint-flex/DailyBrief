@@ -22,6 +22,8 @@
   <main>
     <!-- Stacks: one per driver, scanned top sheet first -->
     <section id="tab-stacks" class="tab">
+      <button class="big photo" id="manifest-photo">📷 Manifest photo · addresses for every stop</button>
+      <p class="hint small-hint" id="pool-status"></p>
       <div id="stacks-list"></div>
       <button class="big ghost" id="add-driver">+ Other driver</button>
       <div class="foot">
@@ -117,6 +119,7 @@
   <!-- Address photo: opens the phone camera -->
   <input type="file" id="photo-input" accept="image/*" capture="environment" hidden>
   <input type="file" id="sheet-input" accept="image/*" capture="environment" hidden>
+  <input type="file" id="manifest-input" accept="image/*" capture="environment" hidden>
   <input type="file" id="stack-input" accept="image/*" capture="environment" hidden>
   <div class="viewer" id="viewer" hidden><img id="viewer-img" alt="Address photo"><div class="cam-msg">Tap to close</div></div>
 

@@ -103,3 +103,12 @@ export function pairSheets(stops, sheets) {
   }
   return out;
 }
+
+/** The manifest row for a pro#: exact on the pro or the interline pro, else a unique one-digit-off match. */
+export function poolMatch(pool, pro) {
+  const key = norm(pro);
+  const exact = pool.find((r) => norm(r.pro) === key || (r.alt && norm(r.alt) === key));
+  if (exact) return exact;
+  const near = pool.filter((r) => nearlySame(r.pro, pro));
+  return near.length === 1 ? near[0] : null;
+}

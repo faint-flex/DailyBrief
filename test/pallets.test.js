@@ -54,3 +54,12 @@ test('stack photo sheets pair with scanned stops, allowing one misread digit', a
   ]);
   assert.deepEqual(pairs.map((p) => [p.index, p.sheet.name]), [[0, 'GALLEHERDUFFY'], [2, 'ONE MONROE']]);
 });
+
+test('manifest pool matches a stop by pro, interline pro, or one digit off', async () => {
+  const { poolMatch } = await import('../public/pallets/match.js');
+  const pool = [{ pro: '5252550', alt: '', name: 'VIP TRANSPORT' }, { pro: '980005646', alt: '00277715130', name: 'ACUDOR' }];
+  assert.equal(poolMatch(pool, '005252550').name, 'VIP TRANSPORT');
+  assert.equal(poolMatch(pool, '00277715130').name, 'ACUDOR');
+  assert.equal(poolMatch(pool, '005252551').name, 'VIP TRANSPORT');
+  assert.equal(poolMatch(pool, '111111111'), null);
+});
