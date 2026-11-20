@@ -53,8 +53,8 @@ export class PalletRoom {
   async fetch(request) {
     const input = await request.json();
     const { status, body } = await syncRoom(this.ctx.storage, input);
-    // Forget a code two weeks after its last change.
-    if (status === 200) await this.ctx.storage.setAlarm(Date.now() + 14 * 86400000);
+    // The phones stay linked day after day; a code is forgotten only after a year unused.
+    if (status === 200) await this.ctx.storage.setAlarm(Date.now() + 365 * 86400000);
     return json(body, status);
   }
 
