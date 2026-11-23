@@ -143,3 +143,13 @@ a.button.primary { background: var(--accent); color: var(--accent-text); }
   color: var(--muted); background: var(--surface); border: 1px solid var(--line);
 }
 .apptabs a[aria-current="page"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+
+/* Trading bot card */
+.badge { font-size: 0.75rem; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; }
+.scores { list-style: none; margin: 8px 0; padding: 0; }
+.scores li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
+.scores li:first-child { border-top: 0; }
+.scores li.lead span { font-weight: 600; }
+.scores .up { color: var(--good); }
+.scores .down { color: #c0392b; }
+@media (prefers-color-scheme: dark) { .scores .down { color: #f08a7e; } }

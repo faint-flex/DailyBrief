@@ -40,3 +40,15 @@ test('/trader/news falls back to the next model and returns the verdict', async 
   assert.equal(j.model, MODELS[1]);
   assert.deepEqual(calls, MODELS.slice(0, 2));
 });
+
+test('/trader/status stores the scorecard for the brief app', async () => {
+  const { handleTraderStatus, readTraderStatus } = await import('../src/trader-news.js');
+  const kv = new Map();
+  const env = { TRADER_ACCOUNT: 'PA123', BRIEFS: { put: async (k, v) => kv.set(k, v), get: async (k) => kv.get(k) ?? null } };
+  const post = (body, keys) => new Request('https://x.test/trader/status', { method: 'POST', headers: keys, body: JSON.stringify(body) });
+  const bad = await handleTraderStatus(post({ a: 1 }, { 'APCA-API-KEY-ID': 'zz', 'APCA-API-SECRET-KEY': 'x' }), env, alpaca('PA999'));
+  assert.equal(bad.status, 401);
+  const r = await handleTraderStatus(post({ trades: 2, start: { date: '2026-11-24' } }, { 'APCA-API-KEY-ID': 'k2', 'APCA-API-SECRET-KEY': 's2' }), env, alpaca('PA123'));
+  assert.equal(r.status, 200);
+  assert.equal((await readTraderStatus(env)).trades, 2);
+});
