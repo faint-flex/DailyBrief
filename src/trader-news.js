@@ -96,3 +96,26 @@ export async function handleTraderNews(request, env, fetcher = fetch) {
   }
   return json({ error: 'No model gave a usable answer.', tried }, 502);
 }
+
+// The day trader's scorecard (daytrader/status.json in faint-flex/Ops), posted after each close.
+//   POST /trader/status  (same Alpaca-key check)  body: status JSON
+//   GET  /api/trader     (brief key)              -> { status }
+const STATUS_KEY = 'trader:status';
+
+export async function handleTraderStatus(request, env, fetcher = fetch) {
+  if (request.method !== 'POST') return json({ error: 'POST the status.' }, 405);
+  if (!env.BRIEFS) return json({ error: 'Storage is not set up on this deployment.' }, 501);
+  if (!(await allowed(request, env, fetcher))) return json({ error: 'Not allowed.' }, 401);
+  const raw = await request.text();
+  if (raw.length > 50_000) return json({ error: 'Too big.' }, 413);
+  let status;
+  try { status = JSON.parse(raw); } catch { return json({ error: 'Send JSON.' }, 400); }
+  if (!status || typeof status !== 'object' || Array.isArray(status)) return json({ error: 'Send an object.' }, 400);
+  await env.BRIEFS.put(STATUS_KEY, JSON.stringify({ ...status, received: new Date().toISOString() }));
+  return json({ ok: true });
+}
+
+export async function readTraderStatus(env) {
+  const raw = await env.BRIEFS.get(STATUS_KEY);
+  return raw ? JSON.parse(raw) : null;
+}

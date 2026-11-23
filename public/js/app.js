@@ -229,7 +229,47 @@ $('refresh').addEventListener('click', () => {
   header();
   loadBrief();
   loadWeather();
+  loadTrader();
 });
+
+/* ---------- Trading bot ---------- */
+
+const money = (v) => (v == null ? '—' : `$${Number(v).toFixed(2)}`);
+
+function renderTrader(st) {
+  if (!st || !st.start) return;
+  const since = new Date(`${st.start.date}T12:00:00`).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  $('trader-since').textContent = `What $100 became since ${since} · ${st.trades} trades, ${st.wins} wins`;
+  const rows = [
+    ['Day trader (shares)', st.day_trader_shares_100_is_now],
+    ['Day trader (spreads)', st.day_trader_spreads_100_is_now],
+    ['Long-term bot', st.long_term_bot_100_is_now],
+    ['Just holding the S&P 500', st.spy_hold_100_is_now],
+  ];
+  const best = Math.max(...rows.map(([, v]) => (v == null ? -Infinity : v)));
+  $('trader-scores').replaceChildren(...rows.map(([name, v]) => el('li', { class: v === best ? 'lead' : '' },
+    el('span', {}, name), el('strong', { class: v == null ? '' : v >= 100 ? 'up' : 'down' }, money(v)))));
+  const real = st.real_100_rules;
+  $('trader-real').textContent = real
+    ? `Under real $100 rules (3 day trades a week): shares ${money(real.shares_100_is_now)}, spreads ${money(real.spreads_100_is_now)}.`
+    : '';
+  const today = (st.today || []).map((t) => {
+    if (!t.symbol) return el('li', {}, t.note || 'No trade today.');
+    const dir = t.side === 'up' ? '▲' : '▼';
+    const res = t.filled ? `${t.return_pct >= 0 ? '+' : ''}${t.return_pct.toFixed(2)}%` : 'never triggered';
+    const spread = t.spread ? ` · spread ${t.spread.pnl_usd >= 0 ? '+' : '-'}$${Math.abs(t.spread.pnl_usd).toFixed(0)}` : '';
+    return el('li', {}, `${dir} ${t.symbol}: ${res}${spread}`);
+  });
+  $('trader-today').replaceChildren(...(today.length ? today : [el('li', {}, 'No trade today.')]));
+  $('trader').hidden = false;
+}
+
+async function loadTrader() {
+  try {
+    const { status } = await api('/api/trader');
+    renderTrader(status);
+  } catch { /* the card just stays hidden */ }
+}
 
 /* ---------- Weather ---------- */
 
@@ -299,6 +339,7 @@ const cached = saved.get(CACHE);
 if (cached) renderBrief(cached);
 loadBrief();
 loadWeather();
+loadTrader();
 
 // Opening the app from the background on a new morning should show the new brief.
 document.addEventListener('visibilitychange', () => {
