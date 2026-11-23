@@ -15,6 +15,7 @@ import { normalizeReport, reportStore } from './src/report.js';
 import { distillNightly, statsStore, liveCached } from './src/stats.js';
 import { handlePalletRead } from './src/pallet-read.js';
 import { handlePalletSync, PalletRoom } from './src/pallet-sync.js';
+import { handleTraderNews } from './src/trader-news.js';
 
 export { PalletRoom };
 import { startConnect, finishConnect, readDirect, probeInstagram, PLATFORMS } from './src/social-direct.js';
@@ -143,6 +144,7 @@ export default {
     if (url.pathname.startsWith('/api/')) return handleApi(request, env, url);
     if (url.pathname === '/pallets/read') return handlePalletRead(request, env);
     if (url.pathname === '/pallets/sync') return handlePalletSync(request, env);
+    if (url.pathname === '/trader/news') return handleTraderNews(request, env);
     // TikTok / Instagram send the browser back here after sign-in (checked by a one-time state).
     const back = url.pathname.match(/^\/oauth\/(tiktok|instagram)$/);
     if (back && env.BRIEFS) return Response.redirect(`${url.origin}${await finishConnect(env, env.BRIEFS, back[1], url)}`, 302);
