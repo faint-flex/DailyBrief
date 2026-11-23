@@ -237,7 +237,14 @@ $('refresh').addEventListener('click', () => {
 const money = (v) => (v == null ? '—' : `$${Number(v).toFixed(2)}`);
 
 function renderTrader(st) {
-  if (!st || !st.start) return;
+  if (!st || !st.start) {
+    $('trader-since').textContent = 'Paper trading starts tomorrow (weekdays at 6:36 AM). Results show here after the close, around 1 PM.';
+    $('trader-scores').replaceChildren();
+    $('trader-real').textContent = '';
+    $('trader-today').replaceChildren(el('li', {}, 'No trades yet.'));
+    $('trader').hidden = false;
+    return;
+  }
   const since = new Date(`${st.start.date}T12:00:00`).toLocaleDateString([], { month: 'short', day: 'numeric' });
   $('trader-since').textContent = `What $100 became since ${since} · ${st.trades} trades, ${st.wins} wins`;
   const rows = [
