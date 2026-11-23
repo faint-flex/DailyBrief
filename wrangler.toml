@@ -8,7 +8,7 @@ keep_vars = true
 [assets]
 directory = "./public"
 binding = "ASSETS"
-run_worker_first = ["/api/*", "/oauth/*", "/pallets/read", "/pallets/sync"]
+run_worker_first = ["/api/*", "/oauth/*", "/pallets/read", "/pallets/sync", "/trader/news"]
 
 # Where the daily briefs are kept (your BRIEFS namespace; the id is not a secret).
 [[kv_namespaces]]
@@ -31,6 +31,8 @@ service = "grocerylist"
 IG_APP_ID = "1876152856717996"
 IG_CONFIG_ID = "1895911921565221"
 IG_USER_ID = "17841426600007858"
+# Day trader news check (/trader/news): only this Alpaca account's keys may use it. Not a secret.
+TRADER_ACCOUNT = "PA3NXVMDP"
 
 # Pallet Router reads the address off receipt photos with Workers AI (free daily allowance).
 [ai]
