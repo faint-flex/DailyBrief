@@ -338,7 +338,7 @@
       ${lift != null ? `<div class="vn-small">Best ready rocket lifts ${lift.toFixed(1)} t to LEO → up to ${fit} modules per flight.</div>` : ''}
       <div class="vn-row" style="margin-top:8px">
         ${btn('launchN', { d: -1 }, '−', { disabled: launchN <= 1 })}<b style="min-width:110px;text-align:center">${launchN} module${launchN === 1 ? '' : 's'}</b>${btn('launchN', { d: 1 }, '+', { disabled: launchN >= maxN })}
-        ${btn('launchDc', { n: launchN }, `🚀 Launch ${launchN} to LEO`, { go: true, disabled: !launchN })}</div>
+        ${btn('launchDc', { n: launchN }, launchN ? `🚀 Launch ${launchN} to LEO` : '🚀 Nothing ready to launch', { go: true, disabled: !launchN })}</div>
       ${!maxN && d.readyCount ? `<div class="vn-small">⚠ No ready rocket can lift a module. Build a bigger rocket.</div>` : ''}`;
   }
   function dcUpgrades(d, G, S) {
@@ -467,5 +467,6 @@
     });
   }
 
-  root.APOGEE_VENTURES_UI = { render };
+  function setView(v) { if (v === 'ev' || v === 'dc') { view = v; try { localStorage.setItem('apogee-vn-view', v); } catch (e) { /* ignore */ } } }
+  root.APOGEE_VENTURES_UI = { render, setView };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -57,15 +57,32 @@
     for (let i = 0; i < 3; i++) st.contracts.push(S.makeContract(Math.random, st));
     st.log.unshift({ day: 1, text: 'Founded the company with <b>$40M</b> and one Pathfinder rocket.' });
     netEnsure(st);
+    campusEnsure(st);
     return st;
   }
 
   function load() {
     try {
       const raw = localStorage.getItem(SAVE_KEY);
-      if (raw) { const s = JSON.parse(raw); if (s && s.v === 1) { netEnsure(s); return s; } }
+      if (raw) { const s = JSON.parse(raw); if (s && s.v === 1) { netEnsure(s); campusEnsure(s); return s; } }
     } catch (e) { /* ignore */ }
     return newGame();
+  }
+  const CAMPUS = () => window.APOGEE_CAMPUS;
+  function campusEnsure(st) {
+    const C = CAMPUS();
+    if (C && C.ensure) { try { C.ensure(st); } catch (e) { console.warn('Campus ensure failed', e); } }
+  }
+  function campusSync() {
+    const C = CAMPUS();
+    if (!C || !C.bonus || !state.campus) return null;
+    try {
+      const bo = C.bonus(state);
+      state.factory = Math.max(1, bo.factoryLines || 0);
+      state.owned.barge = !!bo.bargePort;
+      state.owned.tower = !!bo.catchTower;
+      return bo;
+    } catch (e) { return null; }
   }
   function netEnsure(st) {
     const N = NET();
@@ -97,8 +114,17 @@
   function dayTick() {
     state.day++;
     state.rp += state.engineers * S.FACILITY.rpPerEngineerDay;
+    const C = CAMPUS();
+    if (C && C.tick && state.campus) {
+      try {
+        const r = C.tick(state) || {};
+        for (const ev of r.events || []) log(ev);
+        if (r.toasts && r.toasts.length) toast(r.toasts[r.toasts.length - 1]);
+      } catch (e) { console.warn('Campus tick failed', e); }
+    }
+    const hasCampus = !!campusSync();
     if (state.day % 30 === 0) {
-      const bill = state.engineers * S.FACILITY.engineerSalary + 0.1 * state.factory + (state.owned.barge ? 0.2 : 0) + (state.owned.tower ? 0.3 : 0);
+      const bill = hasCampus ? state.engineers * S.FACILITY.engineerSalary : state.engineers * S.FACILITY.engineerSalary + 0.1 * state.factory + (state.owned.barge ? 0.2 : 0) + (state.owned.tower ? 0.3 : 0);
       state.cash -= bill;
       log(`Paid monthly costs: <b>${money(bill)}</b>.`);
     }
@@ -170,6 +196,7 @@
     else if (tab === 'base') renderBase();
     else if (tab === 'network') renderNetwork();
     if (tab !== 'network') { const U = NETUI(); if (U && U.hide) U.hide(); }
+    if (tab !== 'base') { const C = CAMPUS(); if (C && C.dispose) { try { C.dispose(); } catch (e) { /* ignore */ } } }
     if (sheet && sheet.live) renderSheet();
   }
 
@@ -406,6 +433,8 @@
   // ---------- Base tab ----------
   function renderBase() {
     const el = $('tab-base');
+    const C = CAMPUS();
+    if (C && C.render && state.campus) { try { C.render(el, GAME); return; } catch (e) { console.warn('Campus render failed', e); } }
     const f = state.factory;
     const st = state.stats;
     const monthly = state.engineers * S.FACILITY.engineerSalary + 0.1 * f + (state.owned.barge ? 0.2 : 0) + (state.owned.tower ? 0.3 : 0);

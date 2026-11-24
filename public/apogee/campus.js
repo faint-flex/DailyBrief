@@ -41,7 +41,7 @@
       unlock: (st) => ({ ok: (st.stats && st.stats.launches >= 4) && st.day >= 60, need: 'Fly 4 launches and reach day 60' }),
       map: ['CCCCCCCCCL', 'RRRRRRRRRL', 'ggcgggRgLL', 'ggggggRgLg', 'tgggggRLLg', 'ttggggRLgg', 'tgggggRLgg', 'ggggggRgLg'] },
     { id: 'corvo', name: 'Point Corvo', icon: '🧭', sub: 'West coast polar launch site', region: 'namerica', base: 0.45, permit: 8, polar: true,
-      desc: 'Cliffs facing south over the Pacific-like ocean: the only place you can launch into polar orbits.',
+      desc: 'Green cliffs above the western ocean: the only place you can launch south into polar orbits.',
       unlock: (st) => ({ ok: st.rep >= 40 || has(st, 'firstGTO'), need: '40 reputation or a satellite delivered to GTO' }),
       map: ['SSBggtggR', 'SBBgggggR', 'SSBggwggR', 'SSBggwwgR', 'SBBRRRRRR', 'SSBggggtR', 'SSBgggggR', 'SBBggtggR', 'SSBgggggR'] },
     { id: 'gw-fjord', name: 'Fjordvik Gateway', icon: '📡', sub: 'Ground-station land · Europe', region: 'europe', base: 0.14, permit: 1.5, gateway: true,

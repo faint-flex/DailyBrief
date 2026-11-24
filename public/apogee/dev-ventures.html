@@ -20,7 +20,7 @@ for(let d=1;d<=days;d++){state.day=d;state.cash+=d<150?6:30;state.rep=Math.min(1
   if(e.stations<600&&!e.stationJobs.length)V.act(state,'stations',{n:4});
   if(d%30==0)V.act(state,'marketing',{perMonth:5});}
  if(!s.dc&&s.canFoundDC.ok)V.act(state,'foundDC',{});
- if(s.dc){const dc=state.ventures.dc; if(!dc.queue.length&&s.dc.modules<120)V.act(state,'buildModules',{n:6});
+ if(s.dc){const dc=state.ventures.dc; if(!dc.queue.length&&(s.dc.modules<120||s.dc.readyCount<6))V.act(state,'buildModules',{n:6});
   if(s.dc.readyCount>=6&&d<days-20)V.onDcResult(state,V.dcContract(state,6),true);
   for(const id of['power','cooling','line'])V.act(state,'dcUpgrade',{id});
   if(d>400)V.act(state,'dcUpgrade',{id:'laser'});
@@ -32,7 +32,7 @@ const el=document.getElementById('tab-v');
 const G={get state(){return state},save(){},refresh(){UI()},log(h){state.log.unshift(h)},toast(h){const t=document.getElementById('toast');t.innerHTML=h;t.hidden=false},money,esc:(s)=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])),
  openLaunchFor(c){window.lastLaunch=c;G.toast('launch '+c.count+' '+c.mass+'t')},bestLift(){return{mass:22}}};
 function UI(){APOGEE_VENTURES_UI.render(el,G)}
-if(q.get('view'))localStorage.setItem('apogee-vn-view',q.get('view'));
+if(q.get('view'))APOGEE_VENTURES_UI.setView(q.get('view'));
 UI();
 if(q.get('live'))setInterval(()=>{state.day++;V.tick(state,rng);UI()},200);
 </script></body></html>
