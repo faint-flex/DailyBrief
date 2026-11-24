@@ -135,6 +135,7 @@
   function toast(text) {
     const t = $('toast');
     t.innerHTML = text; t.hidden = false;
+    t.classList.toggle('at-top', !!sheet); // playtest #24: keep toasts off sheet content
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { t.hidden = true; }, 2600);
   }
@@ -271,6 +272,9 @@
   }
   function sameBooster(a, b) { return a.engine === b.engine && a.count === b.count && a.prop === b.prop; }
   function boostersFor(design) { return state.boosters.filter((b) => sameBooster(b.stage, design.stages[0])); }
+  // playtest #15: which designs can fly a landed booster again, and what scrapping it pays.
+  function designsForBooster(x) { return state.designs.filter((d) => sameBooster(x.stage, d.stages[0])); }
+  function scrapValue(x) { return Math.round(S.stageCost(x.stage, state.techs, 0) * 0.1 * 100) / 100; }
 
   // ---------- Ops tab ----------
   function renderOps() {
@@ -298,7 +302,13 @@
       });
     }
     if (state.boosters.length) {
-      html += `<h2>Landed boosters</h2><div class="card small">${state.boosters.map((x) => `<span class="pill acc">${esc(x.id)} · ${x.flights} flight${x.flights > 1 ? 's' : ''}</span>`).join(' ')}<p class="dim">Build the same design in the Hangar to reuse one.</p></div>`;
+      // playtest #15: show which designs fit each booster, and let the player scrap orphans.
+      html += `<h2>Landed boosters</h2><div class="card small">${state.boosters.map((x) => {
+        const fits = designsForBooster(x);
+        return `<div style="display:flex;gap:8px;align-items:center;padding:4px 0;flex-wrap:wrap"><span class="pill acc">${esc(x.id)} · ${x.flights} flight${x.flights > 1 ? 's' : ''}</span>
+          <span class="grow ${fits.length ? '' : 'bad'}">${fits.length ? `✓ Fits ${fits.map((d) => esc(d.name)).join(', ')}` : '⚠ No design fits it any more'}</span>
+          <button class="btn sm" data-act="scrap-booster" data-id="${esc(x.id)}">Scrap · +${money(scrapValue(x))}</button></div>`;
+      }).join('')}<p class="dim">Build a design that fits in the Hangar to reuse one.</p></div>`;
     }
     html += `</div><div>${haloOpsCard()}<h2>Goals</h2><div class="card">`;
     for (const m of MILESTONES) {
@@ -440,10 +450,13 @@
       const leoR = reuse ? S.capacity(d, 'LEO', reuse, state.techs) : 0;
       const gto = S.capacity(d, 'GTO', 'expend', state.techs);
       const fb = boostersFor(d);
+      // playtest #2: say what reuse is worth, or why this design can't land.
+      const reflightSave = reuse && leoR > 0 ? S.stageCost(d.stages[0], state.techs, 0) * (1 - S.refurbFrac(state.techs, reuse)) : 0;
+      const reuseNote = !reuse ? '' : leoR > 0 ? `<p class="small good">♻️ Saves ≈${money(reflightSave)} per reflight</p>` : `<p class="small bad">⚠ Too small to land: design a bigger booster</p>`;
       html += `<div class="card"><div style="display:flex;gap:10px"><div class="grow"><h3><span style="color:${d.color}">■</span> ${esc(d.name)}</h3>
         <div class="small dim">${stagesLabel(d)}</div></div><button class="btn sm" data-act="edit" data-id="${d.id}">Edit</button></div>
         <div class="kv"><div><small>To LEO</small><b>${tons(leoX)}</b></div>${reuse ? `<div><small>LEO, reusable</small><b>${tons(leoR)}</b></div>` : ''}<div><small>To GTO</small><b>${tons(gto)}</b></div><div><small>Cost</small><b>${money(cost)}</b></div><div><small>Build</small><b>${days} days</b></div></div>
-        ${errs.length ? `<p class="small bad">${errs.map(esc).join('<br>')}</p>` : ''}
+        ${reuseNote}${errs.length ? `<p class="small bad">${errs.map(esc).join('<br>')}</p>` : ''}
         <div class="btns"><button class="btn primary sm" data-act="build" data-id="${d.id}" ${errs.length || state.cash < cost ? 'disabled' : ''}>Build new · ${money(cost)}</button>
         ${fb.length ? `<button class="btn go sm" data-act="build-reuse" data-id="${d.id}" ${state.cash < reuseCost(d, fb[0]) ? 'disabled' : ''}>Reuse ${esc(fb[0].id)} · ${money(reuseCost(d, fb[0]))}</button>` : ''}</div></div>`;
     }
@@ -484,20 +497,38 @@
   function renderResearch() {
     const el = $('tab-research');
     let html = `<h2>Research</h2><div class="card row"><div class="grow"><b>${Math.floor(state.rp)} science</b><div class="small dim">+${(state.engineers * S.FACILITY.rpPerEngineerDay).toFixed(2)} a day from ${state.engineers} engineers, plus every launch. Hire more on the Base tab.</div></div></div>`;
-    html += '<div class="grid">';
+    // playtest #26: group by branch and point at a recommended next item.
     const ids = Object.keys(S.TECHS);
-    const order = ids.sort((a, b) => (state.techs[a] ? 1 : 0) - (state.techs[b] ? 1 : 0) || S.TECHS[a].rp - S.TECHS[b].rp);
-    for (const id of order) {
-      const t = S.TECHS[id];
-      const done = state.techs[id];
-      const reqOk = t.req.every((r) => state.techs[r]);
-      const can = !done && reqOk && state.rp >= t.rp;
-      html += `<div class="card ${done ? 'done' : reqOk ? '' : 'locked'}"><div class="tech"><div class="ic">${TECH_ICONS[id] || '🔬'}</div><div class="grow">
-        <b>${t.name}</b><div class="small dim">${t.desc}</div>
-        ${!reqOk ? `<div class="small bad">Needs: ${t.req.filter((r) => !state.techs[r]).map((r) => S.TECHS[r].name).join(', ')}</div>` : ''}</div>
-        ${done ? '<span class="pill good">Done</span>' : `<button class="btn sm ${can ? 'primary' : ''}" data-act="research" data-id="${id}" ${can ? '' : 'disabled'}>${t.rp} 🔬</button>`}</div></div>`;
+    const BRANCHES = [['♻️ Reuse', ['legs', 'fairing', 'barge', 'rapid', 'tower', 'shipreuse']], ['🔥 Engines', ['lighttanks', 'comet', 'steel', 'nova']], ['🪐 Deep space & crew', ['capsule', 'refill', 'habitat']]];
+    const known = new Set(BRANCHES.flatMap((x) => x[1]));
+    const extra = ids.filter((id) => !known.has(id));
+    if (extra.length) BRANCHES.push(['🧪 More', extra]);
+    const avail = ids.filter((id) => !state.techs[id] && S.TECHS[id].req.every((r) => state.techs[r]));
+    const PATH = ['legs', 'comet', 'rapid', 'barge', 'steel', 'capsule', 'refill', 'habitat']; // the road to Mars
+    const rec = PATH.find((id) => avail.includes(id)) || avail.sort((a, b) => S.TECHS[a].rp - S.TECHS[b].rp)[0] || null;
+    if (rec) {
+      const t = S.TECHS[rec];
+      html += `<div class="card rec-next"><div class="tech"><div class="ic">${TECH_ICONS[rec] || '🔬'}</div><div class="grow"><div class="small acc">⭐ Recommended next</div><b>${t.name}</b><div class="small dim">${t.desc}</div>
+        ${state.rp < t.rp ? `<div class="small dim">${Math.ceil(t.rp - state.rp)} more science needed</div>` : ''}</div>
+        <button class="btn sm ${state.rp >= t.rp ? 'primary' : ''}" data-act="research" data-id="${rec}" ${state.rp >= t.rp ? '' : 'disabled'}>${t.rp} 🔬</button></div></div>`;
     }
-    html += '</div>';
+    for (const [label, list] of BRANCHES) {
+      const inTree = list.filter((id) => S.TECHS[id]);
+      if (!inTree.length) continue;
+      const nDone = inTree.filter((id) => state.techs[id]).length;
+      html += `<h2>${label} <span class="dim small">${nDone}/${inTree.length} done</span></h2><div class="grid">`;
+      for (const id of inTree) {
+        const t = S.TECHS[id];
+        const done = state.techs[id];
+        const reqOk = t.req.every((r) => state.techs[r]);
+        const can = !done && reqOk && state.rp >= t.rp;
+        html += `<div class="card ${done ? 'done' : reqOk ? '' : 'locked'}"><div class="tech"><div class="ic">${TECH_ICONS[id] || '🔬'}</div><div class="grow">
+          <b>${t.name}</b>${id === rec ? ' <span class="pill acc">⭐ Recommended</span>' : ''}<div class="small dim">${t.desc}</div>
+          ${!reqOk ? `<div class="small bad">🔒 Needs: ${t.req.filter((r) => !state.techs[r]).map((r) => S.TECHS[r] ? S.TECHS[r].name : r).join(', ')}</div>` : ''}</div>
+          ${done ? '<span class="pill good">✓ Done</span>' : `<button class="btn sm ${can ? 'primary' : ''}" data-act="research" data-id="${id}" ${can ? '' : 'disabled'}>${t.rp} 🔬</button>`}</div></div>`;
+      }
+      html += '</div>';
+    }
     el.innerHTML = html;
   }
 
@@ -510,7 +541,7 @@
     const st = state.stats;
     const monthly = state.engineers * S.FACILITY.engineerSalary + 0.1 * f + (state.owned.barge ? 0.2 : 0) + (state.owned.tower ? 0.3 : 0);
     let html = `<h2>Team</h2><div class="card"><div style="display:flex;align-items:center;gap:10px"><div class="grow"><b>👷 ${state.engineers} engineers</b><div class="small dim">Each makes ${S.FACILITY.rpPerEngineerDay} science a day and costs ${money(S.FACILITY.engineerSalary)} a month.</div></div></div>
-      <div class="btns"><button class="btn primary sm" data-act="hire" ${state.cash < S.FACILITY.engineerHire ? 'disabled' : ''}>Hire · ${money(S.FACILITY.engineerHire)}</button><button class="btn sm" data-act="fire" ${state.engineers <= 1 ? 'disabled' : ''}>Let one go</button></div></div>`;
+      <div class="btns"><button class="btn primary sm" data-act="hire" ${state.cash < hireCost() ? 'disabled' : ''}>Hire · ${money(hireCost())}</button><button class="btn sm" data-act="fire" ${state.engineers <= 1 ? 'disabled' : ''}>Let one go</button></div></div>`;
     html += `<h2>Facilities</h2><div class="grid">`;
     html += `<div class="card"><b>🏭 Factory, level ${f}</b><div class="small dim">${f} build line${f > 1 ? 's' : ''} at ${(1 + 0.5 * (f - 1)).toFixed(1)}× speed.</div>
       ${f < 5 ? `<div class="btns"><button class="btn primary sm" data-act="factory" ${state.cash < S.FACILITY.factoryCost(f) ? 'disabled' : ''}>Upgrade · ${money(S.FACILITY.factoryCost(f))}</button></div>` : '<div class="small good">Max level</div>'}</div>`;
@@ -522,6 +553,12 @@
       <div><small>Earned</small><b>${money(st.earned)}</b></div><div><small>Monthly costs</small><b>${money(monthly)}</b></div></div></div>`;
     html += `<h2>Game</h2><div class="card small dim">Your game saves on this device automatically.<div class="btns"><button class="btn sm" data-act="help">How to play</button><button class="btn sm danger" data-act="reset">Start a new company</button></div></div>`;
     el.innerHTML = html;
+  }
+  // playtest #4: hiring gets gently dearer as the team grows (same rule as campus.js hireCost).
+  function hireCost() {
+    const C = CAMPUS();
+    if (C && C.hireCost && state.campus) return C.hireCost(state);
+    return Math.round(S.FACILITY.engineerHire * (1 + 0.06 * Math.max(0, state.engineers - 5)) * 100) / 100;
   }
   function facilityCard(id, name, desc, cost) {
     const tech = S.RECOVERY[id === 'barge' ? 'barge' : 'catch'].tech;
@@ -903,11 +940,15 @@
     html += `</table>`;
     if (p.twr < 1.2) errs.push(p.twr < 1.05 ? 'Too heavy to lift off: add engines or less propellant on stage 1.' : 'Low thrust: you lose a lot of delta-v fighting gravity.');
     if (errs.length) html += `<p class="small bad">${errs.map(esc).join('<br>')}</p>`;
+    // playtest #15: warn before an edit strands landed boosters that only this design could use.
+    const orig = sheet.origId && state.designs.find((x) => x.id === sheet.origId);
+    const orphans = orig ? state.boosters.filter((b) => sameBooster(b.stage, orig.stages[0]) && !sameBooster(b.stage, d.stages[0]) && !state.designs.some((o) => o.id !== orig.id && sameBooster(b.stage, o.stages[0]))) : [];
+    if (orphans.length) html += `<p class="small bad">⚠ ${orphans.length} landed booster${orphans.length > 1 ? 's' : ''} (${orphans.map((b) => esc(b.id)).join(', ')}) won't fit this change. Keep stage 1 as it was to reuse ${orphans.length > 1 ? 'them' : 'it'}, or make a new design instead.</p>`;
     $('ed-stats').innerHTML = html;
     const leo = S.capacity(d, 'LEO', 'expend', state.techs), gto = S.capacity(d, 'GTO', 'expend', state.techs);
     const lr = reuse ? S.capacity(d, 'LEO', reuse, state.techs) : 0;
     const mini = $('ed-mini');
-    if (mini) mini.innerHTML = `<span>TWR <b class="${p.twr >= 1.2 ? 'good' : 'bad'}">${p.twr >= 1.2 ? '' : '⚠ '}${p.twr.toFixed(2)}</b></span><span>LEO <b>${leo > 0 ? tons(leo) : '—'}</b>${reuse ? ` · reuse <b>${lr > 0 ? tons(lr) : '—'}</b>` : ''}</span><span>GTO <b>${gto > 0 ? tons(gto) : '—'}</b></span><span>Cost <b>${money(S.designCost(d, state.techs))}</b></span>`;
+    if (mini) mini.innerHTML = `<span>TWR <b class="${p.twr >= 1.2 ? 'good' : 'bad'}">${p.twr >= 1.2 ? '' : '⚠ '}${p.twr.toFixed(2)}</b></span><span>LEO <b>${leo > 0 ? tons(leo) : '—'}</b>${reuse ? ` · reuse <b>${lr > 0 ? tons(lr) : '—'}</b>` : ''}</span><span>GTO <b>${gto > 0 ? tons(gto) : '—'}</b></span><span>Cost <b>${money(S.designCost(d, state.techs))}</b></span>${orphans.length ? `<span class="bad">⚠ Strands ${orphans.length} booster${orphans.length > 1 ? 's' : ''}</span>` : ''}`;
     $('ed-save').disabled = S.validate(d, state.techs).length > 0 || p.twr < 1.05;
     D.drawPreview($('ed-canvas'), d, state.techs);
   }
@@ -936,6 +977,17 @@
       case 'flight-done': F.close(); flying = false; last = performance.now(); refresh(); break;
       case 'build': build(id, false); break;
       case 'build-reuse': build(id, true); break;
+      case 'scrap-booster': { // playtest #15
+        const x = state.boosters.find((b) => b.id === id);
+        if (!x) break;
+        if (designsForBooster(x).length && !window.confirm(`Scrap ${x.id}? A design can still reuse it.`)) break;
+        const val = scrapValue(x);
+        state.boosters = state.boosters.filter((b) => b !== x);
+        state.cash += val;
+        log(`Scrapped booster <b>${esc(x.id)}</b> for <b>${money(val)}</b>.`);
+        toast(`♻️ Scrapped ${esc(x.id)} · +${money(val)}`);
+        save(); refresh(); break;
+      }
       case 'edit': openEditor(id); break;
       case 'new-design': openEditor(null); break;
       case 'ed-color': sheet.draft.color = id; renderSheet(); break;
@@ -980,8 +1032,8 @@
         save(); refresh(); break;
       }
       case 'hire':
-        if (state.cash < S.FACILITY.engineerHire) break;
-        state.cash -= S.FACILITY.engineerHire; state.engineers++; save(); refresh(); break;
+        if (state.cash < hireCost()) break;
+        state.cash -= hireCost(); state.engineers++; save(); refresh(); break;
       case 'fire': if (state.engineers > 1) { state.engineers--; save(); refresh(); } break;
       case 'factory': {
         const cost = S.FACILITY.factoryCost(state.factory);

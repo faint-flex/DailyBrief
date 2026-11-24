@@ -135,9 +135,10 @@
     const h = items.map(([k, v]) => `<div><small>${k}</small>${v}</div>`).join('');
     if (h !== hudHtml) { hudHtml = h; $('hud').innerHTML = h; }
   }
-  function banner(text, sub) {
+  function banner(text, sub, low) {
     const h = text ? `${text}${sub ? `<small>${sub}</small>` : ''}` : '';
     if (h !== bannerHtml) { bannerHtml = h; $('banner').innerHTML = h; }
+    $('banner').classList.toggle('low', !!low); // playtest #23: countdown sits in the lower third, clear of the rocket
   }
   function buzz(p) { if (navigator.vibrate) try { navigator.vibrate(p); } catch (e) { /* ignore */ } }
 
@@ -510,8 +511,8 @@
           onDeploy();
           banner(plan.orbitText || 'ORBIT ✓', plan.orbitSub || '');
         }
-        if (t < COUNT) banner(`T−${Math.ceil(COUNT - t)}`, plan.title);
-        else if (!dead && !done && t < COUNT + 2) banner('LIFTOFF', plan.title);
+        if (t < COUNT) banner(`T−${Math.ceil(COUNT - t)}`, plan.title, true);
+        else if (!dead && !done && t < COUNT + 2) banner('LIFTOFF', plan.title, true);
         else if (!dead && !done && t > maxqFrom && t < maxqFrom + 1.6) banner('MAX-Q', 'Peak aerodynamic pressure');
         else if (!dead && !done && t < starts[1] + 1.5 && t > starts[1] - SEP && n > 1) banner('STAGE SEPARATION', '');
         else if (!dead && !done) banner('');
@@ -644,7 +645,10 @@
     let shot = null, shotT = 0;
     function sideCam(dt, base) {
       // Side-on view, x across the screen: keeps booster and target readable for steering.
-      const fov = 40, tanH = Math.tan(fov / DEG / 2), asp = W / H;
+      const asp = W / H;
+      // playtest #12: portrait phones have little width, so widen the view and allow pulling back further.
+      const narrow = Math.max(1, 0.7 / asp);
+      const fov = 40 * Math.min(1.35, Math.sqrt(narrow)), tanH = Math.tan(fov / DEG / 2);
       const top = base.y + st1H + 8;
       const bottom = (mode === 'catch' ? 0 : surfaceY) - 3;
       const xMin = Math.min(b.x - 10, padX - padHalf - 10, mode === 'catch' ? towerX - 8 : Infinity);
@@ -653,18 +657,20 @@
       const Wc = xMax - xMin;
       const need = Math.max(st1H * 2.4, top - bottom) / 1.02;
       const dFit = Math.max(need / tanH, (Wc / 2) / (tanH * asp)) * 1.08;
-      const dMax = st1H / (0.13 * 2 * tanH); // keep the booster at least ~13% of screen height
+      const dMax = st1H / (0.13 * 2 * tanH) * narrow; // keep the booster at least ~13% of screen height (less when portrait)
       const d = top - bottom > 450 ? Math.min(dFit, dMax) : dFit; // low down, always show the target
       const hv = d * tanH, hw = hv * asp;
       const cy = Math.max(bottom + hv * 0.4, top - hv * 0.62);
       let cx = (xMin + xMax) / 2;
-      cx = clamp(cx, b.x - hw * 0.7, b.x + hw * 0.7);
+      cx = clamp(cx, b.x - hw * 0.7, b.x + hw * 0.7); // booster stays ≥15% from the screen edge
       const k = camS.init ? 1 - Math.exp(-dt * 3) : 1;
-      camS.cx += (cx - camS.cx) * k; camS.cy += (cy - camS.cy) * k; camS.d += (d - camS.d) * k;
+      // playtest #12: smooth the aim point relative to the booster, so a fast fall or drift never leaves it off screen.
+      camS.cx += (cx - b.x - camS.cx) * k; camS.cy += (cy - base.y - camS.cy) * k; camS.d += (d - camS.d) * k;
       camS.init = true;
+      const ax = b.x + camS.cx, ay = base.y + camS.cy;
       const yaw = 0.1;
-      const pos = V(camS.cx + camS.d * Math.sin(yaw), camS.cy + camS.d * 0.1, camS.d * Math.cos(yaw));
-      setCam(pos, V(camS.cx, camS.cy, 0), fov, Math.max(0.5, camS.d * 0.02));
+      const pos = V(ax + camS.d * Math.sin(yaw), ay + camS.d * 0.1, camS.d * Math.cos(yaw));
+      setCam(pos, V(ax, ay, 0), fov, Math.max(0.5, camS.d * 0.02));
     }
     // Aim between two points so both are in frame (vertical fov in degrees).
     function frame2(cp, p1, p2, minFov, maxFov, margin) {

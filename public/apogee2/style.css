@@ -174,6 +174,12 @@ table.cap th { color: var(--dim); font-weight: 600; font-size: 11px; }
 .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 50; background: #222c45; border: 1px solid var(--line);
   padding: 10px 16px; border-radius: 12px; font-size: 14px; max-width: 90vw; box-shadow: 0 8px 30px rgba(0, 0, 0, .5); }
 .toast[hidden] { display: none; }
+/* playtest #24: while a sheet is open, toasts sit at the very top so they never cover sheet content */
+.toast.at-top { top: calc(8px + var(--safe-t)); bottom: auto; }
+/* playtest #23: countdown banner in the lower third, clear of the rocket on the pad */
+.banner.low { top: auto; bottom: calc(9% + var(--safe-b)); text-shadow: 0 0 6px #000, 0 2px 16px #000; }
+/* playtest #26: recommended research card */
+.card.rec-next { border-color: var(--accent); }
 .empty { text-align: center; padding: 22px; color: var(--dim); border: 1px dashed var(--line); border-radius: 14px; margin-bottom: 10px; }
 .num { width: 84px; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; color: var(--text); padding: 6px 8px; font: inherit; font-weight: 700; text-align: right; }
 .nudge { display: flex; gap: 6px; margin: 8px 0 0 94px; flex-wrap: wrap; }
@@ -201,6 +207,7 @@ table.cap th { color: var(--dim); font-weight: 600; font-size: 11px; }
   .nudge { margin-left: 0; }
   .field label { width: 72px; }
   .toast { bottom: calc(86px + var(--safe-b)); }
+  .toast.at-top { top: calc(8px + var(--safe-t)); bottom: auto; }
   .btn.sm { padding: 9px 12px; }
 }
 @media (hover: none) { .keys { display: none; } }
