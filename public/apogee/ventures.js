@@ -12,11 +12,11 @@
   const EV_FOUND_REP = 20;
   // eff = kWh per 100 km, base = non-battery build cost $k, market = cars/day at brand 50, ref price/range.
   const CAR_TYPES = {
-    sedan:    { id: 'sedan', name: 'Sedan', icon: '🚗', eff: 15, base: 17, market: 60, refPrice: 45, refRange: 450, bat: [50, 110], price: [28, 90], dev: 18, devDays: 55 },
-    suv:      { id: 'suv', name: 'SUV', icon: '🚙', eff: 19, base: 21, market: 70, refPrice: 55, refRange: 430, bat: [60, 130], price: [35, 110], dev: 24, devDays: 65 },
-    pickup:   { id: 'pickup', name: 'Pickup', icon: '🛻', eff: 25, base: 26, market: 40, refPrice: 62, refRange: 420, bat: [80, 200], price: [40, 130], dev: 30, devDays: 75 },
-    semi:     { id: 'semi', name: 'Semi truck', icon: '🚛', eff: 125, base: 90, market: 4, refPrice: 220, refRange: 600, bat: [400, 1000], price: [140, 400], dev: 55, devDays: 110 },
-    roadster: { id: 'roadster', name: 'Roadster', icon: '🏎️', eff: 14, base: 55, market: 6, refPrice: 130, refRange: 520, bat: [60, 200], price: [70, 250], dev: 35, devDays: 80 },
+    sedan:    { id: 'sedan', name: 'Sedan', icon: '🚗', eff: 15, base: 17, market: 60, refPrice: 45, refRange: 450, bat: [50, 110], price: [25, 150], dev: 18, devDays: 55 },
+    suv:      { id: 'suv', name: 'SUV', icon: '🚙', eff: 19, base: 21, market: 70, refPrice: 55, refRange: 430, bat: [60, 130], price: [30, 180], dev: 24, devDays: 65 },
+    pickup:   { id: 'pickup', name: 'Pickup', icon: '🛻', eff: 25, base: 26, market: 40, refPrice: 62, refRange: 420, bat: [80, 200], price: [35, 200], dev: 30, devDays: 75 },
+    semi:     { id: 'semi', name: 'Semi truck', icon: '🚛', eff: 125, base: 90, market: 4, refPrice: 220, refRange: 600, bat: [400, 1000], price: [120, 500], dev: 55, devDays: 110 },
+    roadster: { id: 'roadster', name: 'Roadster', icon: '🏎️', eff: 14, base: 55, market: 6, refPrice: 130, refRange: 520, bat: [60, 200], price: [60, 400], dev: 35, devDays: 80 },
   };
   const EV_RESEARCH = [
     { id: 'cells1', name: 'Dense cells', desc: 'Battery cost $130 → $105 per kWh.', cost: 22, days: 55 },

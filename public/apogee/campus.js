@@ -66,6 +66,13 @@
       desc: 'Green delta country. Ground stations here serve South Asia.', unlock: (st) => ({ ok: netOn(st), need: 'Found Halo (Network tab)' }),
       map: ['RggtgS', 'RgwggS', 'RRRRBS', 'ggggBS', 'gtggBS', 'gggwBS'] },
   ];
+  // Gateway sites were cramped (6x6): widen them to 10x10 by repeating their inland rows/columns.
+  function growMap(map, W, H) {
+    const m = map.map((row) => { let r = row; while (r.length < W) { const i = Math.max(1, r.length - 2); r = r.slice(0, i) + r[i - 1] + r.slice(i); } return r; });
+    while (m.length < H) { const i = Math.max(1, m.length - 2); m.splice(i, 0, m[i - 1]); }
+    return m;
+  }
+  for (const s of SITES) if (s.gateway) s.map = growMap(s.map, 10, 10);
   const SITE = {};
   for (const s of SITES) { s.h = s.map.length; s.w = s.map[0].length; SITE[s.id] = s; }
 
@@ -145,6 +152,23 @@
     const n = siteState(st, sid).owned.length;
     return r2(site.base * t.mult * (roadNext(site, x, y) ? 1.2 : 1) * Math.pow(1.03, n));
   }
+  // Buying a property buys all of its land at once (with a 20% bulk discount).
+  function buyablePlots(sid) {
+    const site = SITE[sid], out = [];
+    for (let y = 0; y < site.h; y++) for (let x = 0; x < site.w; x++) { const t = TER[tile(site, x, y)]; if (t && t.buy) out.push(y * site.w + x); }
+    return out;
+  }
+  function landPrice(sid) {
+    const site = SITE[sid];
+    let sum = 0;
+    for (const k of buyablePlots(sid)) { const x = k % site.w, y = Math.floor(k / site.w); sum += site.base * TER[tile(site, x, y)].mult * (roadNext(site, x, y) ? 1.2 : 1); }
+    return r2(sum * 0.8);
+  }
+  function propertyPrice(sid) { return r2(SITE[sid].permit + landPrice(sid)); }
+  function claimAll(st, sid) {
+    const ss = siteState(st, sid), have = new Set(ss.owned);
+    for (const k of buyablePlots(sid)) if (!have.has(k)) ss.owned.push(k);
+  }
   function siteOpen(st, sid) { return !!(cs(st).sites[sid] && cs(st).sites[sid].open); }
 
   // ---------- State ----------
@@ -162,6 +186,11 @@
     if (!st) return null;
     if (st.campus && st.campus.v === 1) {
       for (const s of SITES) siteState(st, s.id);
+      if (!st.campus.whole) {
+        // Older saves bought land plot by plot (and gateway maps were smaller): own every plot of each open site now.
+        for (const s of SITES) { const ss = siteState(st, s.id); if (s.gateway) ss.owned = []; if (ss.open) claimAll(st, s.id); }
+        st.campus.whole = 1;
+      }
       return st.campus;
     }
     st.campus = { v: 1, sites: {}, b: [], nid: 1, view: 'cape', told: {} };
@@ -178,6 +207,8 @@
     if (st.owned && st.owned.tower) addB(st, 'tower', 'cape', 7, 6, 1);
     if (st.techs && st.techs.legs) addB(st, 'lz', 'cape', 1, 1, 1);
     st.campus.told.cape = 1;
+    claimAll(st, 'cape');
+    st.campus.whole = 1;
     return st.campus;
   }
 
@@ -318,9 +349,10 @@
       if (ss.open) return { ok: false, msg: 'Already open' };
       const u = s.unlock(st);
       if (!u.ok) return { ok: false, msg: `Locked: ${u.need}` };
-      if (st.cash < s.permit) return { ok: false, msg: 'Not enough cash for the permits' };
-      st.cash -= s.permit; ss.open = true;
-      return { ok: true, msg: `Opened <b>${s.name}</b>${s.permit ? ` (permits ${s.permit.toFixed(1)}M)` : ''}. Buy plots to start building.`, cost: s.permit };
+      const price = propertyPrice(p.site);
+      if (st.cash < price) return { ok: false, msg: 'Not enough cash to buy this property' };
+      st.cash -= price; ss.open = true; claimAll(st, p.site);
+      return { ok: true, msg: `Bought <b>${s.name}</b>: ${ss.owned.length} plots of land plus permits for $${price.toFixed(1)}M. Start building!`, cost: price };
     }
     if (a === 'buy') {
       const { site: sid, x, y } = p, ss = siteState(st, sid);
@@ -525,7 +557,6 @@
         <div class="cp-main"><div class="cp-mapcol">
           <div class="cp-tools">
             <button class="cp-tool" data-cp="mode" data-v="look">🔍 Inspect</button>
-            <button class="cp-tool" data-cp="mode" data-v="buy">🏷️ Buy land</button>
             <button class="cp-tool" data-cp="mode" data-v="build">🏗️ Build</button>
           </div>
           <div class="cp-map"><div class="cp-sitehead"></div>
@@ -595,7 +626,7 @@
       const u = site.unlock(st);
       lock.hidden = false;
       setH(lock, `<b>${u.ok ? '🔓' : '🔒'} ${esc(site.name)}</b> <span class="small dim">· ${esc(site.sub)}</span><p class="small">${esc(site.desc)}</p>
-        ${u.ok ? `<button class="btn primary sm" data-cp="open" data-v="${site.id}" ${st.cash < site.permit ? 'disabled' : ''}>Get permits · ${money(site.permit)}</button>` : `<div class="small cp-no">🔒 Locked · needs: ${esc(u.need)}</div>`}`);
+        ${u.ok ? `<div class="small dim">Includes all ${buyablePlots(site.id).length} plots of land and the permits.</div><button class="btn primary sm" data-cp="open" data-v="${site.id}" ${st.cash < propertyPrice(site.id) ? 'disabled' : ''}>Buy property · ${money(propertyPrice(site.id))}</button>` : `<div class="small cp-no">🔒 Locked · needs: ${esc(u.need)}</div>`}`);
     } else lock.hidden = true;
 
     // Status bar (selection / preview)
@@ -695,5 +726,5 @@
     ui = null;
   }
 
-  root.APOGEE_CAMPUS = { SITES, SITE, BT, TER, ORDER, REGION_NAMES, ensure, tick, bonus, act, check, plotPrice, eff, hireCost, render, dispose, _ui: () => ui };
+  root.APOGEE_CAMPUS = { SITES, SITE, BT, TER, ORDER, REGION_NAMES, ensure, tick, bonus, act, check, plotPrice, propertyPrice, eff, hireCost, render, dispose, _ui: () => ui };
 })(typeof window !== 'undefined' ? window : globalThis);
