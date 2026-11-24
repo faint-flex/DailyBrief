@@ -594,6 +594,7 @@
     });
     return cost;
   }
+  const PADKIT = () => window.APOGEE_PADKIT; // Pad kit (padkit.js): launch pad types and towers
   function launchSheet() {
     const s = sheet;
     const { c, v, payload, target } = launchCtx(s);
@@ -618,7 +619,7 @@
       const ok = modes.includes(k);
       return `<button data-act="l-rec" data-id="${k}" class="${s.recovery === k ? 'on' : ''}" ${ok ? '' : 'disabled'}>${r2.name}${ok ? '' : ' 🔒'}</button>`;
     }).join('')}</div>`;
-    const lockHints = { rtls: 'Land back at the pad: research Landing Legs (🔬 Research tab)', barge: 'Ocean barge: research Ocean Landing Barge, then build a Drone ship port on Base', catch: 'Tower catch: research Tower Catch, then build a Catch tower next to a pad' };
+    const lockHints = { rtls: 'Land back at the pad: research Landing Legs (🔬 Research tab)', barge: 'Ocean barge: research Ocean Landing Barge, then build a Drone ship port on Base', catch: 'Tower catch: research Tower Catch, then build a Catch tower next to a pad or add catch arms to a pad tower' };
     const locked = Object.keys(lockHints).filter((k) => !modes.includes(k));
     if (locked.length) html += `<p class="small dim">🔒 ${locked.map((k) => lockHints[k]).join('<br>🔒 ')}</p>`;
     if (s.recovery !== 'expend') {
@@ -630,7 +631,9 @@
       html += `<h2>Upper stage</h2><div class="seg"><button data-act="l-up" data-id="0" class="${!s.upperReuse ? 'on' : ''}">Expend</button><button data-act="l-up" data-id="1" class="${s.upperReuse ? 'on' : ''}">Bring it home (refund 90%)</button></div>`;
     }
     const m = S.mission(v.design, payload, target, s.recovery, state.techs, { upperReuse: s.upperReuse });
-    const odds = S.launchOdds(v.design, state.heritage, state.designFlights[v.designId] || 0);
+    const pk = PADKIT() ? PADKIT().launchInfo(state, s, { design: v.design, liftoff: m.perf.liftoff, recovery: s.recovery, crew: !!(c && c.crew) }) : null; // Pad kit: pick pad, check mass/tower
+    if (pk) html += pk.html;
+    const odds0 = S.launchOdds(v.design, state.heritage, state.designFlights[v.designId] || 0), odds = pk ? pk.adj(odds0) : odds0; // Pad kit: small pad reliability bonus
     const lodds = S.landingOdds(s.recovery, state.landings, state.techs);
     const tankCost = m.tankers ? m.tankers * tankerUnit(v.design, s.recovery, s.upperReuse) : 0;
     const ratio = Math.min(1.4, m.have / m.need);
@@ -645,7 +648,8 @@
       ${!m.canLift ? '<p class="small bad">Too heavy to leave the pad. Add engines or remove fuel.</p>' : !m.ok ? `<p class="small bad">Not enough delta-v${s.recovery !== 'expend' ? '. Try expending the booster, or' : '. Try'} a bigger rocket.${S.TARGETS[target].deep && !state.techs.refill ? ' Orbital Refilling research helps for Moon and Mars.' : ''}</p>` : ''}
       </div>`;
     const canPay = state.cash >= tankCost;
-    html += `<button class="btn primary big" data-act="launch" ${m.ok && canPay ? '' : 'disabled'}>🚀 Launch ${esc(v.serial)}</button>`;
+    html += `<button class="btn primary big" data-act="launch" ${m.ok && canPay && (!pk || pk.ok) ? '' : 'disabled'}>🚀 Launch ${esc(v.serial)}</button>`;
+    if (pk && !pk.ok) html += `<p class="small bad">✕ ${esc(pk.why)}</p>`; // Pad kit: why the launch is blocked
     if (!canPay) html += `<p class="small bad">Not enough cash for the tanker flights.</p>`;
     return html;
   }
@@ -656,10 +660,13 @@
     if (!v) return;
     const m = S.mission(v.design, payload, target, s.recovery, state.techs, { upperReuse: s.upperReuse });
     if (!m.ok) return;
+    const pk = PADKIT() ? PADKIT().launchInfo(state, s, { design: v.design, liftoff: m.perf.liftoff, recovery: s.recovery, crew: !!(c && c.crew) }) : null; // Pad kit
+    if (pk && !pk.ok) return;
     const tankCost = m.tankers ? m.tankers * tankerUnit(v.design, s.recovery, s.upperReuse) : 0;
     state.cash -= tankCost;
     const design = v.design;
-    const odds = S.launchOdds(design, state.heritage, state.designFlights[v.designId] || 0);
+    const odds0 = S.launchOdds(design, state.heritage, state.designFlights[v.designId] || 0), odds = pk ? pk.adj(odds0) : odds0; // Pad kit bonus
+    if (pk) { const note = PADKIT().onLaunch(state, pk.padId, m.perf.liftoff); if (note) log(`🚀 ${note}`); } // Pad kit: turnaround + wear
     let fail = null;
     if (Math.random() > odds) {
       const weights = design.stages.map((st) => st.count + 1);
@@ -677,7 +684,7 @@
     save();
     const t = S.TARGETS[target];
     const res = await F.run({
-      design, techs: state.techs, target, fail, recovery: s.recovery, landing: s.landing, autoLand, crew: c && c.crew,
+      design, techs: state.techs, target, fail, recovery: s.recovery, landing: s.landing, autoLand, crew: c && c.crew, pad: pk ? pk.flight : null, // pad: Pad kit 3D look
       payloadKind: c && c.kind, satCount: c && c.count,
       title: isHalo(c) ? `Halo batch · ${c.count} sats` : isDc(c) ? `Compute modules · ${c.count}` : c ? `${c.label} · ${c.client}` : 'Test flight',
       failText: fail ? `Engine failure on stage ${fail.stage + 1}` : '',
@@ -932,6 +939,7 @@
       case 'l-rec': sheet.recovery = id; renderSheet(); break;
       case 'l-land': sheet.landing = id; state.lastLanding = id; save(); renderSheet(); break;
       case 'l-up': sheet.upperReuse = id === '1'; renderSheet(); break;
+      case 'l-pad': sheet.padId = id; sheet.padAuto = false; renderSheet(); break; // Pad kit: launch pad pick
       case 'launch': launch(); break;
       case 'flight-done': F.close(); flying = false; last = performance.now(); refresh(); break;
       case 'build': build(id, false); break;
