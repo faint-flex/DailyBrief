@@ -1,0 +1,17 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>html,body{margin:0;height:100%;background:#000}canvas{width:100vw;height:100vh;display:block}</style></head><body>
+<canvas id="c"></canvas>
+<script src="../sim.js"></script><script src="../draw.js"></script>
+<script src="../vendor/three.min.js"></script><script src="../vendor/sky.js"></script><script src="../world3d.js"></script><script src="../3d-rocket.js"></script><script src="../3d-env.js"></script><script src="../3d-earth.js"></script><script src="../3d-fx.js"></script>
+<script>
+const A=window.APOGEE_3D, S=window.APOGEE_SIM, T=window.THREE;
+const q=new URLSearchParams(location.search); const alt=+(q.get('alt')||0);
+A.init(document.getElementById('c')); A.resize();
+const design={id:'d1',name:'Test',color:'#ff7a1a',stages:[{engine:'comet',count:9,prop:400},{engine:'cometv',count:1,prop:100}]};
+const sc=new T.Scene(); A.lights(sc,new T.Vector3(0,0,0));
+const geo=window.APOGEE_DRAW.geometry(design,{}); const site=A.launchSite(sc,geo);
+const rk=A.buildRocket(design,{},{fins:true,legs:true});
+rk.root.position.y=site.padTop||0; sc.add(rk.root);
+const cam=A.R.camera; cam.position.set(60,25,120); cam.lookAt(0,30,0);
+let t=0; function f(){t+=1/60; A.setPlume(rk.stages[0], q.get('fire')?1:0, 0.2, t); A.render(sc,{alt}); window.frames_=(window.frames_||0)+1; requestAnimationFrame(f);} f();
+</script></body></html>
