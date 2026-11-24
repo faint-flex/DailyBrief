@@ -18,6 +18,8 @@
 const BINANCE = 'https://data-api.binance.vision/api/v3';
 const GECKO = 'https://api.geckoterminal.com/api/v2';
 const DEXS = 'https://api.dexscreener.com';
+const OKX = 'https://www.okx.com/api/v5/market'; // backup when Binance's data API refuses Cloudflare
+const OKX_ID = { '1000SATS': 'SATS' };
 const START_USD = 1000;
 
 // ---------- Coin breakout (settings chosen from the robustness grid, not the single best cell) ----------
@@ -105,7 +107,12 @@ export function breakoutStep(book, bars, p = BREAKOUT) {
   return { px, sells, buys, regime: m == null ? null : btc.at(-1) >= m };
 }
 
-async function dailyBars(fetcher, coin, now) {
+async function dailyBars(fetcher, coin, now, source) {
+  if (source === 'okx') {
+    const j = await getJson(fetcher, `${OKX}/candles?instId=${OKX_ID[coin] || coin}-USDT&bar=1Dutc&limit=60`);
+    if (j.code !== '0') throw new Error(`okx ${coin} ${j.msg || j.code}`);
+    return j.data.filter((r) => r[8] === '1').reverse().map((r) => ({ t: +r[0], high: +r[2], close: +r[4], vol: +r[7] }));
+  }
   const rows = await getJson(fetcher, `${BINANCE}/klines?symbol=${coin}USDT&interval=1d&limit=60`);
   return rows.filter((r) => r[6] < now).map((r) => ({ t: r[0], high: +r[2], close: +r[4], vol: +r[7] }));
 }
@@ -114,11 +121,15 @@ export async function runDaily(state, fetcher, now) {
   const day = new Date(now).toISOString().slice(0, 10);
   const book = state.breakout;
   if (book.last_day === day) return { skipped: 'already ran today' };
+  // One source for all coins (volumes differ between exchanges): Binance, else OKX.
+  let source = book.source || 'binance';
+  try { await dailyBars(fetcher, 'BTC', now, source); } catch { source = source === 'okx' ? 'binance' : 'okx'; }
   const bars = {};
   const errors = [];
-  const got = await Promise.allSettled(COINS.map((c) => dailyBars(fetcher, c, now)));
-  got.forEach((g, i) => { if (g.status === 'fulfilled') bars[COINS[i]] = g.value; else errors.push(COINS[i]); });
-  if (!bars.BTC?.length) throw new Error('no BTC candles');
+  const got = await Promise.allSettled(COINS.map((c) => dailyBars(fetcher, c, now, source)));
+  got.forEach((g, i) => { if (g.status === 'fulfilled' && g.value.length) bars[COINS[i]] = g.value; else errors.push(COINS[i]); });
+  if (!bars.BTC?.length) throw new Error(`no BTC candles (${got[0].reason?.message || 'empty'})`);
+  book.source = source;
   const { px, sells, buys, regime } = breakoutStep(book, bars);
   const at = new Date(now).toISOString();
   for (const [c, why] of sells) {
@@ -265,6 +276,11 @@ export async function runMeme(state, fetcher, now) {
       for (const pool of j.data || []) pools.push([net, pool]);
     } catch (e) { errs.push(e.message); }
   }
+  if (!pools.length) {
+    // GeckoTerminal rate-limits Cloudflare's shared addresses; DexScreener's newest
+    // profiles and boosted tokens (social/promo buzz) are the backup list.
+    try { pools.push(...(await dexCandidates(fetcher))); book.source = 'dexscreener'; } catch (e) { errs.push(e.message); }
+  } else book.source = 'geckoterminal';
   book.scans += 1;
   const passed = [];
   const seen = new Set();
@@ -301,13 +317,64 @@ export async function runMeme(state, fetcher, now) {
   return { pools: pools.length, passed: passed.length, buys, errors: errs };
 }
 
+/** A DexScreener pair in the GeckoTerminal pool shape that memeReject reads. */
+export function fromDexPair(x) {
+  const net = Object.keys(CHAINS).find((k) => CHAINS[k] === x.chainId);
+  const tx = x.txns?.h1 || {};
+  return [net, {
+    id: `${net}_${x.pairAddress}`,
+    relationships: { base_token: { data: { id: `${net}_${x.baseToken?.address}` } } },
+    attributes: {
+      name: `${x.baseToken?.symbol} / ${x.quoteToken?.symbol}`, address: x.pairAddress,
+      pool_created_at: x.pairCreatedAt ? new Date(x.pairCreatedAt).toISOString() : null,
+      reserve_in_usd: x.liquidity?.usd, market_cap_usd: x.marketCap, fdv_usd: x.fdv, base_token_price_usd: x.priceUsd,
+      volume_usd: { h1: x.volume?.h1, h24: x.volume?.h24 },
+      // DexScreener has no unique-buyer count; half the buy count is a rough stand-in.
+      transactions: { h1: { buys: tx.buys, sells: tx.sells, buyers: Math.floor((tx.buys || 0) / 2) } },
+      price_change_percentage: { m15: x.priceChange?.m5, h1: x.priceChange?.h1, h24: x.priceChange?.h24 },
+    },
+  }];
+}
+
+async function dexCandidates(fetcher) {
+  const lists = await Promise.all(['token-profiles/latest/v1', 'token-boosts/latest/v1', 'token-boosts/top/v1']
+    .map((path) => getJson(fetcher, `${DEXS}/${path}`).catch(() => [])));
+  const want = {};
+  for (const t of lists.flat()) {
+    const chain = t?.chainId;
+    if (!Object.values(CHAINS).includes(chain) || !t.tokenAddress) continue;
+    (want[chain] ||= new Set()).add(t.tokenAddress);
+  }
+  const out = [];
+  for (const [chain, set] of Object.entries(want)) {
+    const pairs = await getJson(fetcher, `${DEXS}/tokens/v1/${chain}/${[...set].slice(0, 30).join(',')}`);
+    const best = {};
+    for (const x of pairs || []) {
+      const a = x.baseToken?.address;
+      if (a && set.has(a) && (!best[a] || (x.liquidity?.usd || 0) > (best[a].liquidity?.usd || 0))) best[a] = x;
+    }
+    out.push(...Object.values(best).map(fromDexPair));
+  }
+  if (!out.length) throw new Error('dexscreener: no candidates');
+  return out;
+}
+
 const memeEquity = (book) => book.cash + Object.values(book.pos).reduce((a, p) => a + p.units * (p.last ?? p.entry), 0);
 
 // ============ Scorecard ============
 
 async function livePrices(fetcher, symbols) {
-  const j = await getJson(fetcher, `${BINANCE}/ticker/price?symbols=${encodeURIComponent(JSON.stringify(symbols))}`);
-  return Object.fromEntries(j.map((x) => [x.symbol, num(x.price)]));
+  try {
+    const j = await getJson(fetcher, `${BINANCE}/ticker/price?symbols=${encodeURIComponent(JSON.stringify(symbols))}`);
+    return Object.fromEntries(j.map((x) => [x.symbol, num(x.price)]));
+  } catch {
+    const got = await Promise.all(symbols.map(async (sym) => {
+      const coin = sym.replace(/USDT$/, '');
+      const j = await getJson(fetcher, `${OKX}/ticker?instId=${OKX_ID[coin] || coin}-USDT`).catch(() => null);
+      return [sym, num(j?.data?.[0]?.last)];
+    }));
+    return Object.fromEntries(got.filter(([, v]) => v > 0));
+  }
 }
 
 export async function refreshPrices(state, fetcher) {
