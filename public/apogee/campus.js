@@ -73,6 +73,9 @@
     return m;
   }
   for (const s of SITES) if (s.gateway) s.map = growMap(s.map, 10, 10);
+  // Main sites get more room too: add land rows on the inland/south edge (existing plots and buildings keep their spots).
+  const TALL = { cape: 14, mesa: 14, works: 13, corvo: 14 };
+  for (const s of SITES) if (TALL[s.id]) { const n = s.map.length; while (s.map.length < TALL[s.id]) s.map.push(s.map[n - 2 + ((s.map.length - n) % 2)]); }
   const SITE = {};
   for (const s of SITES) { s.h = s.map.length; s.w = s.map[0].length; SITE[s.id] = s; }
 
@@ -86,6 +89,8 @@
   const CHIP_INC = [0.8, 1.8, 3.2];
   const VIS_REP = [1, 2, 3], VIS_INC = [0.3, 0.7, 1.2];
   const BT = {
+    road: { name: 'Road', icon: '🛣️', w: 1, h: 1, cost: [0.1], days: [0], up: [0.002],
+      fx: () => 'Road access (+10%) for buildings next to it', info: 'Your own road. Lay a line of road tiles out from the public road: every building touching a connected road gets the +10% road bonus. Built instantly. A road that does not connect to the public road does nothing.' },
     pad: { name: 'Launch pad', icon: '🚀', w: 2, h: 2, cost: [6, 10, 18], days: [20, 15, 18], up: [0.08, 0.12, 0.18],
       fx: (l) => `Launch every ${PAD_DAYS[l - 1]} days`, info: 'Each pad adds launch capacity. A tank farm next door makes turnaround 20% faster. Visitor centers love being next to pads.' },
     factory: { name: 'Rocket factory', icon: '🏭', w: 3, h: 2, cost: [10, 18, 32], days: [30, 24, 30], up: [0.1, 0.16, 0.24],
@@ -119,7 +124,7 @@
     ground: { name: 'Ground station', icon: '📡', w: 1, h: 1, cost: [2, 3, 5], days: [8, 8, 10], up: [0.05, 0.07, 0.1], net: true,
       fx: (l) => `Halo gateway (${l} dish${l > 1 ? 'es' : ''})`, info: 'Connects Halo satellites to the internet. Serves the region of the site it stands on.' },
   };
-  const ORDER = ['pad', 'factory', 'office', 'housing', 'lab', 'test', 'tank', 'mc', 'lz', 'port', 'tower', 'solar', 'visitor', 'satfab', 'fab', 'ground'];
+  const ORDER = ['road', 'pad', 'factory', 'office', 'housing', 'lab', 'test', 'tank', 'mc', 'lz', 'port', 'tower', 'solar', 'visitor', 'satfab', 'fab', 'ground'];
 
   // ---------- Helpers ----------
   const tile = (site, x, y) => (x < 0 || y < 0 || x >= site.w || y >= site.h ? null : site.map[y][x]);
@@ -140,8 +145,35 @@
     const ox = a.x < b.x + b.w && b.x < a.x + a.w, oy = a.y < b.y + b.h && b.y < a.y + a.h;
     return (ox && (a.y + a.h === b.y || b.y + b.h === a.y)) || (oy && (a.x + a.w === b.x || b.x + b.w === a.x));
   }
-  function rectRoad(site, r) {
+  // Player-built road tiles that link up (through other road tiles) to a public road.
+  function roadNet(st, sid) {
+    const site = SITE[sid], all = new Map(), ok = new Set(), q = [];
+    for (const b of cs(st).b) if (b.type === 'road' && b.site === sid && b.lvl > 0) all.set(b.y * site.w + b.x, b);
+    for (const [k, b] of all) if (roadNext(site, b.x, b.y)) { ok.add(k); q.push(b); }
+    while (q.length) {
+      const b = q.pop();
+      for (const [dx, dy] of N4) {
+        const x = b.x + dx, y = b.y + dy;
+        if (x < 0 || y < 0 || x >= site.w || y >= site.h) continue;
+        const k = y * site.w + x;
+        if (all.has(k) && !ok.has(k)) { ok.add(k); q.push(all.get(k)); }
+      }
+    }
+    return { ok, all };
+  }
+  function rectRoad(site, r, st) {
     for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) if (roadNext(site, x, y)) return true;
+    if (!st) return false;
+    const net = roadNet(st, site.id).ok;
+    if (!net.size) return false;
+    for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
+      for (const [dx, dy] of N4) {
+        const xx = x + dx, yy = y + dy;
+        if (xx < 0 || yy < 0 || xx >= site.w || yy >= site.h) continue;
+        if (xx >= r.x && xx < r.x + r.w && yy >= r.y && yy < r.y + r.h) continue;
+        if (net.has(yy * site.w + xx)) return true;
+      }
+    }
     return false;
   }
   function rectSea(site, r) {
@@ -195,6 +227,11 @@
         for (const s of SITES) { const ss = siteState(st, s.id); if (s.gateway) ss.owned = []; if (ss.open) claimAll(st, s.id); }
         st.campus.whole = 1;
       }
+      if (!st.campus.big) {
+        // Sites grew: open sites get their new land for free.
+        for (const s of SITES) { const ss = siteState(st, s.id); if (ss.open) claimAll(st, s.id); }
+        st.campus.big = 1;
+      }
       return st.campus;
     }
     st.campus = { v: 1, sites: {}, b: [], nid: 1, view: 'cape', told: {} };
@@ -212,7 +249,7 @@
     if (st.techs && st.techs.legs) addB(st, 'lz', 'cape', 1, 1, 1);
     st.campus.told.cape = 1;
     claimAll(st, 'cape');
-    st.campus.whole = 1;
+    st.campus.whole = 1; st.campus.big = 1;
     return st.campus;
   }
 
@@ -224,8 +261,8 @@
     const add = (v, text) => { m += v; notes.push({ good: v >= 0, text: `${text} ${v >= 0 ? '+' : '−'}${Math.round(Math.abs(v) * 100)}%` }); };
     const nb = cs(st).b.filter((o) => o !== b && o.site === b.site && o.lvl > 0 && touches(b, o));
     const near = (type) => nb.filter((o) => o.type === type);
-    if (!['solar', 'ground', 'tower', 'tank'].includes(b.type)) {
-      if (rectRoad(site, b)) add(0.1, 'Road access'); else notes.push({ good: false, text: 'No road access (+10% if next to a road)' });
+    if (!['solar', 'ground', 'tower', 'tank', 'road'].includes(b.type)) {
+      if (rectRoad(site, b, st)) add(0.1, 'Road access'); else notes.push({ good: false, text: 'No road access (+10% if next to a road)' });
     }
     const tankL = Math.max(0, ...near('tank').map((o) => o.lvl));
     const tankV = tankL ? [0.15, 0.22, 0.3][tankL - 1] : 0;
@@ -376,6 +413,7 @@
       const t = BT[p.type];
       st.cash -= ck.cost;
       const b = addB(st, p.type, p.site, p.x, p.y, 0, p.rot);
+      if (!t.days[0]) { b.lvl = 1; b.spent = ck.cost; return { ok: true, msg: `Built a <b>${t.name}</b> tile`, cost: ck.cost, id: b.id, quick: true }; }
       b.days = b.total = t.days[0]; b.to = 1; b.spent = ck.cost;
       return { ok: true, msg: `Started building a <b>${t.name}</b> (${t.days[0]} days)`, cost: ck.cost, id: b.id };
     }
@@ -384,7 +422,7 @@
     const t = BT[b.type];
     if (a === 'upgrade') {
       if (b.days > 0) return { ok: false, msg: 'Busy with construction' };
-      if (b.lvl >= 3) return { ok: false, msg: 'Already at max level' };
+      if (b.lvl >= t.cost.length) return { ok: false, msg: 'Already at max level' };
       const cost = t.cost[b.lvl];
       if (st.cash < cost) return { ok: false, msg: 'Not enough cash' };
       st.cash -= cost; b.spent += cost; b.to = b.lvl + 1; b.days = b.total = t.days[b.lvl];
@@ -491,7 +529,15 @@
     const st = gs(); if (!st) return null;
     const sid = st.campus.view, site = SITE[sid], ss = siteState(st, sid);
     const owned = new Set(ss.owned);
-    const bs = st.campus.b.filter((b) => b.site === sid).map((b) => ({ ...b, prog: b.total ? 1 - b.days / b.total : 1 }));
+    const bs = st.campus.b.filter((b) => b.site === sid && b.type !== 'road').map((b) => ({ ...b, prog: b.total ? 1 - b.days / b.total : 1 }));
+    // Player roads are drawn as road ground: hand the view a copy of the map with them painted in.
+    let vsite = site;
+    const rn = roadNet(st, sid);
+    if (rn.all.size) {
+      const keys = [...rn.all.keys()].sort((a, b) => a - b);
+      const map = site.map.map((row, y) => row.split('').map((c, x) => (rn.all.has(y * site.w + x) ? 'R' : c)).join(''));
+      vsite = Object.assign({}, site, { id: site.id + '~' + keys.join('.'), base: site.id, map });
+    }
     let preview = null;
     if (ui.mode === 'build' && ui.type && ui.pv && ss.open) preview = { type: ui.type, ...check(st, sid, ui.type, ui.pv.x, ui.pv.y, ui.rot) };
     let sel = null;
@@ -499,7 +545,7 @@
       const b = ui.sel.id && st.campus.b.find((o) => o.id === ui.sel.id);
       sel = b ? { x: b.x, y: b.y, w: b.w, h: b.h, label: BT[b.type].name } : ui.sel.id ? null : { x: ui.sel.x, y: ui.sel.y, w: 1, h: 1 };
     }
-    return { site, owned, buildings: bs, preview, sel, mode: ui.mode, open: ss.open, hover: ui.hover, TER };
+    return { site: vsite, owned, buildings: bs, preview, sel, mode: ui.mode, open: ss.open, hover: ui.hover, TER };
   }
 
   function anchorFor(x, y) {
@@ -541,7 +587,8 @@
     if (r.ok) {
       if (a !== 'buy') G.log(r.msg);
       G.toast((a === 'buy' ? '🏷️ ' : a === 'place' ? '🏗️ ' : '✓ ') + r.msg);
-      if (a === 'place') { ui.sel = { site: p.site, id: r.id }; ui.pv = null; ui.pvTouch = false; if (!ui.keepType) ui.mode = 'look'; }
+      if (a === 'place' && r.quick) { ui.pv = null; ui.pvTouch = false; } // roads: stay in build mode to lay the next tile
+      else if (a === 'place') { ui.sel = { site: p.site, id: r.id }; ui.pv = null; ui.pvTouch = false; if (!ui.keepType) ui.mode = 'look'; }
       G.save();
     } else G.toast('✕ ' + r.msg);
     G.refresh();
@@ -698,8 +745,8 @@
       <div class="small dim">Hire cost ${money(hc)}${bo.hireMult < 1 ? ` (housing −${Math.round((1 - bo.hireMult) * 100)}%)` : ''}. Offices add desks.</div>
       <div class="btns"><button class="btn primary sm" data-cp="hire" ${st.cash < hc || st.engineers >= bo.engineerCap ? 'disabled' : ''}>${st.engineers >= bo.engineerCap ? '✕ No free desks' : `Hire · ${money(hc)}`}</button><button class="btn sm" data-cp="fire" ${st.engineers <= 1 ? 'disabled' : ''}>Let one go</button></div></div>`;
     // Buildings at this site
-    const here = c.b.filter((b) => b.site === sid);
-    if (here.length) h += `<h2>At ${esc(site.name)}</h2><div class="card small">${here.map((b) => `<div class="cp-cons" data-cp="goto" data-v="${b.id}" style="cursor:pointer;margin-top:4px"><span>${BT[b.type].icon} ${BT[b.type].name}</span><span>${b.lvl ? `<span class="cp-pips" aria-label="level ${b.lvl}">${pips(b.lvl)}</span>` : '🏗️'}</span></div>`).join('')}</div>`;
+    const here = c.b.filter((b) => b.site === sid && b.type !== 'road'), nRoad = c.b.filter((b) => b.site === sid && b.type === 'road').length;
+    if (here.length || nRoad) h += `<h2>At ${esc(site.name)}</h2><div class="card small">${nRoad ? `<div class="cp-cons"><span>🛣️ Your roads</span><span>${nRoad} tile${nRoad > 1 ? 's' : ''}</span></div>` : ''}${here.map((b) => `<div class="cp-cons" data-cp="goto" data-v="${b.id}" style="cursor:pointer;margin-top:4px"><span>${BT[b.type].icon} ${BT[b.type].name}</span><span>${b.lvl ? `<span class="cp-pips" aria-label="level ${b.lvl}">${pips(b.lvl)}</span>` : '🏗️'}</span></div>`).join('')}</div>`;
     const S0 = root.APOGEE_SIM, stt = st.stats || {};
     h += `<h2>Company</h2><div class="card"><div class="kv"><div><small>Launches</small><b>${stt.launches || 0}</b></div><div><small>Successes</small><b>${stt.successes || 0}</b></div><div><small>Landings</small><b>${stt.landings || 0}</b></div><div><small>Earned</small><b>${money(stt.earned || 0)}</b></div>
       <div><small>Salaries/mo</small><b>${money(st.engineers * (S0 ? S0.FACILITY.engineerSalary : 0.15))}</b></div></div></div>`;
@@ -719,7 +766,8 @@
     if (e.notes.length) s += `<ul class="cp-notes">${e.notes.map((n) => `<li class="${n.good ? 'cp-ok' : 'cp-no'}">${n.good ? '▲' : '▼'} ${esc(n.text)}</li>`).join('')}</ul>`;
     s += '</div>';
     if (actions) {
-      if (b.lvl > 0 && b.lvl < 3 && b.days <= 0) s += `<button class="btn primary sm" data-cp="upgrade" data-v="${b.id}" ${st.cash < t.cost[b.lvl] ? 'disabled' : ''}>Upgrade to ${pips(b.lvl + 1)} · ${money(t.cost[b.lvl])} · ${t.days[b.lvl]}d<br><span style="font-weight:500">${esc(t.fx(b.lvl + 1))}</span></button>`;
+      if (b.lvl > 0 && b.lvl < t.cost.length && b.days <= 0) s += `<button class="btn primary sm" data-cp="upgrade" data-v="${b.id}" ${st.cash < t.cost[b.lvl] ? 'disabled' : ''}>Upgrade to ${pips(b.lvl + 1)} · ${money(t.cost[b.lvl])} · ${t.days[b.lvl]}d<br><span style="font-weight:500">${esc(t.fx(b.lvl + 1))}</span></button>`;
+      else if (b.type === 'road') s += `<span class="small ${roadNet(st, b.site).ok.has(b.y * SITE[b.site].w + b.x) ? 'cp-ok">✓ Connected to the public road' : 'cp-bad">✕ Not connected: link it to the public road'}</span>`;
       else if (b.lvl >= 3) s += '<span class="small cp-ok">★ Max level</span>';
       s += `<button class="btn sm danger" data-cp="demolish" data-v="${b.id}">Demolish</button>`;
     }
