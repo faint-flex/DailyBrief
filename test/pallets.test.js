@@ -88,3 +88,13 @@ test('the address book lists every stop once, newest first', async () => {
   assert.deepEqual(book.map((r) => norm(r.pro)), ['222222', '333333', '111111']);
   assert.equal(book.find((r) => r.name === 'A').driver.name, 'Rudy');
 });
+
+test('a DR suffix on a pro# still matches the manifest', async () => {
+  const { poolMatch } = await import('../public/pallets/match.js');
+  assert.equal(norm('00279297590DR'), '279297590');
+  const pool = [{ pro: '980011111', alt: '00279297590', name: 'X' }, { pro: '279297590', name: 'Y' }];
+  assert.equal(poolMatch([pool[0]], '00279297590DR').name, 'X');
+  assert.equal(poolMatch([pool[1]], '00279297590DR').name, 'Y');
+  assert.equal(norm('SHEET1'), 'SHEET1');
+  assert.equal(norm('ABC'), 'ABC');
+});
