@@ -46,3 +46,17 @@ class_name = "PalletRoom"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["PalletRoom"]
+
+# Crypto paper bot (src/cryptobot.js): one Durable Object keeps the pretend portfolios.
+[[durable_objects.bindings]]
+name = "CRYPTO_BOT"
+class_name = "CryptoBot"
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["CryptoBot"]
+
+# Meme hunter every 10 minutes; coin breakout once a day just after the daily candle closes.
+# (Cloudflare cron triggers, free plan. GitHub Actions schedules proved unreliable.)
+[triggers]
+crons = ["*/10 * * * *", "7 0 * * *"]

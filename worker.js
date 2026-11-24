@@ -7,6 +7,7 @@
 //   GET  /api/report    the phone reads the latest (?app=babylog&date=YYYY-MM-DD)
 //   POST /api/stats     the nightly BabyLog Daily Report run sends its raw numbers here
 //   GET  /api/stats     the Stats tab: live website + social, nightly App Store, history
+//   GET  /api/crypto    the crypto paper bot's scorecard (src/cryptobot.js)
 //
 // Every /api call needs the key (Authorization: Bearer <key>), because a brief
 // is a summary of your inbox.
@@ -16,8 +17,9 @@ import { distillNightly, statsStore, liveCached } from './src/stats.js';
 import { handlePalletRead } from './src/pallet-read.js';
 import { handlePalletSync, PalletRoom } from './src/pallet-sync.js';
 import { handleTraderNews, handleTraderStatus, readTraderStatus } from './src/trader-news.js';
+import { CryptoBot, cryptoApi, cryptoScheduled } from './src/cryptobot.js';
 
-export { PalletRoom };
+export { PalletRoom, CryptoBot };
 import { startConnect, finishConnect, readDirect, probeInstagram, PLATFORMS } from './src/social-direct.js';
 
 const MAX_BODY = 64 * 1024;
@@ -130,6 +132,8 @@ export async function handleApi(request, env, url) {
 
   if (url.pathname === '/api/trader') return json({ status: await readTraderStatus(env) });
 
+  if (url.pathname === '/api/crypto' || url.pathname === '/api/crypto/run') return cryptoApi(request, env, url);
+
   if (url.pathname === '/api/stats/instagram-check') return json(await probeInstagram(env, env.BRIEFS));
 
   if (url.pathname === '/api/stats/connect' && request.method === 'POST') {
@@ -153,5 +157,10 @@ export default {
     if (back && env.BRIEFS) return Response.redirect(`${url.origin}${await finishConnect(env, env.BRIEFS, back[1], url)}`, 302);
     if (env.ASSETS) return env.ASSETS.fetch(request);
     return new Response('Not found', { status: 404 });
+  },
+
+  // Crypto paper bot: meme hunter every 10 minutes, coin breakout daily at 00:07 UTC.
+  async scheduled(controller, env, ctx) {
+    ctx.waitUntil(cryptoScheduled(controller, env));
   },
 };

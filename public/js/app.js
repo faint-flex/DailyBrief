@@ -278,6 +278,41 @@ async function loadTrader() {
   } catch { /* the card just stays hidden */ }
 }
 
+/* ---------- Crypto bot ---------- */
+
+const pct = (v) => `${v >= 0 ? '+' : ''}${Number(v).toFixed(1)}%`;
+
+function renderCrypto(st) {
+  if (!st) return;
+  const since = new Date(st.started).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  const m = st.meme || {};
+  $('crypto-since').textContent = `What $100 became since ${since} · ${(st.breakout?.trades || 0) + (m.trades || 0)} closed trades, ${m.rugs || 0} rugs`;
+  const rows = [
+    ['Coin breakout (daily)', st.breakout_100_is_now],
+    ['Meme hunter (every 10 min)', st.meme_100_is_now],
+    ['Just holding Bitcoin', st.btc_hold_100_is_now],
+  ];
+  const best = Math.max(...rows.map(([, v]) => (v == null ? -Infinity : v)));
+  // Arrows as well as colour, so up and down never rely on colour alone.
+  $('crypto-scores').replaceChildren(...rows.map(([name, v]) => el('li', { class: v === best ? 'lead' : '' },
+    el('span', {}, name),
+    el('strong', { class: v == null ? '' : v >= 100 ? 'up' : 'down' }, v == null ? '—' : `${v >= 100 ? '▲' : '▼'} ${money(v)}`))));
+  const open = [...(st.breakout?.open || []), ...(m.open || [])].map((p) => `${p.sym} ${pct(p.pnl_pct)}`);
+  const trend = st.breakout?.btc_uptrend === false ? ' Coin breakout waits in cash while Bitcoin is under its 50-day average.' : '';
+  $('crypto-open').textContent = `${open.length ? `Holding: ${open.join(', ')}.` : 'Holding nothing right now.'}${trend}`;
+  const trades = (st.recent || []).slice(0, 6).map((t) => el('li', {},
+    t.act === 'buy' ? `Bought ${t.sym} ($${Math.round(t.usd)}): ${t.why}` : `Sold ${t.sym} ${pct(t.pnl_pct)}: ${t.why}`));
+  $('crypto-trades').replaceChildren(...(trades.length ? trades : [el('li', {}, 'No trades yet.')]));
+  $('crypto').hidden = false;
+}
+
+async function loadCrypto() {
+  try {
+    const { status } = await api('/api/crypto');
+    renderCrypto(status);
+  } catch { /* the card just stays hidden */ }
+}
+
 /* ---------- Weather ---------- */
 
 function setPlaceLabel(place) {
@@ -347,6 +382,7 @@ if (cached) renderBrief(cached);
 loadBrief();
 loadWeather();
 loadTrader();
+loadCrypto();
 
 // Opening the app from the background on a new morning should show the new brief.
 document.addEventListener('visibilitychange', () => {
