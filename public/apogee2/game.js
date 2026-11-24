@@ -976,8 +976,8 @@
       }
       if (e.key === 'Escape' && sheet && sheet.kind !== 'intro' && sheet.kind !== 'bankrupt') { closeSheet(); return; }
       if (sheet) return;
-      const tabs = ['ops', 'contracts', 'hangar', 'research', 'base', 'network'];
-      if (e.key >= '1' && e.key <= '6') { tab = tabs[+e.key - 1]; window.scrollTo(0, 0); refresh(); }
+      const tabs = ['ops', 'contracts', 'hangar', 'research', 'base', 'network', 'ventures'];
+      if (e.key >= '1' && e.key <= '7') { tab = tabs[+e.key - 1]; window.scrollTo(0, 0); refresh(); }
       else if (e.key === 'p' || e.key === 'P') { state.speed = state.speed ? 0 : 1; save(); header(); }
     });
     window.addEventListener('resize', () => { if (tab === 'ops') renderOps(); if (tab === 'network') renderNetwork(); if (sheet && sheet.kind === 'editor') editorStats(); });

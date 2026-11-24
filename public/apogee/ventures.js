@@ -30,7 +30,9 @@
     { id: 'pilot2', name: 'Full Pilot (supervised)', desc: 'Demand +15% more. Slightly higher recall risk.', cost: 75, days: 110, req: 'pilot1' },
     { id: 'robotaxi', name: 'Robotaxi network', desc: 'Cars on the road earn ride income every day.', cost: 180, days: 150, req: 'pilot2' },
   ];
-  const FACTORY = { cost: 90, days: 75, capPerLevel: 25, maxLevel: 5, upCost: 55, upDays: 40, maxCount: 4, upkeep: 0.08 };
+  // Real gigafactories build ~700-1,000 cars a day, so a maxed one now does 1,000/day.
+  const FACTORY = { cost: 90, days: 75, caps: [80, 200, 400, 650, 1000], capPerLevel: 80, maxLevel: 5, upCost: 55, upDays: 40, maxCount: 4, upkeep: 0.08 };
+  function factoryCap(level) { return FACTORY.caps[Math.max(0, Math.min(FACTORY.maxLevel, level) - 1)] || 0; }
   const PILOT_LINE = 6; // cars/day from the founding pilot line
   const STATION_BATCH = { n: 25, cost: 4, days: 20, upkeep: 0.0008 };
   const MODEL_NAMES = { sedan: ['Arc', 'Volta', 'Spark'], suv: ['Ridge', 'Summit', 'Terra'], pickup: ['Hauler', 'Bison', 'Forge'], semi: ['Longhaul', 'Atlas'], roadster: ['Comet', 'Bolt', 'Flare'] };
@@ -150,7 +152,7 @@
   }
   function evCapacity(state, e) {
     let cap = PILOT_LINE;
-    for (const f of e.factories) if (f.status === 'online' || f.status === 'upgrading') cap += f.level * FACTORY.capPerLevel * (f.status === 'upgrading' ? 0.5 : 1);
+    for (const f of e.factories) if (f.status === 'online' || f.status === 'upgrading') cap += factoryCap(f.level) * (f.status === 'upgrading' ? 0.5 : 1);
     return cap * (1 - (1 - modVal(e.mods, 'chips', state.day, 1)) * (1 - chipSelfV(state))) * (1 - chipHit(state));
   }
 
@@ -441,7 +443,7 @@
         if (f.left <= 0) {
           if (f.status === 'upgrading') f.level += 1;
           f.status = 'online';
-          ev(`🏭 <b>${f.name}</b> is online at level ${f.level} (${f.level * FACTORY.capPerLevel} cars/day).`, true);
+          ev(`🏭 <b>${f.name}</b> is online at level ${f.level} (${factoryCap(f.level)} cars/day).`, true);
         }
       }
     }
@@ -489,7 +491,7 @@
     }
     e.totals.delivered += built;
     // fixed costs
-    const fac = sum(e.factories.map((f) => f.level * FACTORY.upkeep));
+    const fac = sum(e.factories.map((f) => factoryCap(f.level) / 100 * FACTORY.upkeep));
     const fixed = 0.04 + fac + e.stations * STATION_BATCH.upkeep + (e.marketing || 0) / MONTH;
     // robotaxi
     const taxi = e.research.robotaxi ? e.totals.delivered * 0.000004 : 0;
@@ -607,7 +609,7 @@
         profitDay: e.last ? e.last.profit : 0, profitMonth: sum(e.d30), delivered: Math.round(e.totals.delivered), recalls: e.totals.recalls,
         marketing: e.marketing, demandMult: dm, batCost: Math.round(batCost(e) * 1000), lab: e.lab, research: e.research,
         models: e.models.map((m) => Object.assign({}, m, { stats: modelStats(state, m), waitDays: m.lastBuilt > 0.05 ? Math.round(m.backlog / m.lastBuilt) : (m.backlog > 1 ? 99 : 0) })),
-        factories: e.factories.map((f) => Object.assign({}, f, { cap: f.level * FACTORY.capPerLevel, upCost: FACTORY.upCost * f.level })),
+        factories: e.factories.map((f) => Object.assign({}, f, { cap: factoryCap(f.level), nextCap: f.level < FACTORY.maxLevel ? factoryCap(f.level + 1) - factoryCap(f.level) : 0, upCost: FACTORY.upCost * f.level })),
         nextFactoryCost: e.factories.length < FACTORY.maxCount ? FACTORY.cost * (1 + 0.25 * e.factories.length) : null,
         history: e.history.slice(), taxiDay: e.last ? e.last.taxi : 0, mods: e.mods.slice(),
       };
@@ -637,7 +639,7 @@
   }
 
   root.APOGEE_VENTURES = {
-    chipHit, ipoCheck, IPO, VERSION, CAR_TYPES, EV_RESEARCH, FACTORY, STATION_BATCH, PILOT_LINE, MOD_GENS, DC_RESEARCH, DC_UPGRADES, LINE_RATE,
+    chipHit, ipoCheck, IPO, VERSION, CAR_TYPES, EV_RESEARCH, FACTORY, factoryCap, STATION_BATCH, PILOT_LINE, MOD_GENS, DC_RESEARCH, DC_UPGRADES, LINE_RATE,
     EV_FOUND_COST, DC_FOUND_COST, EV_FOUND_REP, DC_FOUND_REP,
     ensure, tick, summary, act, dcContract, onDcResult, modelStats, canFoundEV, canFoundDC, perks, haloOn, netSum,
   };
