@@ -700,6 +700,15 @@ $('share-stop').onclick = () => {
 };
 
 // ---------- pallets ----------
+// The saved address for a pallet that is on no run: exact or one digit off, or a
+// sticker that carries the pro# inside extra characters.
+function addressFor(code) {
+  const best = lookupAddress([], state.pool, code, 1)[0];
+  if (best && best.rank < 2) return best;
+  const key = norm(code);
+  const loose = (state.pool || []).filter((r) => [r.pro, r.alt].some((v) => v && norm(v).length >= 6 && (key.startsWith(norm(v)) || key.endsWith(norm(v)))));
+  return loose.length === 1 ? loose[0] : null;
+}
 function palletScan(code) {
   if (tab !== 'pallets') setTab('pallets');
   const hit = findStop(state.drivers, code);
@@ -712,7 +721,7 @@ function palletScan(code) {
     lastResult = { ok: true, driverId: hit.driver.id, pro: entry.pro, code, count };
     good();
   } else {
-    lastResult = { ok: false, code };
+    lastResult = { ok: false, code, addr: addressFor(code) };
     bad();
   }
   render();
@@ -938,7 +947,10 @@ function renderPallets(st) {
   } else {
     el.className = 'result bad r-pop';
     el.style.background = '';
-    el.innerHTML = `<div class="r-big">✕ NOT IN ANY STACK</div><div class="r-mid">${esc(r.code)}</div><div class="r-small">Set it aside and check the paperwork</div>`;
+    const a = r.addr;
+    el.innerHTML = `<div class="r-big">✕ NOT ON A RUN</div><div class="r-mid">${esc(r.code)}</div>${a
+      ? `<div class="r-addr"><b>${esc(a.name)}</b><br>${esc(a.street || '')}<br>${esc(a.city || '')}</div><div class="r-small">Address from the manifest${a.at ? ` (${new Date(a.at).toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' })})` : ''}${a.pro && norm(a.pro) !== norm(r.code) ? ` · pro ${esc(a.pro)}` : ''}</div>`
+      : '<div class="r-small">No address saved for it. Set it aside and check the paperwork.</div>'}`;
   }
   // restart the pop animation
   void el.offsetWidth;
