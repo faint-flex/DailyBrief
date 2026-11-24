@@ -42,7 +42,7 @@
     const types = srbUnlocked(techs);
     const cur = design.srb || { type: types[0] || 'small', count: 0 };
     if (!types.length && !cur.count) {
-      return `<p class="small dim srb-lock">🔒 Side boosters: research <b>${esc(S.TECHS.srb.name)}</b> (🔬 Research tab).</p>`;
+      return `<p class="small dim srb-lock">🔒 Side boosters: research <b>${esc(S.TECHS.srb.name)}</b> (🔬 Research).</p>`;
     }
     const b = S.srbOf(design);
     let html = `<div class="stage srb"><div class="st-head"><b>Side boosters · solid</b><span class="small dim">burn with stage 1, then drop off</span></div>`;

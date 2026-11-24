@@ -355,14 +355,14 @@
     if (b) sheet.padId = b.id;
     const res = { ok: true, why: '', padId: b ? b.id : null, html: '', rel: 0, flight: null, repair: 0, turn: 0 };
     const biggest = Math.max(0, ...done.map(maxLiftoff));
-    if (!b) { res.ok = false; res.why = 'You have no finished launch pad. Build one on the Base tab.'; }
-    else if (lift > biggest) { res.ok = false; res.why = `Too heavy for your pads: liftoff ${fmtT(lift)}, your biggest pad takes ${fmtT(biggest)}. Build a Heavy pad or upgrade a pad on the Base tab.`; }
+    if (!b) { res.ok = false; res.why = 'You have no finished launch pad. Build one on your Base.'; }
+    else if (lift > biggest) { res.ok = false; res.why = `Too heavy for your pads: liftoff ${fmtT(lift)}, your biggest pad takes ${fmtT(biggest)}. Build a Heavy pad or upgrade a pad on your Base.`; }
     else if (why(b)) {
       const w = why(b);
       res.ok = false;
       res.why = !fits(b) ? `This pad takes up to ${fmtT(maxLiftoff(b))}, the rocket weighs ${fmtT(lift)} at liftoff. Pick a bigger pad.`
         : w === 'No catch arms here' ? 'A tower catch needs a pad with catch arms or a catch tower next to it. Pick another pad, or add catch arms on Base.'
-        : w === 'No crew access arm' ? 'Crewed flights need a crew access arm on the pad tower. Add one on the Base tab (pad → 🗼 Tower).'
+        : w === 'No crew access arm' ? 'Crewed flights need a crew access arm on the pad tower. Add one on your Base (pad → 🗼 Tower).'
         : `This pad is busy: ${w.toLowerCase()}.`;
     }
     let h = `<h2>Launch pad</h2>`;

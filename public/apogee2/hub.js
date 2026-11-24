@@ -59,7 +59,8 @@
   function take(t) {
     if (!DRAWER_TABS.includes(t)) return false;
     if (open === t) return true;
-    close(true);
+    const fresh = !open;
+    detach();
     const w = ensureWrap(), sec = sectionOf(t);
     if (!sec) return false;
     open = t;
@@ -68,6 +69,7 @@
     w.querySelector('.hub-dslot').appendChild(sec);
     w.classList.toggle('wide', WIDE.includes(t));
     w.hidden = false;
+    if (fresh && !(history.state && history.state.hubPanel)) { try { history.pushState({ hubPanel: 1 }, ''); } catch (e) { /* ignore */ } }
     document.body.classList.add('hub-on');
     w.querySelector('.hub-dslot').scrollTop = 0;
     return true;
@@ -78,15 +80,28 @@
   }
 
   // quiet = don't refresh (used when the game itself is switching tabs)
-  function close(quiet) {
+  // Put the open panel's section back in <main> (used when switching panels).
+  function detach() {
     if (!open) return;
     const sec = sectionOf(open), main = document.getElementById('main');
     if (sec && main) { sec.classList.remove('on'); main.appendChild(sec); }
     open = null;
+  }
+  // Close the drawer and go back to the Base. quiet = don't refresh (the game is refreshing anyway).
+  function close(quiet, fromPop) {
+    if (!open) return;
+    detach();
     if (wrap) wrap.hidden = true;
     document.body.classList.remove('hub-on');
+    // Phone Back: an open panel has its own history entry; drop it when the panel closes some other way.
+    if (!fromPop && history.state && history.state.hubPanel) { skipPop = true; try { history.back(); } catch (e) { skipPop = false; } }
     if (!quiet && G()) G().refresh();
   }
+  let skipPop = false;
+  window.addEventListener('popstate', () => {
+    if (skipPop) { skipPop = false; return; }
+    if (open) close(false, true); // Back button / swipe-back closes the panel instead of leaving the game
+  });
 
   function drawer() { return open; }
   function sync() { const sec = open && sectionOf(open); if (sec) sec.classList.add('on'); }

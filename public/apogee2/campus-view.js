@@ -2042,7 +2042,7 @@ diffuseColor.rgb *= alb;
         else { const Z = (y0 + 0.5 - h2) * TS, X0 = (x0 - w2) * TS, X1 = (x1 + 1 - w2) * TS; B.add(M.road, quadG(X0, Z - RW / 2, X1, Z + RW / 2, 0.06, 0, (X1 - X0) / 12, 0, 1)); }
       }
       for (const [x, y, l, r, u, d] of D.roads.squares) {
-        const X = (x + 0.5 - w2) * TS, Z = (y + 0.5 - h2) * TS, hw = RW / 2;
+        const X = (x + 0.5 - w2) * TS, Z = (y + 0.5 - h2) * TS, hw = !(l || r || u || d) ? TS / 2 - 4 : RW / 2; // a lone road tile fills its plot so you can see it
         const xa = l ? X - TS / 2 : X - hw, xb = r ? X + TS / 2 : X + hw, za = u ? Z - TS / 2 : Z - hw, zb = d ? Z + TS / 2 : Z + hw;
         B.add(M.asph, quadG(xa, Z - hw, xb, Z + hw, 0.07, xa / 10, xb / 10, (Z - hw) / 10, (Z + hw) / 10));
         if (u || d) B.add(M.asph, quadG(X - hw, za, X + hw, zb, 0.071, (X - hw) / 10, (X + hw) / 10, za / 10, zb / 10));
@@ -2206,7 +2206,7 @@ diffuseColor.rgb *= alb;
         } else if (b.lvl > 0) {
           l = label(b.pk && window.APOGEE_PADKIT ? window.APOGEE_PADKIT.badge(b) : '', { bg: 'rgba(11,15,26,.72)', fg: '#ffd54a', fs: small ? 8 : 10, stars: [b.lvl, 3] }, cx, full + 6, cz); // pad kit: pad type name
         }
-        if (l) { if (b.days > 0) l.renderOrder = 24; else l.userData.badge = b.id; L.labels.add(l); v.labels.push(l); }
+        if (l) { if (b.days > 0) l.renderOrder = 24; else l.userData.badge = b.id; l.userData.pickB = b; L.labels.add(l); v.labels.push(l); }
       }
     }
 
@@ -2381,6 +2381,13 @@ diffuseColor.rgb *= alb;
     function pick(px, py) {
       ndc.set(px / W * 2 - 1, -(py / H) * 2 + 1);
       ray.setFromCamera(ndc, camera);
+      // A tap on a building's floating label means that building (not the ground behind it).
+      try {
+        for (const h of ray.intersectObject(L.labels, true)) {
+          let o = h.object; while (o && !o.userData.pickB) o = o.parent;
+          if (o && o.userData.pickB) { const b = o.userData.pickB; return { x: b.x, y: b.y }; }
+        }
+      } catch (e) { /* sprites without a camera: ignore */ }
       const hits = ray.intersectObject(L.bld, true);
       for (const h of hits) {
         let o = h.object; while (o && !o.userData.b) o = o.parent;
