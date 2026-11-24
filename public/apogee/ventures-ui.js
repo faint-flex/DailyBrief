@@ -279,10 +279,10 @@
       h += `<div class="card"><div class="vn-row"><b class="vn-grow">🏭 ${G.esc(f.name)}</b>${status}</div>
         <div class="vn-small">${f.status === 'building' ? 'Will make' : 'Makes'} <b>${f.cap}</b> cars/day${f.status === 'upgrading' ? ' (half speed while expanding)' : ''} · level ${f.level}/${V.FACTORY.maxLevel}</div>
         ${f.status !== 'online' ? prog(1 - f.left / total, `${f.left} days left`) : ''}
-        <div class="vn-btns">${f.level < V.FACTORY.maxLevel ? btn('factoryUp', { id: f.id }, `Expand +${V.FACTORY.capPerLevel}/day · ${G.money(f.upCost)}`, { disabled: f.status !== 'online' || state.cash < f.upCost }) : st('idle', '★', 'Max level')}</div></div>`;
+        <div class="vn-btns">${f.level < V.FACTORY.maxLevel ? btn('factoryUp', { id: f.id }, `Expand +${f.nextCap}/day · ${G.money(f.upCost)}`, { disabled: f.status !== 'online' || state.cash < f.upCost }) : st('idle', '★', 'Max level')}</div></div>`;
     }
     if (e.nextFactoryCost != null) {
-      h += `<div class="card"><b>➕ New gigafactory</b><div class="vn-small">${V.FACTORY.capPerLevel} cars/day at level 1, expands to ${V.FACTORY.capPerLevel * V.FACTORY.maxLevel}. Takes ${V.FACTORY.days} days to build.</div>
+      h += `<div class="card"><b>➕ New gigafactory</b><div class="vn-small">${V.FACTORY.caps[0]} cars/day at level 1, expands to ${V.FACTORY.caps[V.FACTORY.maxLevel - 1].toLocaleString()}. Takes ${V.FACTORY.days} days to build.</div>
         <div class="vn-btns">${btn('buildFactory', {}, `Build · ${G.money(e.nextFactoryCost)}`, { primary: true, disabled: state.cash < e.nextFactoryCost })}</div></div>`;
     }
     const B = V.STATION_BATCH;
