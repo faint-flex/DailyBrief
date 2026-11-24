@@ -49,6 +49,8 @@ const CHAINS = { solana: 'solana', base: 'base' }; // GeckoTerminal network -> D
 
 const num = (v) => (v == null || v === '' ? NaN : Number(v));
 const round = (v, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
+export let pause = (ms) => new Promise((r) => setTimeout(r, ms));
+export const setPause = (fn) => { pause = fn; };
 const sma = (xs, n) => (xs.length >= n ? xs.slice(-n).reduce((a, b) => a + b, 0) / n : null);
 
 function fresh(now) {
@@ -126,9 +128,18 @@ export async function runDaily(state, fetcher, now) {
   try { await dailyBars(fetcher, 'BTC', now, source); } catch { source = source === 'okx' ? 'binance' : 'okx'; }
   const bars = {};
   const errors = [];
-  const got = await Promise.allSettled(COINS.map((c) => dailyBars(fetcher, c, now, source)));
-  got.forEach((g, i) => { if (g.status === 'fulfilled' && g.value.length) bars[COINS[i]] = g.value; else errors.push(COINS[i]); });
-  if (!bars.BTC?.length) throw new Error(`no BTC candles (${got[0].reason?.message || 'empty'})`);
+  // Small batches: OKX allows about 20 requests per 2 seconds.
+  let firstError = '';
+  for (let i = 0; i < COINS.length; i += 8) {
+    const part = COINS.slice(i, i + 8);
+    const got = await Promise.allSettled(part.map((c) => dailyBars(fetcher, c, now, source)));
+    got.forEach((g, j) => {
+      if (g.status === 'fulfilled' && g.value.length) bars[part[j]] = g.value;
+      else { errors.push(part[j]); firstError ||= g.reason?.message || 'empty'; }
+    });
+    if (i + 8 < COINS.length) await pause(source === 'okx' ? 1100 : 100);
+  }
+  if (!bars.BTC?.length) throw new Error(`no BTC candles (${firstError})`);
   book.source = source;
   const { px, sells, buys, regime } = breakoutStep(book, bars);
   const at = new Date(now).toISOString();
@@ -149,7 +160,7 @@ export async function runDaily(state, fetcher, now) {
     book.pos[c] = { coin: c, units: (usd * (1 - coinFee(c))) / px[c], entry: px[c], peak: px[c], cost: usd, at };
     note(state, { at, pot: 'breakout', act: 'buy', sym: c, price: px[c], usd: round(usd), why });
   }
-  book.last_day = day;
+  if (errors.length <= 3) book.last_day = day; // too many gaps: the next run tries the day again
   book.regime = regime;
   Object.assign(state.prices, Object.fromEntries(Object.entries(px).map(([c, v]) => [`${c}USDT`, v])));
   return { sells: sells.length, buys: buys.length, regime, missing: errors };
