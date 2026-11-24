@@ -226,6 +226,7 @@
         rk.root.position.y = padTop;
         scene.add(rk.root);
         if (rk.stages[0] && rk.stages[0].legs) A.setLegs(rk.stages[0], 0);
+        if (rk.stages[0] && A.setFins) A.setFins(rk.stages[0], 0);
         fx = makeFx(scene);
         vis = true;
       } catch (e) { console.warn('flight: 3D ascent setup failed', e); vis = false; }
@@ -268,7 +269,7 @@
       A.setPlume(st, 0, 0, t);
       scene.attach(st.group);
       const ax = axisOf(visAngle(t));
-      dropped.push({ obj: st.group, v: ax.clone().multiplyScalar(-3), spin: 0.25 + Math.random() * 0.15, vent: 1.6, st });
+      dropped.push({ obj: st.group, v: ax.clone().multiplyScalar(-3), spin: 0.25 + Math.random() * 0.15, vent: 1.6, st, fins: i === 0 && recov ? 0 : null });
     }
     function onFairing() {
       if (!vis || !rk.fairing) return;
@@ -295,7 +296,7 @@
       p.addScaledVector(axisOf(visAngle(t)), stackLen(curStage) * 0.4);
       deadPos.copy(p);
       const sz = geo.d * 8 + 30;
-      if (fx && fx.has('explode')) fx.explode(p, sz); else fl.add(scene, p, sz * 1.5);
+      if (fx && fx.has('explode')) fx.explode(p, sz, where === 'ground' ? padTop : p.y - altAt(t) * 1000); else fl.add(scene, p, sz * 1.5);
       if (where === 'space' && fx && fx.has('explode')) fl.add(scene, p, sz);
       rk.root.visible = false;
       for (const st of rk.stages) A.setPlume(st, 0, 0, t);
@@ -338,8 +339,8 @@
           const noz = st.group.getWorldPosition(V()).addScaledVector(ax, -st.bh);
           const dir = ax.clone().negate();
           const ak = where === 'ground' ? (rk.root.position.y - padTop) / 1000 : altKm;
-          if (where === 'ground') fx.exhaust(noz, dir, pw, ak, st.r, fdt, padTop);
-          else fx.exhaust(noz, dir, pw, ak, st.r, fdt);
+          if (where === 'ground') fx.exhaust(noz, dir, pw, ak, rk.r || st.r, fdt, padTop);
+          else fx.exhaust(noz, dir, pw, ak, rk.r || st.r, fdt);
         }
       });
       // pre-launch venting
@@ -363,6 +364,7 @@
         if (upperBurn) d.v.addScaledVector(ax, -6 * fdt);
         if (d.fair) { d.obj.rotateZ(d.hinge * fdt); d.v.addScaledVector(ax, -2 * fdt); }
         else d.obj.rotateZ(d.spin * fdt * 0.6), d.obj.rotateX(d.spin * fdt * 0.3);
+        if (d.fins != null && d.fins < 1 && A.setFins) { d.fins = Math.min(1, d.fins + fdt / 1.5); safe(() => A.setFins(d.st, smooth(0, 1, d.fins))); }
         if (d.vent > 0 && fx) {
           d.vent -= fdt;
           const top = d.obj.localToWorld(V(0, d.st ? d.st.h : 0, 0));
@@ -379,7 +381,7 @@
       fl.step(fdt);
       // ---- cameras ----
       const c = cam();
-      let lbl = '';
+      let lbl = '', rAlt = 0;
       if (shot === 'pad') {
         lbl = 'PAD CAM 2';
         const cp = V(Lr * 0.55 + 12, padTop + 1.2, Lr * 1.05 + 30 + Math.max(0, COUNT - t) * 2.5);
@@ -389,7 +391,7 @@
         const shake = burning && tau < 3 ? 0.25 * (1 - tau / 3) : 0;
         look.x += (Math.random() - 0.5) * shake; look.y += (Math.random() - 0.5) * shake;
         setCam(cp, look, 52, 0.5);
-        render(scene, 0);
+        rAlt = 0;
       } else if (shot === 'track') {
         lbl = 'TRACKING CAMERA · 18 KM';
         const rp = dead ? deadPos : rk.root.localToWorld(V(0, stackLen(curStage) * 0.5, 0));
@@ -402,7 +404,7 @@
         const s = 0.025 + q * 0.09;
         track.jit.set(Math.sin(t * 1.3) * 0.4 + (Math.random() - 0.5) * q * 0.9, Math.cos(t * 0.9) * 0.3 + (Math.random() - 0.5) * q * 0.9, 0).multiplyScalar(half * s);
         setCam(track.ct, rp.clone().add(track.jit), fov, Math.max(1, dist * 0.3));
-        render(scene, 0);
+        rAlt = 0;
       } else if (shot === 'onboard') {
         lbl = 'ONBOARD · STAGE 2';
         const r = geo.d / 2;
@@ -412,7 +414,7 @@
         const look = rk.root.localToWorld(V(0, up - 70, r + 0.2));
         const upv = V(0, 0, 1);
         setCam(cp, look, 70, 0.1, upv);
-        render(scene, altKm);
+        rAlt = altKm;
       } else {
         lbl = done ? 'CHASE CAM · PAYLOAD' : 'CHASE CAM · UPPER STAGE';
         const L = Math.max(14, stackLen(curStage));
@@ -426,9 +428,10 @@
         const cp = focus.clone().addScaledVector(ax, -d * 0.75).addScaledVector(perp, d * 0.55)
           .add(V(0, 0, d * Math.cos(orbit) * 0.9)).addScaledVector(ax, d * Math.sin(orbit) * 0.2);
         setCam(cp, focus, 42, 0.3);
-        render(scene, altKm);
+        rAlt = altKm;
       }
       if (fx) fx.step(fdt, c);
+      render(scene, rAlt);
       octx.clearRect(0, 0, W, H);
       camLabel(lbl);
     }
@@ -658,7 +661,7 @@
       A.setPlume(st, on ? 0.9 : 0, 0, t);
       if (on && fx) {
         const noz = base.clone().addScaledVector(ax, -st.bh);
-        fx.landingBurn(noz, ax.clone().negate(), 0.9, flameY, fdt, { radius: st.r, water: mode === 'barge' });
+        fx.landingBurn(noz, ax.clone().negate(), 0.9, flameY, fdt, { radius: bk.r || st.r, water: mode === 'barge' });
       }
       if (outcome === 'landed' && fx && t - outT < 2.5) {
         ventT += fdt;
@@ -667,7 +670,7 @@
       if (outcome === 'crash' && !exploded && t - outT >= 0.05) {
         exploded = true;
         const p = base.clone().addScaledVector(ax, st1H * 0.25);
-        if (fx && fx.has('explode')) fx.explode(p, st1H * 0.9); else fl.add(scene, p, st1H * 1.6);
+        if (fx && fx.has('explode')) fx.explode(p, st1H * 0.9, mode === 'catch' ? 0 : surfaceY); else fl.add(scene, p, st1H * 1.6);
         bk.root.visible = false;
       }
       fl.step(fdt);
@@ -692,8 +695,8 @@
       if (shot === 'side') { sideCam(fdt, base); lbl = 'LANDING CAM'; }
       else if (shot === 'wide') { wideCam(base); lbl = mode === 'barge' ? 'SUPPORT SHIP CAMERA' : 'LONG RANGE TRACKING'; }
       else { closeCam(base); lbl = mode === 'barge' ? 'DECK CAM' : mode === 'catch' ? 'TOWER CAM' : 'PAD CAM'; }
-      render(scene, 0);
       if (fx) fx.step(fdt, cam());
+      render(scene, 0);
       octx.clearRect(0, 0, W, H);
       if (hands && !outcome) { drawMarkers(base); drawBar(); }
       camLabel(lbl);

@@ -151,7 +151,7 @@ float hzLayer(float hc, float hp, float Hs){ float dh = hc - hp; if (abs(dh) < 1
 float hazeAmt(vec3 rel){ float L = length(rel); float hc = max(uAltM, cameraPosition.y); float hp = max(hc + rel.y, 0.0);
   float od = L * (uDa * hzLayer(hc, hp, 1400.0) + uDr * hzLayer(hc, hp, 8000.0));
   float f = 1.0 - exp(-od); return 1.0 - (1.0 - f) * (1.0 - uHazeBoost); }
-vec3 hazeCol(vec3 rel){ return skyAt(normalize(vec3(rel.x, 0.0, rel.z) + vec3(1e-4, 0.0, 0.0))); }
+vec3 hazeCol(vec3 rel){ vec2 h = rel.xz + vec2(1e-4, 0.0); return skyAt(normalize(vec3(h.x, length(h) * 0.035, h.y))); }
 `;
   const NOISE_GLSL = `
 float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
@@ -701,7 +701,7 @@ vec3 terrainAlbedo(vec2 p, float L){
   // ---------- lights ----------
   function lights(scene, target) {
     const R = A.R;
-    const sun = new T.DirectionalLight(0xffb470, 3.6);
+    const sun = new T.DirectionalLight(0xffb470, 4.2);
     sun.position.copy(R.sunDir).multiplyScalar(1500);
     sun.castShadow = R.renderer.shadowMap.enabled;
     sun.shadow.mapSize.set(2048, 2048);
@@ -761,34 +761,42 @@ vec3 terrainAlbedo(vec2 p, float L){
     mouth.receiveShadow = true;
   }
 
-  function launchMount(g, geo, base, mountH) {
+  // Open ring table: the rocket sits on clamps at its base edge, the engines and flame are
+  // visible through the ring; slanted legs stand on the trench edges.
+  function launchMount(g, geo, base, mountH, trenchW) {
     const em = emats();
-    const d = geo.d, deckS = Math.max(d * 2.2, d + 8), th = Math.max(1.6, d * 0.28);
-    const sh = new T.Shape();
-    sh.moveTo(-deckS / 2, -deckS / 2); sh.lineTo(deckS / 2, -deckS / 2); sh.lineTo(deckS / 2, deckS / 2); sh.lineTo(-deckS / 2, deckS / 2); sh.closePath();
-    const hole = new T.Path(); hole.absarc(0, 0, d * 0.47, 0, Math.PI * 2, true); sh.holes.push(hole);
-    const deck = new T.Mesh(new T.ExtrudeGeometry(sh, { depth: th, bevelEnabled: false, curveSegments: 32 }), em.steelDark);
-    deck.rotation.x = -Math.PI / 2; deck.position.y = base + mountH - th; deck.castShadow = true; deck.receiveShadow = true; g.add(deck);
-    // legs
-    const lw = Math.max(1.4, d * 0.22);
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(g, lw, mountH - th, lw, em.concreteDark, sx * (deckS / 2 - lw / 2), base + (mountH - th) / 2, sz * (deckS / 2 - lw / 2));
-    // girders under deck
-    box(g, deckS, th * 0.6, lw * 0.6, em.steel, 0, base + mountH - th * 1.3, deckS / 2 - lw / 2);
-    box(g, deckS, th * 0.6, lw * 0.6, em.steel, 0, base + mountH - th * 1.3, -(deckS / 2 - lw / 2));
-    // hold-down clamps around the hole
+    const d = geo.d, rIn = d * 0.5 + Math.max(0.8, d * 0.12), rw = Math.max(1.0, d * 0.16), th = Math.max(0.7, d * 0.1);
+    const top = base + mountH;
+    const ringY = top - 0.35 - th;
+    const sh = new T.Shape(); sh.absarc(0, 0, rIn + rw, 0, Math.PI * 2, false);
+    const hole = new T.Path(); hole.absarc(0, 0, rIn, 0, Math.PI * 2, true); sh.holes.push(hole);
+    const ring = new T.Mesh(new T.ExtrudeGeometry(sh, { depth: th, bevelEnabled: false, curveSegments: 40 }), em.steelDark);
+    ring.rotation.x = -Math.PI / 2; ring.position.y = ringY; ring.castShadow = true; ring.receiveShadow = true; g.add(ring);
+    // slanted legs (A-frames) down to both trench edges
+    const tw = trenchW || d * 1.7;
+    const rr = rIn + rw * 0.5, lr = Math.max(0.35, d * 0.06);
+    for (const a of [Math.PI * 0.25, Math.PI * 0.75, Math.PI * 1.25, Math.PI * 1.75]) {
+      const px = Math.cos(a) * rr, pz = Math.sin(a) * rr;
+      const foot = new T.Vector3(px * 1.5, base, Math.sign(pz) * (tw / 2 + 1.2));
+      pipe(g, new T.Vector3(px, ringY + th * 0.5, pz), foot, lr, em.steel);
+      box(g, lr * 5, 0.8, lr * 5, em.concreteDark, foot.x, base + 0.4, foot.z);
+    }
+    // cross beams (outside the flame path) linking the legs on each trench side
+    for (const sz of [-1, 1]) pipe(g, new T.Vector3(-rr * 1.06, ringY - mountH * 0.35, sz * (tw / 2 + 0.6) * 0.92), new T.Vector3(rr * 1.06, ringY - mountH * 0.35, sz * (tw / 2 + 0.6) * 0.92), lr * 0.7, em.steel);
+    // hold-down clamps reaching in to the base edge
     const nC = 8;
     for (let k = 0; k < nC; k++) {
       const a = k / nC * Math.PI * 2 + Math.PI / nC;
-      const c = box(g, 0.9, 1.1, 0.7, em.steel, Math.cos(a) * (d * 0.53), base + mountH + 0.5, Math.sin(a) * (d * 0.53));
+      const len = rIn + rw * 0.6 - d * 0.5 + 0.3;
+      const c = box(g, len, 0.7, 0.55, em.steel, Math.cos(a) * (d * 0.5 + len / 2 - 0.3), top - 0.35, Math.sin(a) * (d * 0.5 + len / 2 - 0.3));
       c.rotation.y = -a;
     }
-    // deluge ring and water pipes
-    const ring = new T.Mesh(new T.TorusGeometry(d * 0.62, Math.max(0.18, d * 0.035), 6, 40), em.pipe);
-    ring.rotation.x = Math.PI / 2; ring.position.y = base + mountH + 0.25; g.add(ring);
-    const pa = new T.Vector3(-deckS / 2, base + mountH - th * 0.5, deckS / 2 - 1);
-    pipe(g, new T.Vector3(-deckS / 2 - 14, base + 0.8, deckS / 2 - 1), pa, Math.max(0.3, d * 0.06), em.pipe);
-    // umbilical tower stub (tail service mast)
-    box(g, 1.6, 4, 1.6, em.steel, -deckS / 2 + 1.2, base + mountH + 2, -deckS / 2 + 1.2);
+    // deluge ring on the table and its feed pipe
+    const dl = new T.Mesh(new T.TorusGeometry(rIn + rw * 0.5, Math.max(0.15, d * 0.03), 6, 40), em.pipe);
+    dl.rotation.x = Math.PI / 2; dl.position.y = ringY + th + 0.15; g.add(dl);
+    pipe(g, new T.Vector3(-rIn - rw - 16, base + 0.8, -tw / 2 - 3), new T.Vector3(-rIn - rw * 0.5, ringY + th * 0.5, -0.2), Math.max(0.3, d * 0.05), em.pipe);
+    // tail service mast beside the table
+    box(g, 1.4, mountH + 4, 1.4, em.steel, -rIn - rw - 2.5, base + (mountH + 4) / 2, -tw / 2 - 2.5);
   }
 
   function launchSite(scene, geo) {
@@ -811,7 +819,7 @@ vec3 terrainAlbedo(vec2 p, float L){
     const tw = Math.max(9, geo.d * 1.7);
     padHill(props, top, half, slope, { w: tw, x0: -tw * 0.7 });
     const mountH = Math.max(7, geo.d * 1.25);
-    launchMount(props, geo, top, mountH);
+    launchMount(props, geo, top, mountH, tw);
     const padTop = top + mountH;
     {
       const sc = canvasTex(256, 256, (c, w) => {
@@ -1053,7 +1061,7 @@ vec3 terrainAlbedo(vec2 p, float L){
     const props = new T.Group(); g.add(props); registerProps(props);
     const tw = Math.max(10, geo.d * 1.1);
     padHill(props, top, half, slope, { w: Math.max(9, geo.d * 1.7), x0: -Math.max(9, geo.d * 1.7) * 0.7 });
-    launchMount(props, geo, top, Math.max(7, geo.d * 1.25));
+    launchMount(props, geo, top, Math.max(7, geo.d * 1.25), Math.max(9, geo.d * 1.7));
     const towerX = -(geo.d / 2 + tw / 2 + 6);
     const towerH = armY + 30 - top;
     const tower = latticeTower(towerH, tw, em.steel);
