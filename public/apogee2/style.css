@@ -267,3 +267,18 @@ table.cap th { color: var(--dim); font-weight: 600; font-size: 11px; }
   .net-charts { grid-template-columns: 1fr; }
   .tabs button { font-size: 10px; }
 }
+
+/* Engines & boosters feature: side booster controls in the rocket editor */
+.stage.srb { border-style: dashed; }
+.stage.srb .st-head span { flex: none; }
+.srb-seg button { min-height: 40px; min-width: 52px; }
+.srb-lock { margin: -2px 0 8px; }
+@media (max-width: 760px) {
+  .stage .seg button { min-height: 40px; padding: 8px 9px; }
+  .stage.srb .st-head { flex-wrap: wrap; gap: 2px 8px; }
+}
+/* PC: keep the rocket preview in view while the stage list (now longer) scrolls */
+@media (min-width: 761px) {
+  .editor .preview { position: sticky; top: 52px; align-self: start; }
+  .editor .preview canvas { height: min(68vh, 640px); min-height: 360px; }
+}

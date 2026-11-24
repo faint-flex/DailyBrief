@@ -11,7 +11,41 @@
     cometv: { name: 'Comet Vac',  fuel: 'Methane',  thrustSL: 0,    thrustVac: 2250, ispSL: 0,   ispVac: 376, mass: 1.90, cost: 3.0, rel: 0.978, vac: true,  tech: 'comet' },
     nova:   { name: 'Nova',       fuel: 'Methane',  thrustSL: 2700, thrustVac: 2950, ispSL: 330, ispVac: 362, mass: 1.55, cost: 1.6, rel: 0.972, vac: false, tech: 'nova' },
     novav:  { name: 'Nova Vac',   fuel: 'Methane',  thrustSL: 0,    thrustVac: 3000, ispSL: 0,   ispVac: 382, mass: 2.30, cost: 2.4, rel: 0.972, vac: true,  tech: 'nova' },
+    // Engines & boosters feature: more engines, each behind its own research.
+    spark:  { name: 'Spark',      fuel: 'Hypergolic', thrustSL: 0,  thrustVac: 120,  ispSL: 0,   ispVac: 318, mass: 0.09, cost: 0.25, rel: 0.993, vac: true, tech: 'spark', pressureFed: true },
+    frost:  { name: 'Frost Vac',  fuel: 'Hydrogen', thrustSL: 0,    thrustVac: 450,  ispSL: 0,   ispVac: 451, mass: 0.95, cost: 3.6, rel: 0.98,  vac: true,  tech: 'frost' },
+    forge:  { name: 'Forge',      fuel: 'Kerosene', thrustSL: 6900, thrustVac: 7650, ispSL: 268, ispVac: 304, mass: 6.2,  cost: 4.2, rel: 0.98,  vac: false, tech: 'forge' },
+    zephyr: { name: 'Zephyr Spike', fuel: 'Methane', thrustSL: 1600, thrustVac: 1700, ispSL: 345, ispVac: 368, mass: 1.7, cost: 2.0, rel: 0.97,  vac: false, tech: 'aerospike', spike: true },
   };
+
+  // Tank factors per fuel (engines & boosters feature). 1 keeps the old numbers exactly.
+  const FUELS = {
+    Kerosene:   { tank: 1, cost: 1 },
+    Methane:    { tank: 1, cost: 1 },
+    Hydrogen:   { tank: 1.8, cost: 1.6 },  // very light fuel: big insulated tanks
+    Hypergolic: { tank: 1, cost: 1.3 },    // storable, toxic
+  };
+  function tankK(eng) { const f = FUELS[eng.fuel]; return (f ? f.tank : 1) * (eng.pressureFed ? 1.6 : 1); }
+  function tankCostK(eng) { const f = FUELS[eng.fuel]; return f ? f.cost : 1; }
+
+  // Solid strap-on boosters (engines & boosters feature). Burn from liftoff with stage 1, then drop off.
+  // Thrust kN, mass t, cost $M per booster. d/h are drawing sizes in metres.
+  const SRBS = {
+    small: { name: 'Flint',  prop: 28,  dry: 3.6, thrustSL: 1250, thrustVac: 1400, ispSL: 248, ispVac: 274, cost: 0.8, rel: 0.997, tech: 'srb',      d: 1.3, h: 16 },
+    large: { name: 'Basalt', prop: 105, dry: 12,  thrustSL: 4100, thrustVac: 4600, ispSL: 255, ispVac: 282, cost: 2.6, rel: 0.995, tech: 'srbheavy', d: 2.4, h: 30 },
+  };
+  const SRB_COUNTS = [0, 2, 4, 6];
+  // The strap-on set of a design, or null. design.srb = { type: 'small'|'large', count: 0|2|4|6 } (optional).
+  function srbOf(design) {
+    const s = design && design.srb;
+    if (!s || !s.count || !SRBS[s.type]) return null;
+    const b = SRBS[s.type], n = s.count;
+    const isp = b.ispSL * 0.4 + b.ispVac * 0.6;
+    const mdot = (b.thrustSL * 0.4 + b.thrustVac * 0.6) * n / (isp * G0); // t/s for all of them
+    return { type: s.type, count: n, spec: b, prop: b.prop * n, dry: b.dry * n, isp, mdot, burn: b.prop * n / mdot,
+      thrust: b.thrustSL * n, cost: b.cost * n, rel: Math.pow(b.rel, n) };
+  }
+  function srbCost(design) { const b = srbOf(design); return b ? b.cost : 0; }
 
   // Delta-v needed from the ground (m/s), including typical losses.
   const TARGETS = {
@@ -45,6 +79,13 @@
     refill:    { name: 'Orbital Refilling',        rp: 220, req: ['steel'],        desc: 'Tanker flights refill your upper stage in orbit for Moon and Mars missions.' },
     shipreuse: { name: 'Reusable Upper Stage',     rp: 260, req: ['tower'],        desc: 'Upper stages come home too. Each reused flight refunds 90% of the upper stage.' },
     habitat:   { name: 'Mars Habitat',             rp: 300, req: ['refill'],       desc: 'Unlocks Mars city cargo contracts. Land 5 to win the game.' },
+    // Engines & boosters feature
+    spark:     { name: 'Spark Kick Engine',        rp: 20,  req: [],               icon: '✨', desc: 'A tiny, cheap, very reliable upper-stage engine. Pressure-fed, so its tanks are heavy.' },
+    srb:       { name: 'Solid Strap-on Boosters',  rp: 40,  req: [],               icon: '🧨', desc: 'Strap 2, 4 or 6 small Flint solid boosters to stage 1 for extra liftoff thrust. Cheap, thrown away after each flight.' },
+    forge:     { name: 'Forge Heavy Kerosene Engine', rp: 80, req: [],             icon: '🔥', desc: 'One Forge pushes as hard as 8 Embers. Fewer engines, but one failure hurts more.' },
+    srbheavy:  { name: 'Large Solid Boosters',     rp: 100, req: ['srb'],          icon: '🎆', desc: 'Basalt solid boosters: three times the push of a Flint.' },
+    frost:     { name: 'Frost Hydrogen Engine',    rp: 110, req: ['lighttanks'],   icon: '❄️', desc: 'Upper-stage engine with the best efficiency. Low thrust, pricey, and hydrogen needs big, heavy tanks.' },
+    aerospike: { name: 'Zephyr Aerospike',         rp: 170, req: ['comet'],        icon: '🗡️', desc: 'Methane engine that stays efficient from sea level to space. A little less reliable.' },
   };
 
   const FACILITY = {
@@ -77,7 +118,7 @@
   // Dry mass of one stage (t).
   function stageDry(st, techs, i, recovery) {
     const eng = ENGINES[st.engine];
-    let dry = st.prop * tankDryFrac(techs) + eng.mass * st.count + 0.6;
+    let dry = st.prop * tankDryFrac(techs) * tankK(eng) + eng.mass * st.count + 0.6; // tankK = 1 for kerosene/methane
     if (i === 0 && recovery && RECOVERY[recovery].legs) dry += st.prop * 0.006 + 1;
     if (i === 0 && recovery === 'catch') dry += st.prop * 0.002;
     return dry;
@@ -85,19 +126,20 @@
 
   function stageCost(st, techs, i) {
     const eng = ENGINES[st.engine];
-    return eng.cost * st.count + st.prop * tankCostPerTon(techs) + 0.8 + (i === 0 ? 0 : 0.2);
+    return eng.cost * st.count + st.prop * tankCostPerTon(techs) * tankCostK(eng) + 0.8 + (i === 0 ? 0 : 0.2);
   }
 
   function fairingCost(techs) { return has(techs, 'fairing') ? 0.1 : 0.5; }
 
   function designCost(design, techs) {
-    return design.stages.reduce((s, st, i) => s + stageCost(st, techs, i), 0) + fairingCost(techs);
+    return design.stages.reduce((s, st, i) => s + stageCost(st, techs, i), 0) + fairingCost(techs) + srbCost(design); // + strap-on boosters
   }
 
   function buildDays(design, factoryLvl) {
     const prop = design.stages.reduce((s, st) => s + st.prop, 0);
     const eng = design.stages.reduce((s, st) => s + st.count, 0);
-    const base = 6 + prop * 0.006 + eng * 0.5;
+    const srb = srbOf(design);
+    const base = 6 + prop * 0.006 + eng * 0.5 + (srb ? srb.count * 0.4 : 0); // strap-ons take a little longer
     return Math.max(2, Math.round(base / (1 + 0.5 * (factoryLvl - 1))));
   }
 
@@ -122,6 +164,12 @@
       if (st.count > lim.maxEngines) errs.push(`Stage ${i + 1}: max ${lim.maxEngines} engines.`);
       if (st.prop > lim.maxProp) errs.push(`Stage ${i + 1}: max ${lim.maxProp} t of propellant.`);
     });
+    // Strap-on boosters
+    const sb = design.srb;
+    if (sb && sb.count) {
+      if (!SRBS[sb.type] || !SRB_COUNTS.includes(sb.count)) errs.push('Side boosters: pick a size and 2, 4 or 6.');
+      else if (!has(techs, SRBS[sb.type].tech)) errs.push(`${SRBS[sb.type].name} side boosters need research.`);
+    }
     return errs;
   }
 
@@ -142,8 +190,10 @@
     let above = payload;
     let dv = 0;
     const detail = [];
+    const srb = srbOf(design);
     for (let i = n - 1; i >= 0; i--) {
       const s = stages[i];
+      if (i === 0 && srb) { detail[0] = srbStage1(design, s, srb, above); dv += detail[0].dv; above = detail[0].m0; continue; }
       const m0 = above + s.dry + s.prop;
       const m1 = above + s.dry + s.reserve;
       const sdv = s.isp * G0 * Math.log(m0 / m1);
@@ -158,6 +208,27 @@
     const upperTwr = n > 1 ? detail[n - 1].twr : twr;
     if (n > 1 && upperTwr < 0.5) loss += (0.5 - upperTwr) * 1500;
     return { dv: dv - loss, rawDv: dv, loss, twr, liftoff, detail, canLift: twr >= 1.05 };
+  }
+
+  // Stage 1 with strap-on solids: both burn from liftoff (phase A), the empty solids drop,
+  // then the core burns on alone (phase B). Landing fuel (reserve) is only held back on the core.
+  function srbStage1(design, s, srb, above) {
+    const st = design.stages[0], eng = ENGINES[st.engine];
+    const cF = (eng.vac ? eng.thrustVac : eng.thrustSL * 0.4 + eng.thrustVac * 0.6) * st.count;
+    const cMdot = cF / (s.isp * G0);
+    const usable = Math.max(0, s.prop - s.reserve);
+    const tA = Math.min(srb.burn, usable / cMdot);
+    const coreA = cMdot * tA, srbA = srb.mdot * tA;
+    const ispA = (cMdot * s.isp + srb.mdot * srb.isp) / (cMdot + srb.mdot);
+    const m0 = above + s.dry + s.prop + srb.dry + srb.prop;
+    let m = m0 - coreA - srbA;
+    let sdv = ispA * G0 * Math.log(m0 / m);
+    const left = srb.prop - srbA;
+    if (left > 1e-9) { sdv += srb.isp * G0 * Math.log(m / (m - left)); m -= left; } // solids outlast the core
+    m -= srb.dry; // drop the empty solids
+    const m1 = above + s.dry + s.reserve;
+    if (m > m1) sdv += s.isp * G0 * Math.log(m / m1);
+    return { dv: sdv, m0, m1, twr: (s.thrust + srb.thrust) / (m0 * G0), srbDv: ispA * G0 * Math.log(m0 / (m0 - coreA - srbA)), srbBurn: srb.burn, coreBurn: usable / cMdot };
   }
 
   // Can this design do this job? Handles orbital refilling for deep-space targets.
@@ -224,7 +295,8 @@
       p *= ok;
     }
     const newDesignRisk = Math.max(0.005, 0.05 - 0.009 * (designFlights || 0));
-    return p * (1 - newDesignRisk);
+    const srb = srbOf(design); // each strap-on booster is one more thing that can fail
+    return p * (1 - newDesignRisk) * (srb ? srb.rel : 1);
   }
 
   function binom(n, k) {
@@ -301,5 +373,6 @@
     has, limits, stageDry, stageCost, designCost, fairingCost, buildDays, refurbFrac, refurbDays,
     validate, perf, mission, capacity, engineRel, launchOdds, landingOdds, engineOutTolerance,
     makeContract, mulberry32,
+    FUELS, SRBS, SRB_COUNTS, srbOf, srbCost, // engines & boosters feature
   };
 })(typeof window !== 'undefined' ? window : globalThis);
