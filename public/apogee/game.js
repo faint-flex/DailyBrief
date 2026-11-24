@@ -8,6 +8,10 @@
   const NET = () => window.APOGEE_NET || null;
   const NETUI = () => window.APOGEE_NETUI || null;
   const isHalo = (c) => !!(c && c.kind === 'halo');
+  const isDc = (c) => !!(c && c.kind === 'dc');
+  const isOwn = (c) => isHalo(c) || isDc(c);
+  const VENT = () => window.APOGEE_VENTURES || null;
+  const VENTUI = () => window.APOGEE_VENTURES_UI || null;
   const $ = (id) => document.getElementById(id);
   const SAVE_KEY = 'apogee-save-v1';
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -58,13 +62,14 @@
     st.log.unshift({ day: 1, text: 'Founded the company with <b>$40M</b> and one Pathfinder rocket.' });
     netEnsure(st);
     campusEnsure(st);
+    ventEnsure(st);
     return st;
   }
 
   function load() {
     try {
       const raw = localStorage.getItem(SAVE_KEY);
-      if (raw) { const s = JSON.parse(raw); if (s && s.v === 1) { netEnsure(s); campusEnsure(s); return s; } }
+      if (raw) { const s = JSON.parse(raw); if (s && s.v === 1) { netEnsure(s); campusEnsure(s); ventEnsure(s); return s; } }
     } catch (e) { /* ignore */ }
     return newGame();
   }
@@ -72,6 +77,10 @@
   function campusEnsure(st) {
     const C = CAMPUS();
     if (C && C.ensure) { try { C.ensure(st); } catch (e) { console.warn('Campus ensure failed', e); } }
+  }
+  function ventEnsure(st) {
+    const V = VENT();
+    if (V && V.ensure) { try { V.ensure(st); } catch (e) { console.warn('Ventures ensure failed', e); } }
   }
   function campusSync() {
     const C = CAMPUS();
@@ -144,7 +153,7 @@
     state.contracts = state.contracts.filter((c) => c.expires > state.day);
     if (state.contracts.length < before) log('A contract offer expired.');
     const cap = 7;
-    const open = state.contracts.filter((c) => !isHalo(c)).length;
+    const open = state.contracts.filter((c) => !isOwn(c)).length;
     if (open < cap && Math.random() < (open < 3 ? 0.35 : 0.14)) {
       const c = S.makeContract(Math.random, state);
       state.contracts.push(c);
@@ -157,6 +166,15 @@
         const ts = r.toasts || [];
         if (ts.length) toast(ts[ts.length - 1]);
       } catch (e) { console.warn('Halo tick failed', e); }
+    }
+    const V = VENT();
+    if (V && V.tick) {
+      try {
+        const r = V.tick(state, Math.random) || {};
+        for (const ev of r.events || []) log(ev);
+        const ts = r.toasts || [];
+        if (ts.length) toast(ts[ts.length - 1]);
+      } catch (e) { console.warn('Ventures tick failed', e); }
     }
     if (state.cash < -15 && !sheet) openSheet({ kind: 'bankrupt' });
     save();
@@ -195,6 +213,7 @@
     else if (tab === 'research') renderResearch();
     else if (tab === 'base') renderBase();
     else if (tab === 'network') renderNetwork();
+    else if (tab === 'ventures') renderVentures();
     if (tab !== 'network') { const U = NETUI(); if (U && U.hide) U.hide(); }
     if (tab !== 'base') { const C = CAMPUS(); if (C && C.dispose) { try { C.dispose(); } catch (e) { /* ignore */ } } }
     if (sheet && sheet.live) renderSheet();
@@ -292,10 +311,16 @@
     if (!U || !U.render) { el.innerHTML = '<div class="empty">The Network module did not load. Reload the page.</div>'; return; }
     try { U.render(el, GAME); } catch (e) { console.error(e); el.innerHTML = `<div class="empty">Network screen error: ${esc(e.message)}</div>`; }
   }
+  function renderVentures() {
+    const el = $('tab-ventures');
+    const U = VENTUI();
+    if (!U || !U.render) { el.innerHTML = '<div class="empty">The Ventures module did not load. Reload the page.</div>'; return; }
+    try { U.render(el, GAME); } catch (e) { console.error(e); el.innerHTML = `<div class="empty">Ventures screen error: ${esc(e.message)}</div>`; }
+  }
   // Network tab hands us a 'halo' batch contract; fly it with the normal launch sheet.
   function openLaunchFor(contract) {
     if (!contract) return;
-    state.contracts = state.contracts.filter((x) => !isHalo(x) || x.id === contract.id);
+    state.contracts = state.contracts.filter((x) => !isOwn(x) || x.kind !== contract.kind || x.id === contract.id);
     if (!state.contracts.some((x) => x.id === contract.id)) state.contracts.push(contract);
     save();
     startLaunch(contract.id);
@@ -336,7 +361,7 @@
   }
   function renderContracts() {
     const el = $('tab-contracts');
-    const list = state.contracts.filter((c) => !isHalo(c)).sort((a, b) => b.reward - a.reward);
+    const list = state.contracts.filter((c) => !isOwn(c)).sort((a, b) => b.reward - a.reward);
     let html = `<h2>Open contracts</h2><p class="small dim" style="margin:-4px 2px 10px">New offers arrive every few days. Higher reputation unlocks bigger jobs.</p>`;
     if (!list.length) html += `<div class="empty">No offers right now. Check back in a few days.</div>`;
     html += '<div class="grid">';
@@ -528,7 +553,8 @@
     const { c, v, payload, target } = launchCtx(s);
     const t = S.TARGETS[target];
     let html = `<div class="head"><h3>${c ? esc(c.label) : 'Test flight'}</h3><button class="x" data-act="close">✕</button></div>`;
-    html += isHalo(c) ? `<div class="small dim">🛰️ ${c.count || '?'} Halo sats for your own network · ${t.name} · ${tons(c.mass)} · no payment, the sats earn money in orbit</div>`
+    html += isDc(c) ? `<div class="small dim">🖥️ ${c.count || '?'} compute modules for your orbital data center · ${t.name} · ${tons(c.mass)} · no payment, the modules earn money in orbit</div>`
+      : isHalo(c) ? `<div class="small dim">🛰️ ${c.count || '?'} Halo sats for your own network · ${t.name} · ${tons(c.mass)} · no payment, the sats earn money in orbit</div>`
       : c ? `<div class="small dim">${esc(c.client)} · ${t.name} · ${c.crew ? '4 crew in a 12 t capsule' : tons(c.mass)} · pays <span class="money">${money(c.reward)}</span></div>`
       : `<div class="small dim">No payload. Builds flight experience for your engines and earns science.</div>`;
     if (c && c.crew && !state.techs.capsule) {
@@ -600,10 +626,10 @@
     const res = await F.run({
       design, techs: state.techs, target, fail, recovery: s.recovery, landing: s.landing, autoLand, crew: c && c.crew,
       payloadKind: c && c.kind, satCount: c && c.count,
-      title: isHalo(c) ? `Halo batch · ${c.count} sats` : c ? `${c.label} · ${c.client}` : 'Test flight',
+      title: isHalo(c) ? `Halo batch · ${c.count} sats` : isDc(c) ? `Compute modules · ${c.count}` : c ? `${c.label} · ${c.client}` : 'Test flight',
       failText: fail ? `Engine failure on stage ${fail.stage + 1}` : '',
-      orbitText: isHalo(c) ? 'HALO BATCH DEPLOYED ✓' : !c ? 'ORBIT ✓' : t.deep ? 'ON ITS WAY ✓' : 'PAYLOAD DEPLOYED ✓',
-      orbitSub: isHalo(c) ? `${c.count} sats joining the Halo network` : c ? (m.refilled ? `Refilled by ${m.tankers} tanker flight${m.tankers > 1 ? 's' : ''}, heading for ${t.name}` : `${t.name}`) : 'Test flight complete',
+      orbitText: isHalo(c) ? 'HALO BATCH DEPLOYED ✓' : isDc(c) ? 'COMPUTE MODULES DEPLOYED ✓' : !c ? 'ORBIT ✓' : t.deep ? 'ON ITS WAY ✓' : 'PAYLOAD DEPLOYED ✓',
+      orbitSub: isHalo(c) ? `${c.count} sats joining the Halo network` : isDc(c) ? `${c.count} modules joining your orbital data center` : c ? (m.refilled ? `Refilled by ${m.tankers} tanker flight${m.tankers > 1 ? 's' : ''}, heading for ${t.name}` : `${t.name}`) : 'Test flight complete',
     });
     afterFlight(ctx, res);
   }
@@ -631,18 +657,22 @@
     const haloLines = (good) => {
       const N = NET();
       let out = [];
-      try { out = (N && N.onBatchResult) ? (N.onBatchResult(state, c, good) || []) : []; } catch (e) { console.warn(e); }
-      for (const l of out) lines.push(Array.isArray(l) ? l : ['🛰️ Halo', l]);
+      const V = VENT();
+      try {
+        if (isDc(c)) out = (V && V.onDcResult) ? (V.onDcResult(state, c, good) || []) : [];
+        else out = (N && N.onBatchResult) ? (N.onBatchResult(state, c, good) || []) : [];
+      } catch (e) { console.warn(e); }
+      for (const l of out) lines.push(Array.isArray(l) ? l : [isDc(c) ? '🖥️ Compute' : '🛰️ Halo', l]);
       state.contracts = state.contracts.filter((x) => x.id !== c.id);
     };
     if (ok) {
       state.stats.successes++;
-      if (isHalo(c)) {
+      if (isOwn(c)) {
         state.rep += c.rep || 0;
         state.rp += 4;
         haloLines(true);
         lines.push(['Science', '+4']);
-        log(`<b>${esc(v.serial)}</b> deployed <b>${c.count} Halo sats</b> to low orbit.`);
+        log(`<b>${esc(v.serial)}</b> deployed <b>${c.count} ${isDc(c) ? 'compute modules' : 'Halo sats'}</b> to low orbit.`);
       } else if (c) {
         state.cash += c.reward; state.stats.earned += c.reward;
         state.rep += c.rep;
@@ -680,8 +710,8 @@
       lines.push(['Result', '<span class="bad">Vehicle lost</span>']);
       lines.push(['Reputation', '−6']);
       lines.push(['Science (lessons learned)', '+3']);
-      log(`<b>${esc(v.serial)}</b> was lost: ${esc(fail ? `engine failure on stage ${fail.stage + 1}` : 'failure')}.${isHalo(c) ? ` ${c.count} Halo sats were lost with it.` : c ? ' The customer will wait for another try.' : ''}`);
-      if (isHalo(c)) haloLines(false);
+      log(`<b>${esc(v.serial)}</b> was lost: ${esc(fail ? `engine failure on stage ${fail.stage + 1}` : 'failure')}.${isHalo(c) ? ` ${c.count} Halo sats were lost with it.` : isDc(c) ? ` ${c.count} compute modules were lost with it.` : c ? ' The customer will wait for another try.' : ''}`);
+      if (isOwn(c)) haloLines(false);
     }
     // Booster
     if (recovery !== 'expend') {
@@ -707,7 +737,7 @@
     }
     save();
     const box = $('result');
-    box.innerHTML = `<h3>${ok ? (isHalo(c) ? '✅ Halo batch in orbit' : c ? '✅ Mission success' : '✅ Test flight success') : '💥 Mission failed'}</h3>
+    box.innerHTML = `<h3>${ok ? (isHalo(c) ? '✅ Halo batch in orbit' : isDc(c) ? '✅ Compute modules in orbit' : c ? '✅ Mission success' : '✅ Test flight success') : '💥 Mission failed'}</h3>
       ${lines.map(([k, val]) => `<div class="line"><span>${k}</span><b>${val}</b></div>`).join('')}
       <button class="btn primary big" style="margin-top:14px" data-act="flight-done">Continue</button>`;
     box.hidden = false;
@@ -926,8 +956,8 @@
       }
       if (e.key === 'Escape' && sheet && sheet.kind !== 'intro' && sheet.kind !== 'bankrupt') { closeSheet(); return; }
       if (sheet) return;
-      const tabs = ['ops', 'contracts', 'hangar', 'research', 'base', 'network'];
-      if (e.key >= '1' && e.key <= '6') { tab = tabs[+e.key - 1]; window.scrollTo(0, 0); refresh(); }
+      const tabs = ['ops', 'contracts', 'hangar', 'research', 'base', 'network', 'ventures'];
+      if (e.key >= '1' && e.key <= '7') { tab = tabs[+e.key - 1]; window.scrollTo(0, 0); refresh(); }
       else if (e.key === 'p' || e.key === 'P') { state.speed = state.speed ? 0 : 1; save(); header(); }
     });
     window.addEventListener('resize', () => { if (tab === 'ops') renderOps(); if (tab === 'network') renderNetwork(); if (sheet && sheet.kind === 'editor') editorStats(); });
