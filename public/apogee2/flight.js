@@ -242,7 +242,7 @@
         rk = A.buildRocket(design, plan.techs, { fins: recov, legs: recov && plan.recovery !== 'catch', crew: !!plan.crew, halo: isHalo ? Math.max(1, plan.satCount | 0 || 1) : 0 });
         scene = new T.Scene();
         A.lights(scene, V());
-        site = A.launchSite(scene, geo) || {};
+        site = A.launchSite(scene, geo, plan.pad) || {}; // plan.pad: chosen pad's type and tower (padkit.js)
         padTop = site.padTop || 0;
         rk.root.position.y = padTop;
         scene.add(rk.root);
@@ -386,6 +386,7 @@
       rk.root.rotation.set(0, 0, -ang);
       rk.root.updateMatrixWorld(true);
       if (haloPending && !dead) releaseHalo();
+      if (site && site.kit && site.kit.tick) site.kit.tick(t - COUNT, fdt); // Pad kit: deluge water spray at liftoff
       // engines
       const burning = !dead && !done && t >= starts[curStage] && t < starts[curStage] + burns[curStage];
       const ignite = !dead && curStage === 0 && t >= COUNT - 0.7 && t < COUNT;
@@ -673,7 +674,7 @@
           const mountTop = 10;
           touchY = mountTop + CATCH_HOVER + st.bh;
           armY = touchY + st1H - 3;
-          model = A.catchModel(geo, armY);
+          model = A.catchModel(geo, armY, plan.pad); // plan.pad: tower colour (padkit.js)
           scene.add(model.group);
           surfaceY = model.mountTop != null ? model.mountTop : mountTop;
           flameY = surfaceY;

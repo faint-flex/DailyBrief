@@ -1080,6 +1080,7 @@
       for (let i = 0; i < 7; i++) X.parks.push([L / 2 - 6 - i * 3.2, D / 2 - 6, Math.PI / 2]);
     },
     pad(B, L, D, lv, M, X) {
+      if (X.pk && window.APOGEE_PADKIT) return window.APOGEE_PADKIT.campusPad(B, L, D, lv, M, X); // Pad kit: pad type + custom tower
       B.box(M.conc, L - 2, 0.4, D - 2, 0, 0, 0);
       const mx = -4, mz = -2, mh = 8;
       // flame trench toward -x
@@ -2106,6 +2107,7 @@ diffuseColor.rgb *= alb;
         const pad = (sc ? sc.buildings : []).find((o) => o.type === 'pad' && (o.x === b.x + 1 || o.x + o.w === b.x || o.y === b.y + 1 || o.y + o.h === b.y) && Math.abs((o.x + o.w / 2) - (b.x + 0.5)) <= 2 && Math.abs((o.y + o.h / 2) - (b.y + 0.5)) <= 2);
         X.armDir = pad ? Math.atan2((pad.y + pad.h / 2) - (b.y + 0.5), (pad.x + pad.w / 2) - (b.x + 0.5)) : 0;
       }
+      if (t === 'pad' && b.pk) { X.pk = b.pk; X.rocket = rocket; X.Bld = Bld; } // Pad kit: hand the pad config to its model
       const B = new Bld();
       if (lvl > 0) MODELS[t](B, Lm, Dm, Math.min(3, lvl), M, X, ghost);
       else mConstruct(B, M, Lm, Dm, HGT[t] || 20, b.prog || 0, t);
@@ -2124,7 +2126,7 @@ diffuseColor.rgb *= alb;
       for (const b of sc.buildings) {
         seen.add(b.id);
         const cons = b.days > 0;
-        const key = [b.type, b.x, b.y, b.w, b.h, b.lvl, cons ? 1 : 0, b.lvl === 0 ? Math.floor((b.prog || 0) * 8) : 0].join(':');
+        const key = [b.type, b.x, b.y, b.w, b.h, b.lvl, cons ? 1 : 0, b.lvl === 0 ? Math.floor((b.prog || 0) * 8) : 0, b.pk && window.APOGEE_PADKIT ? window.APOGEE_PADKIT.viewKey(b) : ''].join(':'); // last: pad kit look
         const old = bcache.get(b.id);
         if (old && old.key === key) { old.b = b; continue; }
         if (old) dropB(old);
@@ -2183,7 +2185,7 @@ diffuseColor.rgb *= alb;
           const pct = Math.round((b.prog || 0) * 100);
           l = label(b.lvl ? `UPGRADING TO LEVEL ${b.to || b.lvl + 1} · ${pct}%` : `BUILDING ${pct}%`, { bg: 'rgba(20,14,0,.88)', fg: '#ffd54a', stripe: true, bar: b.prog || 0, fs: small ? 10 : 12 }, cx, full + 18, cz);
         } else if (b.lvl > 0) {
-          l = label('', { bg: 'rgba(11,15,26,.72)', fg: '#ffd54a', fs: small ? 8 : 10, stars: [b.lvl, 3] }, cx, full + 6, cz);
+          l = label(b.pk && window.APOGEE_PADKIT ? window.APOGEE_PADKIT.badge(b) : '', { bg: 'rgba(11,15,26,.72)', fg: '#ffd54a', fs: small ? 8 : 10, stars: [b.lvl, 3] }, cx, full + 6, cz); // pad kit: pad type name
         }
         if (l) { if (b.days > 0) l.renderOrder = 24; else l.userData.badge = b.id; L.labels.add(l); v.labels.push(l); }
       }

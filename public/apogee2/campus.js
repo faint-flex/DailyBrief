@@ -181,6 +181,9 @@
     return false;
   }
   const r2 = (n) => Math.round(n * 100) / 100;
+  // Pad kit (padkit.js): pad types change pad prices/build days; pm(b) = {c: cost x, d: days x}.
+  const PK = () => root.APOGEE_PADKIT;
+  const pm = (b) => (b && b.type === 'pad' && PK() ? PK().mul(null, b) : { c: 1, d: 1 });
 
   function plotPrice(st, sid, x, y) {
     const site = SITE[sid], t = TER[tile(site, x, y)];
@@ -304,8 +307,9 @@
       switch (b.type) {
         case 'factory': o.factoryLines += L; fSpeed += e * L; fN += L; break;
         case 'pad': {
-          const d = Math.max(2, Math.round(PAD_DAYS[L - 1] / (e >= 1.2 ? 1.2 : 1)));
+          const d = Math.max(2, Math.round(PAD_DAYS[L - 1] / (e >= 1.2 ? 1.2 : 1) * (PK() ? PK().turnMul(st, b) : 1))); // Pad kit: type + tower height
           o.pads++; o.padDays.push(d); padRate += 1 / d;
+          (o.padTurn = o.padTurn || {})[b.id] = d; if (PK() && PK().hasArms(st, b)) o.catchTower = true; // Pad kit: per-pad turnaround, catch arms
           if (SITE[b.site].polar) o.polarPad = true;
           break;
         }
@@ -379,7 +383,8 @@
     if (!why && t.coastal && !rectSea(site, r)) why = 'Must touch the ocean';
     if (!why && t.nextToPad && !cs(st).b.some((o) => o.site === sid && o.type === 'pad' && touches(r, o))) why = 'Must stand right next to a launch pad';
     if (!why) why = lockedWhy(st, type);
-    const cost = t.cost[0];
+    if (!why && type === 'pad' && PK()) why = PK().placeWhy(st, site, r); // Pad kit: sea platforms need the ocean
+    const cost = type === 'pad' && PK() ? PK().placeCost() : t.cost[0];
     if (!why && st.cash < cost) why = `Not enough cash (need ${cost.toFixed(1)}M)`;
     return { ok: !why, why, tiles, x, y, w, h, cost };
   }
@@ -415,7 +420,8 @@
       const b = addB(st, p.type, p.site, p.x, p.y, 0, p.rot);
       if (!t.days[0]) { b.lvl = 1; b.spent = ck.cost; return { ok: true, msg: `Built a <b>${t.name}</b> tile`, cost: ck.cost, id: b.id, quick: true }; }
       b.days = b.total = t.days[0]; b.to = 1; b.spent = ck.cost;
-      return { ok: true, msg: `Started building a <b>${t.name}</b> (${t.days[0]} days)`, cost: ck.cost, id: b.id };
+      if (p.type === 'pad' && PK()) PK().onPlaced(st, b); // Pad kit: remember the pad type (sets its build days)
+      return { ok: true, msg: `Started building a <b>${t.name}</b> (${b.days} days)`, cost: ck.cost, id: b.id };
     }
     const b = c.b.find((o) => o.id === p.id);
     if (!b) return { ok: false, msg: 'No such building' };
@@ -423,9 +429,9 @@
     if (a === 'upgrade') {
       if (b.days > 0) return { ok: false, msg: 'Busy with construction' };
       if (b.lvl >= t.cost.length) return { ok: false, msg: 'Already at max level' };
-      const cost = t.cost[b.lvl];
+      const cost = r2(t.cost[b.lvl] * pm(b).c); // pm: pad kit type multiplier
       if (st.cash < cost) return { ok: false, msg: 'Not enough cash' };
-      st.cash -= cost; b.spent += cost; b.to = b.lvl + 1; b.days = b.total = t.days[b.lvl];
+      st.cash -= cost; b.spent += cost; b.to = b.lvl + 1; b.days = b.total = Math.round(t.days[b.lvl] * pm(b).d);
       return { ok: true, msg: `Upgrading <b>${t.name}</b> to level ${b.to} (${b.days} days)`, cost };
     }
     if (a === 'demolish') {
@@ -690,9 +696,11 @@
       else {
         const t = BT[ui.type];
         const ck = ui.pv && ss.open ? check(st, sid, ui.type, ui.pv.x, ui.pv.y, ui.rot) : null;
-        sHTML = `<div class="grow"><b>${t.icon} ${t.name}</b> · ${t.w}×${t.h} · ${money(t.cost[0])} · ${t.days[0]} days<br>`;
+        const pk0 = ui.type === 'pad' && PK(); // Pad kit: price/days of the chosen pad type
+        sHTML = `<div class="grow"><b>${t.icon} ${t.name}</b> · ${t.w}×${t.h} · ${money(pk0 ? pk0.placeCost() : t.cost[0])} · ${pk0 ? pk0.placeDays() : t.days[0]} days<br>`;
         sHTML += !ss.open ? '<span class="cp-no">✕ Open this site first</span>' : !ck ? 'Tap the map where it should go.' : ck.ok ? `<span class="cp-ok">✓ Fits here</span> · ${ui.pvTouch ? 'tap again or press Place' : 'click to place'}` : `<span class="cp-no">✕ ${esc(ck.why)}</span>`;
         sHTML += `</div>${t.w !== t.h ? '<button class="btn sm" data-cp="rot">⟳ Rotate</button>' : ''}<button class="btn primary sm" data-cp="place" ${ck && ck.ok ? '' : 'disabled'}>Place here</button><button class="btn sm" data-cp="cancel">Cancel</button>`;
+        if (pk0) sHTML += pk0.kindPickerHTML(st); // Pad kit: pick Light / Standard / Heavy / Sea
       }
     } else if (ui.sel && ui.sel.site === sid && ui.sel.id) {
       const b = c.b.find((o) => o.id === ui.sel.id);
@@ -747,7 +755,7 @@
       <div class="btns"><button class="btn primary sm" data-cp="hire" ${st.cash < hc || st.engineers >= bo.engineerCap ? 'disabled' : ''}>${st.engineers >= bo.engineerCap ? '✕ No free desks' : `Hire · ${money(hc)}`}</button><button class="btn sm" data-cp="fire" ${st.engineers <= 1 ? 'disabled' : ''}>Let one go</button></div></div>`;
     // Buildings at this site
     const here = c.b.filter((b) => b.site === sid && b.type !== 'road'), nRoad = c.b.filter((b) => b.site === sid && b.type === 'road').length;
-    if (here.length || nRoad) h += `<h2>At ${esc(site.name)}</h2><div class="card small">${nRoad ? `<div class="cp-cons"><span>🛣️ Your roads</span><span>${nRoad} tile${nRoad > 1 ? 's' : ''}</span></div>` : ''}${here.map((b) => `<div class="cp-cons" data-cp="goto" data-v="${b.id}" style="cursor:pointer;margin-top:4px"><span>${BT[b.type].icon} ${BT[b.type].name}</span><span>${b.lvl ? `<span class="cp-pips" aria-label="level ${b.lvl}">${pips(b.lvl)}</span>` : '🏗️'}</span></div>`).join('')}</div>`;
+    if (here.length || nRoad) h += `<h2>At ${esc(site.name)}</h2><div class="card small">${nRoad ? `<div class="cp-cons"><span>🛣️ Your roads</span><span>${nRoad} tile${nRoad > 1 ? 's' : ''}</span></div>` : ''}${here.map((b) => `<div class="cp-cons" data-cp="goto" data-v="${b.id}" style="cursor:pointer;margin-top:4px"><span>${BT[b.type].icon} ${b.type === 'pad' && PK() ? PK().kindName(b) : BT[b.type].name}</span><span>${b.lvl ? `<span class="cp-pips" aria-label="level ${b.lvl}">${pips(b.lvl)}</span>` : '🏗️'}</span></div>`).join('')}</div>`;
     const S0 = root.APOGEE_SIM, stt = st.stats || {};
     h += `<h2>Company</h2><div class="card"><div class="kv"><div><small>Launches</small><b>${stt.launches || 0}</b></div><div><small>Successes</small><b>${stt.successes || 0}</b></div><div><small>Landings</small><b>${stt.landings || 0}</b></div><div><small>Earned</small><b>${money(stt.earned || 0)}</b></div>
       <div><small>Salaries/mo</small><b>${money(st.engineers * (S0 ? S0.FACILITY.engineerSalary : 0.15))}</b></div></div></div>`;
@@ -764,10 +772,11 @@
     if (b.lvl) s += `<span class="cp-ok">✓ Working:</span> ${esc(t.fx(b.lvl))} · upkeep ${money(t.up[b.lvl - 1])}/mo`;
     else s += `<span class="dim">When done: ${esc(t.fx(1))}</span>`;
     s += `<div class="small dim">${esc(t.info)}</div>`;
+    if (b.type === 'pad' && PK()) s += PK().panelHTML(st, b); // Pad kit: type, status, tower
     if (e.notes.length) s += `<ul class="cp-notes">${e.notes.map((n) => `<li class="${n.good ? 'cp-ok' : 'cp-no'}">${n.good ? '▲' : '▼'} ${esc(n.text)}</li>`).join('')}</ul>`;
     s += '</div>';
     if (actions) {
-      if (b.lvl > 0 && b.lvl < t.cost.length && b.days <= 0) s += `<button class="btn primary sm" data-cp="upgrade" data-v="${b.id}" ${st.cash < t.cost[b.lvl] ? 'disabled' : ''}>Upgrade to ${pips(b.lvl + 1)} · ${money(t.cost[b.lvl])} · ${t.days[b.lvl]}d<br><span style="font-weight:500">${esc(t.fx(b.lvl + 1))}</span></button>`;
+      if (b.lvl > 0 && b.lvl < t.cost.length && b.days <= 0) s += `<button class="btn primary sm" data-cp="upgrade" data-v="${b.id}" ${st.cash < r2(t.cost[b.lvl] * pm(b).c) ? 'disabled' : ''}>Upgrade to ${pips(b.lvl + 1)} · ${money(r2(t.cost[b.lvl] * pm(b).c))} · ${Math.round(t.days[b.lvl] * pm(b).d)}d<br><span style="font-weight:500">${esc(t.fx(b.lvl + 1))}</span></button>`;
       else if (b.type === 'road') s += `<span class="small ${roadNet(st, b.site).ok.has(b.y * SITE[b.site].w + b.x) ? 'cp-ok">✓ Connected to the public road' : 'cp-bad">✕ Not connected: link it to the public road'}</span>`;
       else if (b.lvl >= 3) s += '<span class="small cp-ok">★ Max level</span>';
       s += `<button class="btn sm danger" data-cp="demolish" data-v="${b.id}">Demolish</button>`;
