@@ -47,7 +47,7 @@
       cam.z = fitZ * (W < 520 ? 1.2 : 1);
       cam.x = W / 2 - (minx + maxx) / 2 * cam.z;
       cam.y = (H + 40) / 2 - (miny + maxy) / 2 * cam.z;
-      fitted = site.id;
+      fitted = site.base || site.id;
     }
     function zoomAt(sx, sy, f) {
       const nz = Math.max(fitZ * 0.6, Math.min(fitZ * 4, cam.z * f));
@@ -390,7 +390,7 @@
       const sc = api.scene();
       if (!sc) return;
       const site = sc.site, w = site.w, h = site.h, t = (now - t0) / 1000, z = cam.z;
-      if (fitted !== site.id) fit(site);
+      if (fitted !== (site.base || site.id)) fit(site);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#0d1524'); g.addColorStop(1, '#16233a');
       ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
@@ -1432,6 +1432,7 @@ float vnoise(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.
   // ---------- per-site landscape data (cached) ----------
   function siteData(site) {
     if (CACHE.sites[site.id]) return CACHE.sites[site.id];
+    for (const k of Object.keys(CACHE.sites)) if (k !== site.id && k.split('~')[0] === (site.base || site.id)) delete CACHE.sites[k];
     const w = site.w, h = site.h, P = PADT, GW = w + 2 * P, GH = h + 2 * P;
     const cnt = {};
     for (const row of site.map) for (const ch of row) cnt[ch] = (cnt[ch] || 0) + 1;
@@ -2284,8 +2285,9 @@ diffuseColor.rgb *= alb;
       sc = s;
       let ch = false;
       if (s.site.id !== st.siteId) {
+        const same = st.siteId && st.siteId.split('~')[0] === (s.site.base || s.site.id);
         site = s.site; buildSite(site); st.siteId = site.id;
-        st.own = st.b = st.veg = st.sign = st.ov = null; fitPending = true; ch = true;
+        st.own = st.b = st.veg = st.sign = st.ov = null; if (!same) fitPending = true; ch = true;
       }
       site = s.site;
       const ownKey = [...s.owned].sort((a, b) => a - b).join(',');
