@@ -204,6 +204,11 @@
     let failAt = null;
     if (plan.fail) failAt = starts[plan.fail.stage] + burns[plan.fail.stage] * plan.fail.t;
     const recov = plan.recovery !== 'expend';
+    // Solid side boosters (engines & boosters feature): burn from liftoff, drop off part-way through stage 1.
+    const SIM = window.APOGEE_SIM;
+    const srbP = SIM && SIM.srbOf ? SIM.srbOf(design) : null;
+    let srbSepT = Infinity, srbOn = !!srbP;
+    if (srbP) { const d0 = SIM.perf(design, 0, plan.recovery, plan.techs).detail[0] || {}; srbSepT = COUNT + burns[0] * clamp((d0.srbBurn || 60) / (d0.coreBurn || 150), 0.42, 0.62); }
     let curStage = 0;
     let fairingOff = false;
     let dead = false, deadT = 0, done = false, doneT = 0;
@@ -286,6 +291,20 @@
       scene.attach(st.group);
       const ax = axisOf(visAngle(t));
       dropped.push({ obj: st.group, v: ax.clone().multiplyScalar(-3), spin: 0.25 + Math.random() * 0.15, vent: 1.6, st, fins: i === 0 && recov ? 0 : null });
+    }
+    function onSrbSep() {
+      const s0 = vis && rk.stages[0];
+      if (!s0 || !s0.srbs) return;
+      rk.root.updateMatrixWorld(true);
+      const ax = axisOf(visAngle(t)), c0 = s0.group.getWorldPosition(V());
+      const vr = where === 'ground' ? groundPos(t).sub(groundPos(t - 0.05)).multiplyScalar(20 * 0.97) : V(); // keep most of the rocket's speed
+      for (const sb of s0.srbs) {
+        A.setPlume(sb, 0, 0, t);
+        const out = sb.group.getWorldPosition(V()).sub(c0);
+        out.addScaledVector(ax, -out.dot(ax)).normalize();
+        scene.attach(sb.group);
+        dropped.push({ obj: sb.group, v: out.multiplyScalar(6).addScaledVector(ax, -3).add(vr), spin: -(0.45 + Math.random() * 0.35), srb: true });
+      }
     }
     function onFairing() {
       if (!vis || !rk.fairing) return;
@@ -381,8 +400,20 @@
           const noz = st.group.getWorldPosition(V()).addScaledVector(ax, -st.bh);
           const dir = ax.clone().negate();
           const ak = where === 'ground' ? (rk.root.position.y - padTop) / 1000 : altKm;
-          if (where === 'ground') fx.exhaust(noz, dir, pw, ak, rk.r || st.r, fdt, padTop);
-          else fx.exhaust(noz, dir, pw, ak, rk.r || st.r, fdt);
+          if (where === 'ground') fx.exhaust(noz, dir, pw, ak, rk.r || st.r, fdt, padTop, { fuel: st.fuel });
+          else fx.exhaust(noz, dir, pw, ak, rk.r || st.r, fdt, undefined, { fuel: st.fuel });
+        }
+      });
+      // side boosters burn with stage 1 until they separate, each with its own smoky plume
+      const s0 = rk.stages[0];
+      if (s0 && s0.srbs) s0.srbs.forEach((sb, k) => {
+        if (sb.group.parent !== s0.group) return;
+        const pw = !dead && curStage === 0 && burning && t < srbSepT ? Math.min(1, (srbSepT - t) / 0.5) : 0;
+        A.setPlume(sb, pw, plumeX, t);
+        if (pw > 0 && fx && k < 4) {
+          const noz = sb.group.getWorldPosition(V()).addScaledVector(ax, -sb.bh);
+          const ak = where === 'ground' ? (rk.root.position.y - padTop) / 1000 : altKm;
+          fx.exhaust(noz, ax.clone().negate(), pw, ak, sb.r * 1.8, fdt, where === 'ground' ? padTop : undefined, { fuel: 'Solid', key: 'srb' + k });
         }
       });
       if (t < COUNT + TPAD && A.prepareEarth) safe(() => A.prepareEarth());
@@ -405,6 +436,7 @@
         d.obj.position.addScaledVector(d.v, fdt);
         const upperBurn = burning && curStage > 0;
         if (upperBurn) d.v.addScaledVector(ax, -6 * fdt);
+        if (d.srb) d.v.y -= 9.81 * fdt; // dropped side boosters fall away
         if (d.fair) { d.obj.rotateZ(d.hinge * fdt); d.v.addScaledVector(ax, -2 * fdt); }
         else d.obj.rotateZ(d.spin * fdt * 0.6), d.obj.rotateX(d.spin * fdt * 0.3);
         if (d.fins != null && d.fins < 1 && A.setFins) { d.fins = Math.min(1, d.fins + fdt / 1.5); safe(() => A.setFins(d.st, smooth(0, 1, d.fins))); }
@@ -518,6 +550,7 @@
           onSeparate(curStage);
           curStage++;
         }
+        if (srbOn && t >= srbSepT && !dead) { srbOn = false; onSrbSep(); } // side boosters away
         if (!fairingOff && altKm > 110 && !dead) { fairingOff = true; onFairing(); }
         if (failAt != null && t >= failAt && !dead) {
           dead = true; deadT = t; deadShot = shot;
@@ -531,6 +564,7 @@
         }
         if (t < COUNT) banner(`T−${Math.ceil(COUNT - t)}`, plan.title + (wx && wx.text ? `<br>${wx.text}` : ''), true); // launch ops: weather line
         else if (!dead && !done && t < COUNT + 2) banner('LIFTOFF', plan.title, true);
+        else if (!dead && !done && t > srbSepT && t < srbSepT + 1.6) banner('BOOSTER SEPARATION', 'Side boosters away');
         else if (!dead && !done && t > maxqFrom && t < maxqFrom + 1.6) banner('MAX-Q', 'Peak aerodynamic pressure');
         else if (!dead && !done && t < starts[1] + 1.5 && t > starts[1] - SEP && n > 1) banner('STAGE SEPARATION', '');
         else if (!dead && !done) banner('');
@@ -625,7 +659,7 @@
       try {
         scene = new T.Scene();
         A.lights(scene, V());
-        bk = A.buildRocket(design, plan.techs, { from: 0, to: 0, noNose: true, fins: true, legs: mode !== 'catch', soot: true });
+        bk = A.buildRocket(design, plan.techs, { from: 0, to: 0, noNose: true, fins: true, legs: mode !== 'catch', soot: true, srb: false }); // side boosters never land
         st = bk.stages[0];
         let foot = st.bh;
         if (st.legs) { A.setLegs(st, 1); foot = Math.max(0.5, -minYOf(bk.root, st.plume)); A.setLegs(st, 0); }

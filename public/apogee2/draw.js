@@ -4,6 +4,9 @@
   const S = window.APOGEE_SIM;
   const ENG_SIZE = { ember: 0.95, emberv: 1.0, comet: 1.25, cometv: 1.4, nova: 1.3, novav: 1.5 };
   const DENS = { Kerosene: 1.0, Methane: 0.82 };
+  // Engines & boosters feature: sizes of the new engines, and hydrogen's bulky tanks.
+  Object.assign(ENG_SIZE, { spark: 0.6, frost: 1.1, forge: 2.1, zephyr: 1.35 });
+  Object.assign(DENS, { Hydrogen: 0.36, Hypergolic: 1.18 });
 
   function geometry(design, techs) {
     const s0 = design.stages[0];
@@ -17,7 +20,53 @@
     });
     const nose = d * 1.9;
     const total = stages.reduce((s, x) => s + x.h, 0) + nose;
-    return { d, stages, nose, total, steel };
+    const srb = srbGeo(design, stages[0]);
+    return { d, stages, nose, total, steel, srb, width: srb ? d + srb.d * 2 : d };
+  }
+
+  // Strap-on side boosters: size and where they sit around stage 1 (angle 0 = right, +sin = towards the viewer).
+  function srbGeo(design, s0) {
+    const b = S.srbOf && S.srbOf(design);
+    if (!b || !s0) return null;
+    const d = b.spec.d, h = Math.max(d * 4, Math.min(b.spec.h, s0.h * 0.92));
+    const off = b.count === 4 ? Math.PI / 4 : 0;
+    const angles = [];
+    for (let k = 0; k < b.count; k++) angles.push(off + (k / b.count) * Math.PI * 2);
+    return { count: b.count, type: b.type, d, h, nose: d * 1.6, angles };
+  }
+  // 2D side boosters: white-and-grey cylinders with a nose cone and a nozzle. layer 'back' or 'front'.
+  function drawSrbs(ctx, geo, r, o, layer, px) {
+    const sg = geo.srb;
+    if (!sg) return;
+    const sr = sg.d / 2, R = r + sr * 0.98;
+    const list = sg.angles.map((a) => ({ x: Math.cos(a) * R, z: Math.sin(a) })).filter((p) => (layer === 'back' ? p.z < -0.01 : p.z >= -0.01));
+    list.sort((a, b) => a.z - b.z);
+    for (const p of list) {
+      ctx.save();
+      ctx.translate(p.x, 0);
+      const shade = layer === 'back' ? 0.78 : 1;
+      if (o.flame && o.srbFlame) drawFlame(ctx, { engine: 'ember', count: 1 }, sr, o.srbFlame, { plume: o.plume || 0, px, fuel: 'Solid' });
+      // nozzle
+      const nw = sg.d * 0.62, nh = sg.d * 0.55;
+      ctx.fillStyle = '#2a2d33';
+      ctx.beginPath(); ctx.moveTo(-nw * 0.3, 0); ctx.lineTo(-nw / 2, nh); ctx.lineTo(nw / 2, nh); ctx.lineTo(nw * 0.3, 0); ctx.closePath(); ctx.fill();
+      // casing
+      const g = ctx.createLinearGradient(-sr, 0, sr, 0);
+      g.addColorStop(0, `rgb(${Math.round(100 * shade)},${Math.round(104 * shade)},${Math.round(112 * shade)})`);
+      g.addColorStop(0.4, `rgb(${Math.round(250 * shade)},${Math.round(250 * shade)},${Math.round(246 * shade)})`);
+      g.addColorStop(1, `rgb(${Math.round(110 * shade)},${Math.round(114 * shade)},${Math.round(122 * shade)})`);
+      const top = -sg.h;
+      ctx.fillStyle = g; ctx.fillRect(-sr, top, sg.d, sg.h);
+      // grey segment bands and a grey aft skirt
+      ctx.fillStyle = `rgba(90,96,108,${0.55 * shade})`;
+      for (let k = 1; k < 4; k++) ctx.fillRect(-sr, top + (sg.h * k) / 4, sg.d, Math.max(px, sg.h * 0.018));
+      ctx.fillStyle = `rgba(120,126,138,${0.9 * shade})`; ctx.fillRect(-sr, -sg.d * 0.7, sg.d, sg.d * 0.7);
+      // nose cone
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.moveTo(-sr, top); ctx.quadraticCurveTo(-sr * 0.9, top - sg.nose * 0.75, 0, top - sg.nose); ctx.quadraticCurveTo(sr * 0.9, top - sg.nose * 0.75, sr, top); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = `rgba(80,86,96,${0.8 * shade})`; ctx.fillRect(-sr, top - Math.max(px, sg.h * 0.012), sg.d, Math.max(px, sg.h * 0.012));
+      ctx.restore();
+    }
   }
 
   // Cylinder shading: light from the upper left, a bright specular band, dark limb.
@@ -57,6 +106,7 @@
     const dark = darkGradient(ctx, r);
     const accent = design.color || '#ff7a1a';
 
+    if (from === 0 && o.srb !== false) drawSrbs(ctx, geo, r, o, 'back', px); // side boosters behind the core
     if (o.flame) drawFlame(ctx, design.stages[from], r, o.flame, { vac: o.vac, plume: o.plume || 0, px });
     drawBells(ctx, design.stages[from], r, !!o.flame);
     if (from === 0 && o.legs != null) drawLegs(ctx, r, 0, o.legs, px, 'back');
@@ -120,6 +170,7 @@
       y = top;
     }
     if (from === 0 && o.legs != null) drawLegs(ctx, r, 0, o.legs, px, 'front');
+    if (from === 0 && o.srb !== false) drawSrbs(ctx, geo, r, o, 'front', px); // side boosters in front of the core
     if (to === design.stages.length - 1 && !o.noNose && o.capsule) drawCapsule(ctx, y, geo.nose, r, body, dark, accent, px); // crew capsule nose
     else if (to === design.stages.length - 1 && !o.noNose) {
       const h = geo.nose;
@@ -182,7 +233,10 @@
     const { xs, bw, h, vac } = bellLayout(st, r);
     for (const cx of xs) {
       const g = ctx.createLinearGradient(cx - bw / 2, 0, cx + bw / 2, 0);
-      if (vac) { g.addColorStop(0, '#2a2420'); g.addColorStop(0.35, '#8a6f55'); g.addColorStop(0.5, '#b08d68'); g.addColorStop(1, '#2a2420'); }
+      const fuel = (S.ENGINES[st.engine] || {}).fuel;
+      if (fuel === 'Hydrogen') { g.addColorStop(0, '#3a4250'); g.addColorStop(0.35, '#b9c6d8'); g.addColorStop(0.5, '#e6eef8'); g.addColorStop(1, '#3a4250'); } // frosty cold engine
+      else if (vac) { g.addColorStop(0, '#2a2420'); g.addColorStop(0.35, '#8a6f55'); g.addColorStop(0.5, '#b08d68'); g.addColorStop(1, '#2a2420'); }
+      else if (fuel === 'Kerosene') { g.addColorStop(0, '#141210'); g.addColorStop(0.35, '#4f4842'); g.addColorStop(0.5, '#6c645c'); g.addColorStop(1, '#141210'); } // sooty
       else { g.addColorStop(0, '#1b1d22'); g.addColorStop(0.35, '#6a707b'); g.addColorStop(0.5, '#8c939e'); g.addColorStop(1, '#1b1d22'); }
       ctx.fillStyle = g;
       ctx.beginPath();
@@ -199,8 +253,20 @@
   }
 
   // Layered, additive rocket plume. plume: 0 at sea level (tight, shock diamonds) .. 1 in vacuum (wide, faint).
+  // Flame colours per fuel: [halo, outer hot, outer mid, outer tail, core mid] as 'r,g,b'. Kerosene keeps the old look.
+  const FLAME2D = {
+    Kerosene: ['255,170,80', '255,236,190', '255,170,70', '255,90,30', '255,240,200'],
+    Methane: ['170,170,255', '235,235,255', '150,160,255', '255,120,70', '215,220,255'],
+    Hydrogen: ['120,150,255', '200,215,255', '110,140,255', '90,110,230', '190,205,255'],
+    Hypergolic: ['255,150,120', '255,215,190', '250,130,100', '220,80,60', '255,220,200'],
+    Solid: ['255,200,120', '255,250,225', '255,200,110', '255,120,40', '255,250,230'],
+  };
   function drawFlame(ctx, st, r, power, o) {
     o = o || {};
+    const fuel = o.fuel || (S.ENGINES[st.engine] || {}).fuel || 'Kerosene';
+    const C = FLAME2D[fuel] || FLAME2D.Kerosene;
+    const dim = fuel === 'Hydrogen' ? 0.45 : 1; // hydrogen burns nearly invisible
+    power *= fuel === 'Solid' ? 1.15 : 1;
     const t = performance.now() / 1000;
     const vac = o.vac || o.plume > 0.75;
     const plume = Math.max(0, Math.min(1, o.plume || 0));
@@ -214,15 +280,15 @@
     ctx.globalCompositeOperation = 'lighter';
     // glow halo
     const halo = ctx.createRadialGradient(0, exitY + len * 0.15, 0, 0, exitY + len * 0.15, len * 0.75);
-    halo.addColorStop(0, `rgba(255,170,80,${0.32 * power})`);
+    halo.addColorStop(0, `rgba(${C[0]},${0.32 * power * dim})`);
     halo.addColorStop(1, 'rgba(255,120,40,0)');
     ctx.fillStyle = halo;
     ctx.beginPath(); ctx.arc(0, exitY + len * 0.15, len * 0.75, 0, Math.PI * 2); ctx.fill();
     // outer plume
     const outer = ctx.createLinearGradient(0, exitY, 0, exitY + len);
-    outer.addColorStop(0, `rgba(255,236,190,${0.85 - plume * 0.35})`);
-    outer.addColorStop(0.25, `rgba(255,170,70,${0.6 - plume * 0.3})`);
-    outer.addColorStop(0.7, `rgba(255,90,30,${0.25 - plume * 0.12})`);
+    outer.addColorStop(0, `rgba(${C[1]},${(0.85 - plume * 0.35) * dim})`);
+    outer.addColorStop(0.25, `rgba(${C[2]},${(0.6 - plume * 0.3) * dim})`);
+    outer.addColorStop(0.7, `rgba(${C[3]},${(0.25 - plume * 0.12) * dim})`);
     outer.addColorStop(1, 'rgba(255,60,20,0)');
     ctx.fillStyle = outer;
     ctx.beginPath();
@@ -234,7 +300,7 @@
     const coreLen = len * (0.45 + plume * 0.2);
     const core = ctx.createLinearGradient(0, exitY, 0, exitY + coreLen);
     core.addColorStop(0, 'rgba(255,255,255,.95)');
-    core.addColorStop(0.4, vac ? 'rgba(190,210,255,.6)' : 'rgba(255,240,200,.7)');
+    core.addColorStop(0.4, vac ? 'rgba(190,210,255,.6)' : `rgba(${C[4]},.7)`);
     core.addColorStop(1, 'rgba(255,200,120,0)');
     ctx.fillStyle = core;
     ctx.beginPath();
@@ -465,7 +531,7 @@
     ctx.clearRect(0, 0, w, h);
     if (!design.stages.length) return;
     const geo = geometry(design, techs);
-    const scale = Math.min((h - 30) / (geo.total + 3), (w - 40) / geo.d);
+    const scale = Math.min((h - 30) / (geo.total + 3), (w - 40) / (geo.width || geo.d)); // width includes side boosters
     const base = h - 12;
     // soft studio light behind the rocket
     const lg = ctx.createRadialGradient(w / 2, h * 0.45, 0, w / 2, h * 0.45, Math.max(w, h) * 0.6);
