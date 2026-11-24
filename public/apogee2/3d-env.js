@@ -799,15 +799,17 @@ diffuseColor.rgb *= terrainAlbedo(vWP.xz, tL) * 1.45;`);
     box(g, 1.4, mountH + 4, 1.4, em.steel, -rIn - rw - 2.5, base + (mountH + 4) / 2, -tw / 2 - 2.5);
   }
 
-  function launchSite(scene, geo) {
+  function launchSite(scene, geo, cfg) {
     const em = emats();
     const R = A.R;
     const g = new T.Group();
-    const C = LAUNCH_COAST;
+    // Pad kit (padkit.js): cfg = the chosen pad's type and tower; no cfg keeps the classic pad. Sea platforms sit offshore.
+    const kit = cfg && A.padKit3D ? cfg : null, seaPad = !!(kit && kit.sea);
+    const C = seaPad ? Object.assign({}, LAUNCH_COAST, { c: -650, lag: null }) : LAUNCH_COAST;
     const top = 9; // pad hill height
     const half = 60, slope = 28;
-    const flats = [[0, 0, half + slope + 20, 60, 0], [-330, -150, 140, 60, 0], [-170, 40, 120, 50, 0], [-640, 260, 120, 60, 0]];
-    const clears = [[0, 0, half + slope + 40, 1], [-330, -150, 120, 0.85], [-170, 40, 100, 0.8], [-640, 260, 90, 0.8]];
+    const flats = seaPad ? [] : [[0, 0, half + slope + 20, 60, 0], [-330, -150, 140, 60, 0], [-170, 40, 120, 50, 0], [-640, 260, 120, 60, 0]];
+    const clears = seaPad ? [] : [[0, 0, half + slope + 40, 1], [-330, -150, 120, 0.85], [-170, 40, 100, 0.8], [-640, 260, 90, 0.8]];
     const land = terrain(C, flats, clears);
     g.add(land);
     const hf = land.userData.height;
@@ -816,8 +818,8 @@ diffuseColor.rgb *= terrainAlbedo(vWP.xz, tL) * 1.45;`);
 
     const props = new T.Group(); g.add(props); registerProps(props);
     // pad hill + trench (exhaust runs toward +x, out to sea side)
-    const tw = Math.max(9, geo.d * 1.7);
-    padHill(props, top, half, slope, { w: tw, x0: -tw * 0.7 });
+    const tw = Math.max(9, geo.d * 1.7) * (kit && kit.trench > 1 ? kit.trench : 1); // Pad kit: heavy pads get a bigger trench
+    if (!seaPad) padHill(props, top, half, slope, kit && !kit.trench ? null : { w: tw, x0: -tw * 0.7 });
     const mountH = Math.max(7, geo.d * 1.25);
     launchMount(props, geo, top, mountH, tw);
     const padTop = top + mountH;
@@ -833,6 +835,9 @@ diffuseColor.rgb *= terrainAlbedo(vWP.xz, tL) * 1.45;`);
       dec.rotation.x = -Math.PI / 2; dec.position.set(geo.d, top + 0.02, 0); dec.receiveShadow = true; props.add(dec);
     }
 
+    // Pad kit: custom tower, arms, masts, sea deck and deluge spray replace the default ones below
+    const kitFx = kit ? A.padKit3D(props, geo, { top, padTop, mountH, tw, half, slope }, kit) : null;
+    if (!kitFx) {
     // tower
     const towW = Math.max(8, geo.d * 1.05);
     const towX = -(geo.d / 2 + towW / 2 + Math.max(4, geo.d * 0.9));
@@ -866,10 +871,11 @@ diffuseColor.rgb *= terrainAlbedo(vWP.xz, tL) * 1.45;`);
     for (const t of tops) { const out = t.clone().setY(0); out.x *= 2.2; out.z *= 2.2; cat(t, out, mastH * 0.05); }
     const wg = new T.BufferGeometry(); wg.setAttribute('position', new T.Float32BufferAttribute(wirePts, 3));
     props.add(new T.LineSegments(wg, new T.LineBasicMaterial({ color: 0x2a2c30, transparent: true, opacity: 0.55 })));
+    } // end default tower (pad kit)
 
     // water deluge tower (sphere on legs) and pipeline to the pad
     const wtX = 150, wtZ = 170, wtH = 52;
-    {
+    if (!seaPad && (!kit || kit.deluge)) { // Pad kit: only heavy pads have the water tower
       const y0 = hf(wtX, wtZ);
       const s = cyl(props, 10, 10, 1, em.white, wtX, y0 + wtH + 6, wtZ, 24);
       s.geometry.dispose(); s.geometry = new T.SphereGeometry(11, 28, 18);
@@ -880,6 +886,7 @@ diffuseColor.rgb *= terrainAlbedo(vWP.xz, tL) * 1.45;`);
     }
     // tank farm: two big spheres, bullet tanks, small plant
     const tfx = -170, tfz = 40;
+    if (!seaPad) { // Pad kit: no land buildings around a sea platform
     for (const [x, z, r] of [[tfx - 20, tfz - 25, 11], [tfx + 18, tfz + 20, 9]]) {
       const sph = new T.Mesh(new T.SphereGeometry(r, 32, 20), em.white);
       sph.position.set(x, r + 3, z); sph.castShadow = true; sph.receiveShadow = true; props.add(sph);
@@ -934,12 +941,13 @@ diffuseColor.rgb *= terrainAlbedo(vWP.xz, tL) * 1.45;`);
       }
       road(roadsG, pts, 8, hf);
     }
+    } // end land buildings (pad kit)
     // vegetation (keep clear of pad, roads and buildings)
     const vegG = new T.Group(); g.add(vegG); registerProps(vegG);
     vegetation(vegG, C, hf, [[0, 0, half + slope + 45], [-330, -150, 130], [-170, 40, 105], [-640, 260, 90], [150, 170, 30]], 2600, 3200);
 
     scene.add(g);
-    return { group: g, sea, padTop };
+    return { group: g, sea, padTop, kit: kitFx };
   }
 
   // ---------- landing pad (on land, near the coast) ----------
@@ -1048,7 +1056,7 @@ diffuseColor.rgb *= terrainAlbedo(vWP.xz, tL) * 1.45;`);
   }
 
   // ---------- catch tower ----------
-  function catchModel(geo, armY) {
+  function catchModel(geo, armY, cfg) {
     const em = emats();
     const g = new T.Group();
     const C = { nx: 0.2, nz: 0.98, c: 480, lag: [-2700, 260, 500] };
@@ -1064,7 +1072,7 @@ diffuseColor.rgb *= terrainAlbedo(vWP.xz, tL) * 1.45;`);
     launchMount(props, geo, top, Math.max(7, geo.d * 1.25), Math.max(9, geo.d * 1.7));
     const towerX = -(geo.d / 2 + tw / 2 + 6);
     const towerH = armY + 30 - top;
-    const tower = latticeTower(towerH, tw, em.steel);
+    const tower = latticeTower(towerH, tw, (cfg && cfg.arms && A.padKitMat && A.padKitMat(cfg)) || em.steel); // Pad kit: tower colour
     tower.position.set(towerX, top, 0); props.add(tower);
     // carriage that holds the arms
     const carH = 7;
@@ -1105,4 +1113,5 @@ diffuseColor.rgb *= terrainAlbedo(vWP.xz, tL) * 1.45;`);
   }
 
   Object.assign(A, { launchSite, padModel, bargeModel, catchModel, ocean, lights, groundHeight });
+  A._env = { emats, stdMat, box, cyl, pipe, latticeTower, trussArm, small, SEA }; // helpers for padkit.js
 })();

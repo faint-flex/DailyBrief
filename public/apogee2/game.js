@@ -696,6 +696,7 @@
     });
     return cost + S.srbCost(design); // side boosters are never reused
   }
+  const PADKIT = () => window.APOGEE_PADKIT; // Pad kit (padkit.js): launch pad types and towers
   function launchSheet() {
     const s = sheet;
     const { c, v, payload, target } = launchCtx(s);
@@ -720,7 +721,7 @@
       const ok = modes.includes(k);
       return `<button data-act="l-rec" data-id="${k}" class="${s.recovery === k ? 'on' : ''}" ${ok ? '' : 'disabled'}>${r2.name}${ok ? '' : ' 🔒'}</button>`;
     }).join('')}</div>`;
-    const lockHints = { rtls: 'Land back at the pad: research Landing Legs (🔬 Research tab)', barge: 'Ocean barge: research Ocean Landing Barge, then build a Drone ship port on Base', catch: 'Tower catch: research Tower Catch, then build a Catch tower next to a pad' };
+    const lockHints = { rtls: 'Land back at the pad: research Landing Legs (🔬 Research tab)', barge: 'Ocean barge: research Ocean Landing Barge, then build a Drone ship port on Base', catch: 'Tower catch: research Tower Catch, then build a Catch tower next to a pad or add catch arms to a pad tower' };
     const locked = Object.keys(lockHints).filter((k) => !modes.includes(k));
     if (locked.length) html += `<p class="small dim">🔒 ${locked.map((k) => lockHints[k]).join('<br>🔒 ')}</p>`;
     if (s.recovery !== 'expend') {
@@ -734,8 +735,10 @@
     if (isRide(c)) html += RS().pickerHtml(state, s.ride, rideCap(s), { money, tons }); // pick rideshare customers
     const m = S.mission(v.design, payload, target, s.recovery, state.techs, { upperReuse: s.upperReuse });
     const wnd = c && !isOwn(c) && WND() ? WND().apply(m, target, state) : null; // windows: Moon penalty / Mars block
-    // Launch ops: weather, static fire and investigations adjust the odds.
-    const odds = S.launchOdds(v.design, state.heritage, state.designFlights[v.designId] || 0, OPS() ? OPS().launchMod(state, v) : undefined);
+    const pk = PADKIT() ? PADKIT().launchInfo(state, s, { design: v.design, liftoff: m.perf.liftoff, recovery: s.recovery, crew: !!(c && c.crew) }) : null; // Pad kit: pick pad, check mass/tower
+    if (pk) html += pk.html;
+    // Launch ops: weather, static fire and investigations adjust the odds; Pad kit adds a small pad bonus.
+    const odds0 = S.launchOdds(v.design, state.heritage, state.designFlights[v.designId] || 0, OPS() ? OPS().launchMod(state, v) : undefined), odds = pk ? pk.adj(odds0) : odds0;
     const lodds = S.landingOdds(s.recovery, state.landings, state.techs, OPS() ? OPS().landMod(state, s.recovery) : undefined);
     if (OPS()) html += OPS().sheetHtml(state, v, s);
     const tankCost = m.tankers ? m.tankers * tankerUnit(v.design, s.recovery, s.upperReuse) : 0;
@@ -756,9 +759,10 @@
       </div>`;
     if (wnd) html += WND().launchHtml(wnd, state, target); // windows: status, trip time, arrival odds
     const canPay = state.cash >= tankCost && !(isRide(c) && !c.count); // a rideshare needs at least one customer
-    const goOk = m.ok && canPay && !(wnd && wnd.blocked) && crewChk.ok;
+    const goOk = m.ok && canPay && !(wnd && wnd.blocked) && crewChk.ok && (!pk || pk.ok);
     const opsBtns = OPS() ? OPS().launchButtons(state, v, s, goOk, c) : null; // launch ops: no-go / risk it / scrub
     html += opsBtns || `<button class="btn primary big" data-act="launch" ${goOk ? '' : 'disabled'}>🚀 Launch ${esc(v.serial)}</button>`;
+    if (pk && !pk.ok) html += `<p class="small bad">✕ ${esc(pk.why)}</p>`; // Pad kit: why the launch is blocked
     if (!canPay) html += `<p class="small bad">Not enough cash for the tanker flights.</p>`;
     return html;
   }
@@ -771,10 +775,13 @@
     const wnd = c && !isOwn(c) && WND() ? WND().apply(m, target, state) : null; // windows
     if (!m.ok || (wnd && wnd.blocked) || (isRide(c) && !c.count)) return;
     if (OPS() && OPS().gate(state, v).block) return; // launch ops: storm no-go
+    const pk = PADKIT() ? PADKIT().launchInfo(state, s, { design: v.design, liftoff: m.perf.liftoff, recovery: s.recovery, crew: !!(c && c.crew) }) : null; // Pad kit
+    if (pk && !pk.ok) return;
     const tankCost = m.tankers ? m.tankers * tankerUnit(v.design, s.recovery, s.upperReuse) : 0;
     state.cash -= tankCost;
     const design = v.design;
-    const odds = S.launchOdds(design, state.heritage, state.designFlights[v.designId] || 0, OPS() ? OPS().launchMod(state, v) : undefined);
+    const odds0 = S.launchOdds(design, state.heritage, state.designFlights[v.designId] || 0, OPS() ? OPS().launchMod(state, v) : undefined), odds = pk ? pk.adj(odds0) : odds0; // Pad kit bonus
+    if (pk) { const note = PADKIT().onLaunch(state, pk.padId, m.perf.liftoff); if (note) log(`🚀 ${note}`); } // Pad kit: turnaround + wear
     let fail = null;
     if (Math.random() > odds) {
       const weights = design.stages.map((st, i) => st.count + 1 + (i === 0 && S.srbOf(design) ? S.srbOf(design).count : 0)); // side boosters fail with stage 1
@@ -796,7 +803,7 @@
     save();
     const t = S.TARGETS[target];
     const res = await F.run({
-      design, techs: state.techs, target, fail, recovery: s.recovery, landing: s.landing, autoLand, crew: c && c.crew,
+      design, techs: state.techs, target, fail, recovery: s.recovery, landing: s.landing, autoLand, crew: c && c.crew, pad: pk ? pk.flight : null, // pad: Pad kit 3D look
       payloadKind: isRide(c) ? 'halo' : c && c.kind, satCount: c && c.count, // rideshare reuses the Halo multi-sat deploy
       weather: OPS() ? OPS().flightWeather(state) : null, // launch ops: haze + wind in the 3D flight
       title: isHalo(c) ? `Halo batch · ${c.count} sats` : isDc(c) ? `Compute modules · ${c.count}` : c ? `${c.label} · ${c.client}` : 'Test flight',
@@ -1089,6 +1096,7 @@
       case 'l-rec': sheet.recovery = id; renderSheet(); break;
       case 'l-land': sheet.landing = id; state.lastLanding = id; save(); renderSheet(); break;
       case 'l-up': sheet.upperReuse = id === '1'; renderSheet(); break;
+      case 'l-pad': sheet.padId = id; sheet.padAuto = false; renderSheet(); break; // Pad kit: launch pad pick
       case 'launch': launch(); break;
       case 'ops-static': { // launch ops: static fire test
         const r = OPS() && OPS().startStatic(state, id);
