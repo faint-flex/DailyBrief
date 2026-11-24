@@ -250,30 +250,47 @@
     const geo = D.geometry(design, plan.techs);
     const mode = plan.recovery; // rtls | barge | catch
     const manual = plan.landing === 'manual';
+    const steer = plan.landing === 'steer';
+    const moveBoat = steer && mode === 'barge';
+    const hands = manual || steer;
+    let padX = 0, padV = 0;
     const padHalf = mode === 'catch' ? 7 : mode === 'barge' ? 20 : 17;
     const A = 3 * G;
     const b = {
       x: (Math.random() < 0.5 ? -1 : 1) * (60 + Math.random() * 100),
       y: 1700, vx: (Math.random() - 0.5) * 24, vy: -185, th: (Math.random() - 0.5) * 0.15, fuel: 15, burning: false,
     };
-    const failMode = plan.autoLand ? null : (Math.random() < 0.5 ? 'hard' : 'miss');
+    const failMode = steer || plan.autoLand ? null : (Math.random() < 0.5 ? 'hard' : 'miss');
+    if (steer) { b.x = (Math.random() < 0.5 ? -1 : 1) * (50 + Math.random() * 70); b.vx = (Math.random() - 0.5) * 16; }
     const aimX = failMode === 'miss' ? (padHalf + 14) * (b.x > 0 ? 1 : -1) : 0;
     let t = 0, outcome = null, outT = 0, reason = '';
     let ppm = 0.3, camX = 0;
     const st1H = geo.stages[0].h;
     let pilotShown = false;
-    if (manual) {
+    if (hands) {
       $('pilot').hidden = false; pilotShown = true;
+      $('p-burn').hidden = steer;
+      const keysEl = document.querySelector('#pilot .keys');
+      if (keysEl) keysEl.innerHTML = steer ? `Keyboard: <b>←</b> <b>→</b> to ${moveBoat ? 'move the barge' : 'steer'}` : 'Keyboard: hold <b>Space</b> or <b>↑</b> to burn, <b>←</b> <b>→</b> to steer';
       $('flight-skip').hidden = true;
-      banner('YOU HAVE CONTROL', 'Hold Space (or ↑) to burn, ← → to steer. Touch down slower than 8 m/s on the target.');
+      if (manual) banner('YOU HAVE CONTROL', 'Hold Space (or ↑) to burn, ← → to steer. Touch down slower than 8 m/s on the target.');
+      else if (moveBoat) banner('MOVE THE BARGE', 'The booster handles the burn. Use ← → to slide the barge under it.');
+      else banner('STEER IT IN', 'The booster handles the burn. Use ← → to steer it onto the target.');
     } else {
       banner('BOOSTER RETURN', { rtls: 'Heading back to the landing pad', barge: 'Aiming for the ocean barge', catch: 'Lining up with the tower arms' }[mode]);
     }
 
     function control() {
-      if (manual) {
-        const turn = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
-        return { burn: keys.burn, turn };
+      const input = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+      if (manual) return { burn: keys.burn, turn: input };
+      if (steer) {
+        const burn = b.vy < -(Math.sqrt(2 * 1.6 * G * Math.max(0, b.y)) + 2);
+        if (moveBoat) {
+          // Booster just keeps itself upright; the player moves the barge.
+          return { burn, turn: Math.max(-1, Math.min(1, -b.th * 4 - b.vx * 0.02)), boat: input };
+        }
+        // Player slides it left/right; it holds position when you let go.
+        return { burn, turn: 0, slide: input };
       }
       const aT = failMode === 'hard' ? 3.4 * G : 1.6 * G;
       const burn = b.vy < -(Math.sqrt(2 * aT * Math.max(0, b.y)) + 2);
@@ -285,7 +302,7 @@
     return {
       manual,
       skip() {
-        if (manual) return;
+        if (hands) return;
         this.finished = true;
         this.result = { landed: !!plan.autoLand };
       },
@@ -296,6 +313,13 @@
           b.th += c.turn * 0.9 * dt;
           b.th = Math.max(-0.6, Math.min(0.6, b.th));
           b.burning = c.burn && b.fuel > 0;
+          if (moveBoat) {
+            padV += (c.boat || 0) * 9 * dt;
+            if (!c.boat) padV *= 1 - Math.min(1, dt * 1.2);
+            padV = Math.max(-16, Math.min(16, padV));
+            padX += padV * dt;
+          }
+          if (steer) b.vx += Math.sin(t * 0.8) * 1.2 * dt; // wind gusts
           let ax = 0, ay = -G;
           if (b.burning) {
             ax += A * Math.sin(b.th); ay += A * Math.cos(b.th);
@@ -305,13 +329,19 @@
           }
           ay += (G / (195 * 195)) * b.vy * b.vy * (b.vy < 0 ? 1 : -1);
           ax -= b.vx * 0.04;
-          if (!manual && b.y < 200) { const k = Math.min(1, dt * 2.5); b.x += (aimX - b.x) * k; b.vx *= 1 - k; b.th *= 1 - k; }
+          if (!hands && b.y < 200) { const k = Math.min(1, dt * 2.5); b.x += (aimX - b.x) * k; b.vx *= 1 - k; b.th *= 1 - k; }
           b.vx += ax * dt; b.vy += ay * dt;
+          if (steer && !moveBoat) {
+            const want = (c.slide || 0) * 18;
+            const k = Math.min(1, dt * 1.6);
+            b.vx += (want - b.vx) * k;
+            b.th = Math.max(-0.2, Math.min(0.2, (want - b.vx) * 0.02 + b.vx * 0.006));
+          }
           b.x += b.vx * dt; b.y += b.vy * dt;
           if (b.y <= 0) {
             b.y = 0;
-            const onPad = Math.abs(b.x) <= padHalf;
-            const soft = Math.abs(b.vy) <= 8 && Math.abs(b.vx) <= 5 && Math.abs(b.th) <= 0.26;
+            const onPad = Math.abs(b.x - padX) <= padHalf;
+            const soft = Math.abs(b.vy) <= 8 && Math.abs(b.vx - (moveBoat ? padV : 0)) <= 5 && Math.abs(b.th) <= 0.26;
             if (onPad && soft) { outcome = 'landed'; b.vy = 0; b.vx = 0; }
             else {
               outcome = 'crash';
@@ -321,13 +351,13 @@
             outT = t; b.burning = false;
             if (outcome === 'landed') banner(mode === 'catch' ? 'CAUGHT! 🦾' : 'THE BOOSTER HAS LANDED', 'It can fly again.');
             else { banner('RAPID UNSCHEDULED DISASSEMBLY', reason); }
-            if (pilotShown) { $('pilot').hidden = true; $('flight-skip').hidden = false; }
+            if (pilotShown) { $('pilot').hidden = true; $('p-burn').hidden = false; $('flight-skip').hidden = false; }
           }
         }
         // camera
         const wantPpm = (H * 0.68) / Math.max(90, b.y + 70);
         ppm += (wantPpm - ppm) * Math.min(1, dt * 2.5);
-        camX += (b.x * 0.6 - camX) * Math.min(1, dt * 3);
+        camX += ((b.x + padX) * 0.5 - camX) * Math.min(1, dt * 3);
         const groundY = H * 0.8;
         const sx = (x) => W / 2 + (x - camX) * ppm;
         const sy = (y) => groundY - y * ppm;
@@ -358,9 +388,14 @@
           }
           // barge
           const bw = 52 * ppm, bh = Math.max(4, 6 * ppm);
-          ctx.fillStyle = '#2a2f3c'; ctx.fillRect(sx(-26), groundY, bw, bh);
-          ctx.fillStyle = '#3b4252'; ctx.fillRect(sx(-26), groundY - 1, bw, 2);
-          drawTarget(sx(0), groundY, padHalf * ppm);
+          ctx.fillStyle = '#2a2f3c'; ctx.fillRect(sx(padX - 26), groundY, bw, bh);
+          ctx.fillStyle = '#3b4252'; ctx.fillRect(sx(padX - 26), groundY - 1, bw, 2);
+          if (Math.abs(padV) > 1) {
+            ctx.fillStyle = 'rgba(255,255,255,.5)';
+            const back = padV > 0 ? sx(padX - 26) - 4 : sx(padX + 26) + 4;
+            for (let k = 0; k < 3; k++) ctx.fillRect(back - Math.sign(padV) * k * 10, groundY + bh * 0.5 + k * 2, -Math.sign(padV) * 8, 2);
+          }
+          drawTarget(sx(padX), groundY, padHalf * ppm);
         } else {
           ctx.fillStyle = '#1a2238'; ctx.fillRect(0, groundY, W, H);
           ctx.fillStyle = '#232d48'; ctx.fillRect(0, groundY, W, 3);
@@ -382,6 +417,12 @@
           }
         }
         drawParts();
+        if (hands && !outcome) {
+          // where the booster is right now, marked on the ground
+          const gx = sx(b.x);
+          ctx.fillStyle = Math.abs(b.x - padX) <= padHalf ? 'rgba(61,220,151,.9)' : 'rgba(255,179,71,.9)';
+          ctx.beginPath(); ctx.moveTo(gx, groundY - 4); ctx.lineTo(gx - 7, groundY - 16); ctx.lineTo(gx + 7, groundY - 16); ctx.closePath(); ctx.fill();
+        }
         // booster
         if (outcome !== 'crash' || t - outT < 0.05) {
           D.drawRocket(ctx, design, geo, {
@@ -396,10 +437,10 @@
           ['V/S', `<span style="color:${Math.abs(b.vy) <= 8 || b.y > 400 ? '#e9ecf4' : '#ff8d99'}">${b.vy.toFixed(0)} m/s</span>`],
           ['H/S', `${b.vx.toFixed(1)} m/s`],
           ['FUEL', `${Math.max(0, b.fuel / 15 * 100).toFixed(0)}%`],
-          ['TARGET', `${(b.x).toFixed(0)} m`],
+          ['TARGET', `${(b.x - padX).toFixed(0)} m`],
         ]);
-        if (manual && !outcome && t > 3.5 && t < 4) banner('');
-        if (!manual && !outcome && t > 3) banner('');
+        if (hands && !outcome && t > 3.5 && t < 4) banner('');
+        if (!hands && !outcome && t > 3) banner('');
         if (outcome && t - outT > 3) {
           this.finished = true;
           this.result = { landed: outcome === 'landed' };
