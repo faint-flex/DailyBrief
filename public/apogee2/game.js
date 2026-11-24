@@ -297,6 +297,9 @@
     else if (tab === 'base') renderBase();
     else if (tab === 'network') renderNetwork();
     else if (tab === 'ventures') renderVentures();
+    // Base hub (hub.js): a panel opened from the Base renders in a drawer over the map.
+    const HB = window.APOGEE_HUB;
+    if (HB) { const hd = tab === 'base' ? HB.drawer() : null; if (hd) { HB.sync(); ({ ops: renderOps, contracts: renderContracts, hangar: renderHangar, research: renderResearch })[hd](); } else if (HB.drawer()) HB.close(true); }
     if (tab !== 'network') { const U = NETUI(); if (U && U.hide) U.hide(); }
     if (tab !== 'base') { const C = CAMPUS(); if (C && C.dispose) { try { C.dispose(); } catch (e) { /* ignore */ } } }
     if (sheet && sheet.live) renderSheet();
@@ -598,7 +601,7 @@
   function renderBase() {
     const el = $('tab-base');
     const C = CAMPUS();
-    if (C && C.render && state.campus) { try { C.render(el, GAME); return; } catch (e) { console.warn('Campus render failed', e); } }
+    if (C && C.render && state.campus) { try { C.render(el, GAME); if (window.APOGEE_HUB) window.APOGEE_HUB.decorate(el); /* Base hub shortcut bar */ return; } catch (e) { console.warn('Campus render failed', e); } }
     const f = state.factory;
     const st = state.stats;
     const monthly = state.engineers * S.FACILITY.engineerSalary + 0.1 * f + (state.owned.barge ? 0.2 : 0) + (state.owned.tower ? 0.3 : 0);
@@ -1221,6 +1224,7 @@
 
   function init() {
     state = load();
+    if (window.APOGEE_HUB && CAMPUS() && state.campus) tab = 'base'; // Base hub: the game opens on the Base map
     document.addEventListener('click', onClick);
     for (const b of document.querySelectorAll('#tabs button')) b.addEventListener('click', () => { tab = b.dataset.tab; window.scrollTo(0, 0); refresh(); });
     for (const b of document.querySelectorAll('#speed button')) b.addEventListener('click', () => { state.speed = +b.dataset.speed; save(); header(); });
