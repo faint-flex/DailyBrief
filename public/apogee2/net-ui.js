@@ -51,6 +51,7 @@
 
   function hide() {
     if (globe) { try { globe.dispose(); } catch (e) { /* ignore */ } }
+    if (globeCanvas && globeCanvas.parentNode) globeCanvas.remove(); // a disposed canvas shows as a blank white box: take it out
     globe = null; globeCanvas = null;
   }
 
@@ -59,6 +60,7 @@
     const slot = root && root.querySelector('.globe-slot');
     if (!slot) return;
     if (!GL || !GL.mount) { slot.classList.add('noglobe'); return; }
+    for (const c of slot.querySelectorAll('canvas')) if (c !== globeCanvas) c.remove(); // drop stale (lost) canvases
     if (globe && (!globeCanvas || !globeCanvas.isConnected) && globeCanvas) slot.appendChild(globeCanvas);
     if (!globe) {
       globeCanvas = document.createElement('canvas');
