@@ -19,6 +19,7 @@
   let canvas = null, R = null, gl = false, fallbackCam = null;
   let ov = null, octx = null, fadeEl = null, W = 1, H = 1, dpr = 1;
   let fade = 0;
+  let wx = null, wxEl = null; // launch ops: launch-site weather (plan.weather) and its haze overlay
   const keys = { left: false, right: false, burn: false };
   let phase = null;
   let skipReq = false;
@@ -43,6 +44,9 @@
       fadeEl = document.createElement('div');
       fadeEl.style.cssText = 'position:absolute;inset:0;background:#000;opacity:0;pointer-events:none';
       ov.insertAdjacentElement('afterend', fadeEl);
+      wxEl = document.createElement('div'); // launch ops: weather haze, under the fade
+      wxEl.style.cssText = 'position:absolute;inset:0;opacity:0;pointer-events:none;mix-blend-mode:screen';
+      ov.insertAdjacentElement('afterend', wxEl);
     }
     if (!R) {
       const A = A3();
@@ -89,6 +93,7 @@
     if (!gl || !F || !F.create) return null;
     const fx = safe(() => F.create(scene));
     if (!fx) return null;
+    if (wx && wx.wind && fx.wind) safe(() => fx.wind.set(wx.wind.x, 0, wx.wind.z)); // launch ops: wind on smoke
     const call = (name, args) => { if (typeof fx[name] === 'function') safe(() => fx[name].apply(fx, args)); };
     return {
       exhaust: (...a) => call('exhaust', a), landingBurn: (...a) => call('landingBurn', a), explode: (...a) => call('explode', a),
@@ -122,6 +127,13 @@
         }
       },
     };
+  }
+
+  // Launch ops: weather haze. Low weather fades out as we climb; upper winds show between ~3 and 25 km.
+  function wxTint(altKm) {
+    if (!wxEl) return;
+    const k = !wx || !wx.haze ? 0 : wx.aloft ? Math.min(1, altKm / 4) * Math.max(0, Math.min(1, (25 - altKm) / 10)) : Math.max(0, 1 - altKm / 12);
+    wxEl.style.opacity = (k * (wx ? wx.haze : 0)).toFixed(3);
   }
 
   function cut() { fade = 1; }
@@ -493,6 +505,7 @@
         t += dt;
         const p = progress(t);
         const altKm = altAt(t);
+        wxTint(altKm); // launch ops
         const speed = (plan.target === 'GTO' || TARGET_DEEP(plan.target) ? 10.2 : 7.8) * Math.pow(p, 1.25) * 3600;
         // stage logic
         while (curStage < n - 1 && t >= starts[curStage + 1] - SEP && !dead) {
@@ -510,7 +523,7 @@
           onDeploy();
           banner(plan.orbitText || 'ORBIT ✓', plan.orbitSub || '');
         }
-        if (t < COUNT) banner(`T−${Math.ceil(COUNT - t)}`, plan.title);
+        if (t < COUNT) banner(`T−${Math.ceil(COUNT - t)}`, plan.title + (wx && wx.text ? `<br>${wx.text}` : '')); // launch ops: weather line
         else if (!dead && !done && t < COUNT + 2) banner('LIFTOFF', plan.title);
         else if (!dead && !done && t > maxqFrom && t < maxqFrom + 1.6) banner('MAX-Q', 'Peak aerodynamic pressure');
         else if (!dead && !done && t < starts[1] + 1.5 && t > starts[1] - SEP && n > 1) banner('STAGE SEPARATION', '');
@@ -547,6 +560,7 @@
     const manual = plan.landing === 'manual';
     const steer = plan.landing === 'steer';
     const moveBoat = steer && mode === 'barge';
+    wxTint(1); // launch ops: low weather haze back for the landing
     const hands = manual || steer;
     let padX = 0, padV = 0;
     const padHalf = mode === 'catch' ? 7 : mode === 'barge' ? 20 : 17;
@@ -996,6 +1010,9 @@
     // Build the Earth now (it is used once the rocket is high) so staging does not stutter.
     if (gl) safe(() => { const A = A3(); if (A.prepareEarth) A.prepareEarth(); else if (A.buildEarth) A.buildEarth(); });
     results = {};
+    wx = plan.weather || null; // launch ops
+    if (wxEl) wxEl.style.background = wx && wx.tint ? wx.tint : 'none';
+    wxTint(0);
     queue = [
       () => ascent(plan),
       (res) => (plan.recovery !== 'expend' && res.stage1Ok ? landing(plan) : null),
@@ -1003,7 +1020,7 @@
     return new Promise((resolve) => { resolveRun = resolve; next(); });
   }
 
-  function close() { $('flight').hidden = true; $('result').hidden = true; banner(''); }
+  function close() { $('flight').hidden = true; $('result').hidden = true; banner(''); if (wxEl) wxEl.style.opacity = 0; }
 
   function bindPilot() {
     const hold = (id, key) => {

@@ -12,6 +12,7 @@
   const isOwn = (c) => isHalo(c) || isDc(c);
   const VENT = () => window.APOGEE_VENTURES || null;
   const VENTUI = () => window.APOGEE_VENTURES_UI || null;
+  const OPS = () => window.APOGEE_OPS || null; // launch ops: weather, static fires, investigations (launchops.js)
   const $ = (id) => document.getElementById(id);
   const SAVE_KEY = 'apogee2-save-v1';
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -196,6 +197,16 @@
         if (ts.length) toast(ts[ts.length - 1]);
       } catch (e) { console.warn('Ventures tick failed', e); }
     }
+    // Launch ops: static fires and failure investigations count down.
+    const O = OPS();
+    if (O && O.tick) {
+      try {
+        const r = O.tick(state) || {};
+        for (const ev of r.events || []) log(ev);
+        const ts = r.toasts || [];
+        if (ts.length) toast(ts[ts.length - 1]);
+      } catch (e) { console.warn('Launch ops tick failed', e); }
+    }
     if (!state.vehicles.length && !sheet && !state.won) {
       const cheapest = Math.min(...state.designs.map((d) => S.designCost(d, state.techs)), 99);
       if (state.cash < cheapest) {
@@ -288,8 +299,9 @@
     for (const v of r) {
       html += `<div class="card"><div style="display:flex;gap:8px;align-items:center"><div class="grow"><h3>${esc(v.serial)} <span class="dim small">${esc(v.design.name)}</span></h3>
         <div class="small dim">${stagesLabel(v.design)}${v.booster ? ` · <span class="acc">flown booster ×${v.booster.flights}</span>` : ''}</div></div></div>
-        <div class="btns"><button class="btn primary sm" data-act="go-contracts">Pick a contract</button><button class="btn sm" data-act="test" data-id="${v.id}">Test flight</button></div></div>`;
+        <div class="btns"><button class="btn primary sm" data-act="go-contracts">Pick a contract</button><button class="btn sm" data-act="test" data-id="${v.id}">Test flight</button>${OPS() ? OPS().vehicleBtn(state, v) : ''}</div></div>`;
     }
+    if (OPS()) html += OPS().opsLeftHtml(state); // launch ops: test stand + investigations
     if (b.length) {
       html += `<h2>In the factory <span class="dim">(${state.factory} line${state.factory > 1 ? 's' : ''})</span></h2>`;
       b.forEach((v, i) => {
@@ -300,7 +312,7 @@
     if (state.boosters.length) {
       html += `<h2>Landed boosters</h2><div class="card small">${state.boosters.map((x) => `<span class="pill acc">${esc(x.id)} · ${x.flights} flight${x.flights > 1 ? 's' : ''}</span>`).join(' ')}<p class="dim">Build the same design in the Hangar to reuse one.</p></div>`;
     }
-    html += `</div><div>${haloOpsCard()}<h2>Goals</h2><div class="card">`;
+    html += `</div><div>${OPS() ? OPS().opsWeatherHtml(state) : ''}${haloOpsCard()}<h2>Goals</h2><div class="card">`;
     for (const m of MILESTONES) {
       const done = state.milestones[m.id];
       const extra = m.id === 'marsCity' ? ` (${state.marsCity}/5)` : '';
@@ -630,8 +642,10 @@
       html += `<h2>Upper stage</h2><div class="seg"><button data-act="l-up" data-id="0" class="${!s.upperReuse ? 'on' : ''}">Expend</button><button data-act="l-up" data-id="1" class="${s.upperReuse ? 'on' : ''}">Bring it home (refund 90%)</button></div>`;
     }
     const m = S.mission(v.design, payload, target, s.recovery, state.techs, { upperReuse: s.upperReuse });
-    const odds = S.launchOdds(v.design, state.heritage, state.designFlights[v.designId] || 0);
-    const lodds = S.landingOdds(s.recovery, state.landings, state.techs);
+    // Launch ops: weather, static fire and investigations adjust the odds.
+    const odds = S.launchOdds(v.design, state.heritage, state.designFlights[v.designId] || 0, OPS() ? OPS().launchMod(state, v) : undefined);
+    const lodds = S.landingOdds(s.recovery, state.landings, state.techs, OPS() ? OPS().landMod(state, s.recovery) : undefined);
+    if (OPS()) html += OPS().sheetHtml(state, v, s);
     const tankCost = m.tankers ? m.tankers * tankerUnit(v.design, s.recovery, s.upperReuse) : 0;
     const ratio = Math.min(1.4, m.have / m.need);
     html += `<h2>Flight check</h2><div class="card">
@@ -645,7 +659,8 @@
       ${!m.canLift ? '<p class="small bad">Too heavy to leave the pad. Add engines or remove fuel.</p>' : !m.ok ? `<p class="small bad">Not enough delta-v${s.recovery !== 'expend' ? '. Try expending the booster, or' : '. Try'} a bigger rocket.${S.TARGETS[target].deep && !state.techs.refill ? ' Orbital Refilling research helps for Moon and Mars.' : ''}</p>` : ''}
       </div>`;
     const canPay = state.cash >= tankCost;
-    html += `<button class="btn primary big" data-act="launch" ${m.ok && canPay ? '' : 'disabled'}>🚀 Launch ${esc(v.serial)}</button>`;
+    const opsBtns = OPS() ? OPS().launchButtons(state, v, s, m.ok && canPay, c) : null; // launch ops: no-go / risk it / scrub
+    html += opsBtns || `<button class="btn primary big" data-act="launch" ${m.ok && canPay ? '' : 'disabled'}>🚀 Launch ${esc(v.serial)}</button>`;
     if (!canPay) html += `<p class="small bad">Not enough cash for the tanker flights.</p>`;
     return html;
   }
@@ -656,10 +671,11 @@
     if (!v) return;
     const m = S.mission(v.design, payload, target, s.recovery, state.techs, { upperReuse: s.upperReuse });
     if (!m.ok) return;
+    if (OPS() && OPS().gate(state, v).block) return; // launch ops: storm no-go
     const tankCost = m.tankers ? m.tankers * tankerUnit(v.design, s.recovery, s.upperReuse) : 0;
     state.cash -= tankCost;
     const design = v.design;
-    const odds = S.launchOdds(design, state.heritage, state.designFlights[v.designId] || 0);
+    const odds = S.launchOdds(design, state.heritage, state.designFlights[v.designId] || 0, OPS() ? OPS().launchMod(state, v) : undefined);
     let fail = null;
     if (Math.random() > odds) {
       const weights = design.stages.map((st) => st.count + 1);
@@ -667,9 +683,10 @@
       while (pick > weights[i]) { pick -= weights[i]; i++; }
       fail = { stage: Math.min(i, design.stages.length - 1), t: 0.15 + Math.random() * 0.75 };
     }
-    const autoLand = Math.random() < S.landingOdds(s.recovery, state.landings, state.techs);
+    const autoLand = Math.random() < S.landingOdds(s.recovery, state.landings, state.techs, OPS() ? OPS().landMod(state, s.recovery) : undefined);
     state.vehicles = state.vehicles.filter((x) => x !== v);
     const ctx = { c, v, recovery: s.recovery, landing: s.landing, upperReuse: s.upperReuse, tankers: m.tankers, tankCost, fail, target };
+    if (OPS()) ctx.ops = { wx: OPS().today(state).kind, sf: !!v.sfDone }; // launch ops: for the result screen
     closeSheet();
     flying = true;
     // If the page is closed mid-flight, the next load finishes this flight with the pre-rolled outcome.
@@ -679,6 +696,7 @@
     const res = await F.run({
       design, techs: state.techs, target, fail, recovery: s.recovery, landing: s.landing, autoLand, crew: c && c.crew,
       payloadKind: c && c.kind, satCount: c && c.count,
+      weather: OPS() ? OPS().flightWeather(state) : null, // launch ops: haze + wind in the 3D flight
       title: isHalo(c) ? `Halo batch · ${c.count} sats` : isDc(c) ? `Compute modules · ${c.count}` : c ? `${c.label} · ${c.client}` : 'Test flight',
       failText: fail ? `Engine failure on stage ${fail.stage + 1}` : '',
       orbitText: isHalo(c) ? 'HALO BATCH DEPLOYED ✓' : isDc(c) ? 'COMPUTE MODULES DEPLOYED ✓' : !c ? 'ORBIT ✓' : t.deep ? 'ON ITS WAY ✓' : 'PAYLOAD DEPLOYED ✓',
@@ -793,6 +811,8 @@
     } else {
       lines.push(['Booster', '<span class="dim">Expended</span>']);
     }
+    // Launch ops: open failure investigations, note weather / static fire.
+    if (OPS()) { try { for (const ev of OPS().afterFlight(state, ctx, res, lines) || []) log(ev); } catch (e) { console.warn('Launch ops afterFlight failed', e); } }
     save();
     const box = $('result');
     box.innerHTML = `<h3>${ok ? (isHalo(c) ? '✅ Halo batch in orbit' : isDc(c) ? '✅ Compute modules in orbit' : c ? '✅ Mission success' : '✅ Test flight success') : '💥 Mission failed'}</h3>
@@ -933,6 +953,23 @@
       case 'l-land': sheet.landing = id; state.lastLanding = id; save(); renderSheet(); break;
       case 'l-up': sheet.upperReuse = id === '1'; renderSheet(); break;
       case 'launch': launch(); break;
+      case 'ops-static': { // launch ops: static fire test
+        const r = OPS() && OPS().startStatic(state, id);
+        if (r) { if (r.log) log(r.log); toast(r.msg); save(); refresh(); }
+        break;
+      }
+      case 'ops-scrub': { // launch ops: scrub and wait a day (vehicle stays ready, contracts keep ticking)
+        if (!sheet || sheet.kind !== 'launch' || !OPS()) break;
+        const lc = launchCtx(sheet);
+        log(OPS().noteScrub(state, lc.v));
+        dayTick();
+        const after = sheet && sheet.kind === 'launch' ? launchCtx(sheet) : null;
+        if (!after) { refresh(); break; }
+        if (sheet.contractId && !after.c) { closeSheet(); toast('⏳ Scrubbed. The contract expired.'); break; }
+        toast(`⏳ Scrubbed · day ${state.day}: ${OPS().today(state).icon} ${OPS().today(state).name}`);
+        header(); renderSheet();
+        break;
+      }
       case 'flight-done': F.close(); flying = false; last = performance.now(); refresh(); break;
       case 'build': build(id, false); break;
       case 'build-reuse': build(id, true); break;
