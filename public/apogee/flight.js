@@ -213,12 +213,15 @@
     const fl = flashes();
     const dropped = []; // {obj, v, spin, stage, vent}
     let payloadFree = null;
+    // Halo batch: a stack of flat-packed sats that separates into a "train"
+    const isHalo = plan.payloadKind === 'halo';
+    let haloFree = null, haloPending = false;
     let shot = null, shotT = 0, deadShot = null;
     const deadPos = V();
     const track = { ct: V(-3600, 30, 9800), jit: V() };
     if (gl) {
       try {
-        rk = A.buildRocket(design, plan.techs, { fins: recov, legs: recov && plan.recovery !== 'catch', crew: !!plan.crew });
+        rk = A.buildRocket(design, plan.techs, { fins: recov, legs: recov && plan.recovery !== 'catch', crew: !!plan.crew, halo: isHalo ? Math.max(1, plan.satCount | 0 || 1) : 0 });
         scene = new T.Scene();
         A.lights(scene, V());
         site = A.launchSite(scene, geo) || {};
@@ -284,9 +287,29 @@
     }
     function onDeploy() {
       if (!vis || !rk.payload) return;
+      if (rk.payload.userData.halo) { haloPending = true; rk.payload.visible = true; return; }
       rk.payload.visible = true;
       scene.attach(rk.payload);
       payloadFree = { obj: rk.payload, v: axisOf(visAngle(t)).multiplyScalar(1.4), t: 0 };
+    }
+    // called from draw() once the rocket is posed for this frame, so the sats keep their place when re-parented
+    function releaseHalo() {
+      haloPending = false;
+      const hs = rk.payload.userData.halo;
+      {
+        // release the whole stack at once; small velocity differences string the sats out into a line
+        const ax = axisOf(visAngle(t));
+        const side = V(-ax.y, ax.x, 0);
+        const n = hs.sats.length;
+        haloFree = { t: 0, sats: [], rods: hs.rods, span: 0 };
+        hs.sats.forEach((g, i) => {
+          scene.attach(g);
+          const k = n - 1 - i; // top of the stack leaves first and fastest
+          const v = ax.clone().multiplyScalar(0.5 + k * (12 / Math.max(4, n)))
+            .addScaledVector(side, (Math.random() - 0.5) * 0.35).add(V(0, 0, (Math.random() - 0.5) * 0.35));
+          haloFree.sats.push({ g, v, spin: V((Math.random() - 0.5) * 0.12, (Math.random() - 0.5) * 0.2, (Math.random() - 0.5) * 0.12), unfold: 1.2 + Math.random() * 1.4 + k * 0.03 });
+        });
+      }
     }
     function onExplode() {
       buzz([60, 40, 120]);
@@ -325,6 +348,7 @@
       else rk.root.position.set(0, 0, 0);
       rk.root.rotation.set(0, 0, -ang);
       rk.root.updateMatrixWorld(true);
+      if (haloPending && !dead) releaseHalo();
       // engines
       const burning = !dead && !done && t >= starts[curStage] && t < starts[curStage] + burns[curStage];
       const ignite = !dead && curStage === 0 && t >= COUNT - 0.7 && t < COUNT;
@@ -370,6 +394,27 @@
           d.vent -= fdt;
           const top = d.obj.localToWorld(V(0, d.st ? d.st.h : 0, 0));
           fx.vent(top, ax, fdt);
+        }
+      }
+      if (haloFree) {
+        const hf = haloFree;
+        hf.t += fdt;
+        const c0 = V();
+        for (const s of hf.sats) {
+          s.g.position.addScaledVector(s.v, fdt);
+          s.g.rotation.x += s.spin.x * fdt; s.g.rotation.y += s.spin.y * fdt; s.g.rotation.z += s.spin.z * fdt;
+          const u = clamp01((hf.t - s.unfold) / 2.2);
+          const w = s.g.userData.wing;
+          if (w) { w.visible = u > 0; w.scale.x = Math.max(0.001, smooth(0, 1, u)); }
+          if (s.g.userData.folded) s.g.userData.folded.visible = u < 0.35;
+          c0.add(s.g.position);
+        }
+        // retention rods swing open like petals
+        hf.rods.forEach((rod, i) => { const o = smooth(0, 1, hf.t / 1.2) * 0.55; rod.rotation.set((i & 1 ? -1 : 1) * o, 0, (i < 2 ? -1 : 1) * o); });
+        if (hf.sats.length) {
+          c0.multiplyScalar(1 / hf.sats.length);
+          hf.center = c0;
+          hf.span = hf.sats[0].g.position.distanceTo(hf.sats[hf.sats.length - 1].g.position);
         }
       }
       if (payloadFree) {
@@ -418,11 +463,13 @@
         rAlt = altKm;
       } else {
         lbl = done ? 'CHASE CAM · PAYLOAD' : 'CHASE CAM · UPPER STAGE';
-        const L = Math.max(14, stackLen(curStage));
+        let L = Math.max(14, stackLen(curStage));
+        if (haloFree) L = Math.max(L, haloFree.span * 0.55);
         const base = rk.stages[Math.min(rk.stages.length - 1, curStage - (n - rk.stages.length))].group.getWorldPosition(V());
         let focus = base.clone().addScaledVector(ax, L * 0.5);
         if (dead) focus = deadPos.clone();
         else if (payloadFree) focus.lerp(payloadFree.obj.getWorldPosition(V()), Math.min(0.6, payloadFree.t * 0.25));
+        else if (haloFree && haloFree.center) focus.lerp(haloFree.center, Math.min(0.85, haloFree.t * 0.3));
         const perp = V(-Math.cos(ang), Math.sin(ang), 0);
         const orbit = 0.55 + shotT * 0.035;
         const d = L * (2.4 - Math.min(0.5, shotT * 0.04));
@@ -477,7 +524,7 @@
           ['STAGE', `${curStage + 1}/${n}`],
         ]);
         if (dead && t - deadT > 3) this.finished = true;
-        if (done && t - doneT > 3.2) this.finished = true;
+        if (done && t - doneT > (isHalo ? 6.5 : 3.2)) this.finished = true;
         this.result = { dead, stage1Ok: !dead || (failAt != null && plan.fail.stage > 0) };
       },
       draw,

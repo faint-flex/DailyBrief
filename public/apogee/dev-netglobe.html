@@ -1,0 +1,12 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{background:#0b0f1a;color:#cde;font:14px sans-serif;margin:0;padding:16px}canvas{width:100%;height:280px;display:block;background:#0e1424;border-radius:10px;margin-bottom:12px}@media(max-width:760px){canvas{height:210px}}</style></head><body>
+<canvas id="a"></canvas><canvas id="b"></canvas><canvas id="c"></canvas>
+<script src="/apogee/vendor/three.min.js"></script><script src="/apogee/net-globe.js"></script>
+<script>
+const R=(subs,st)=>['na','sa','eu','af','me','sas','eas','oc','zz'].map((id,i)=>({id,name:id,stations:st[i]||0,subs:subs[i]||0,coverage:.5}));
+const mk=(orbit,cov,subs,st)=>({sats:{orbit},coverage:cov,regions:R(subs,st)});
+const q=new URLSearchParams(location.search);
+window.h=[APOGEE_NETGLOBE.mount(a),APOGEE_NETGLOBE.mount(b),APOGEE_NETGLOBE.mount(c)];
+h[0].update(mk(60,0.08,[0],[1]));
+h[1].update(mk(480,0.45,[20000,0,8000],[2,0,1,0,0,0,1]));
+h[2].update(mk(4200,0.97,[3e6,4e5,2e6,2e5,3e5,1e6,1.5e6,2e5,100],[4,2,3,1,1,2,3,1,1]));
+</script></body></html>

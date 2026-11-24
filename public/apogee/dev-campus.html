@@ -1,0 +1,22 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/apogee/style.css"><title>campus dev</title></head><body>
+<header class="top"><div class="stats"><div class="stat"><small>Day</small><b id="s-day"></b></div><div class="stat"><small>Cash</small><b id="s-cash"></b></div><div class="stat"><small>Rep</small><b id="s-rep"></b></div><div class="stat"><small>Sci</small><b id="s-rp"></b></div></div>
+<button class="btn sm" id="tick">+10 days</button></header>
+<main><section class="tab on" id="tab-base"></section></main><div class="toast" id="toast" hidden></div>
+<script src="/apogee/sim.js"></script><script src="/apogee/campus.js"></script><script src="/apogee/campus-view.js"></script>
+<script>
+const S = APOGEE_SIM, C = APOGEE_CAMPUS;
+const q = new URLSearchParams(location.search);
+let state = { v: 1, day: 1, cash: +(q.get('cash') || 40), rep: +(q.get('rep') || 0), rp: 0, engineers: 4, factory: +(q.get('f') || 1),
+  owned: { barge: q.has('barge'), tower: q.has('tower') }, techs: q.has('techs') ? { legs: 1, barge: 1, tower: 1 } : {},
+  milestones: q.has('ms') ? { firstOrbit: 1, firstGTO: 1 } : {}, stats: { launches: 9, successes: 8, landings: 2, reflights: 0, earned: 80 }, log: [], net: q.has('net') ? { founded: true } : null };
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const money = (m) => { const n = m < 0; m = Math.abs(m); const s = m >= 1000 ? `$${(m / 1000).toFixed(2)}B` : m >= 100 ? `$${Math.round(m)}M` : `$${m.toFixed(1)}M`; return n ? '−' + s : s; };
+C.ensure(state);
+const G = { get state() { return state; }, save() {}, refresh() { hdr(); C.render(document.getElementById('tab-base'), G); }, log(h) { state.log.unshift(h); },
+  toast(h) { const t = document.getElementById('toast'); t.innerHTML = h; t.hidden = false; clearTimeout(G._t); G._t = setTimeout(() => (t.hidden = true), 2000); }, money, esc };
+function hdr() { document.getElementById('s-day').textContent = state.day; document.getElementById('s-cash').textContent = money(state.cash); document.getElementById('s-rep').textContent = Math.round(state.rep); document.getElementById('s-rp').textContent = Math.floor(state.rp); }
+document.getElementById('tick').onclick = () => { for (let i = 0; i < 10; i++) { state.day++; const r = C.tick(state); r.toasts.forEach(G.toast); } G.refresh(); };
+window.getState = () => state; window.G = G;
+G.refresh();
+</script></body></html>

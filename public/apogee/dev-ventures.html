@@ -1,0 +1,38 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="style.css"></head><body>
+<main><section class="tab on" id="tab-v"></section></main><div id="toast" hidden style="position:fixed;bottom:10px;left:10px;background:#222;padding:8px"></div>
+<script src="ventures.js"></script><script src="ventures-ui.js"></script>
+<script>
+const V=APOGEE_VENTURES, q=new URLSearchParams(location.search);
+const state={v:1,day:1,cash:40,rep:0,milestones:{firstOrbit:5},net:null,contracts:[],log:[]};
+V.ensure(state);
+const days=+(q.get('days')||0);
+let r=1;const rng=()=>{r=(r*16807)%2147483647;return r/2147483647};
+for(let d=1;d<=days;d++){state.day=d;state.cash+=d<150?6:30;state.rep=Math.min(100,d*.15);if(d===120)state.net={founded:true};
+ const s=V.summary(state);
+ if(!s.ev&&s.canFoundEV.ok)V.act(state,'foundEV',{});
+ if(s.ev){const e=state.ventures.ev;
+  if(e.models.length<1)V.act(state,'designModel',{type:'sedan',battery:75,price:45});
+  if(e.models.length<2&&d>200)V.act(state,'designModel',{type:'suv',battery:85,price:55});
+  if(e.models.length<3&&d>260)V.act(state,'designModel',{type:'roadster',battery:110,price:130});
+  if(e.factories.length<2&&d>150)V.act(state,'buildFactory',{});
+  for(const f of e.factories)V.act(state,'factoryUp',{id:f.id});
+  if(!e.lab)for(const R of V.EV_RESEARCH)if(V.act(state,'research',{line:'ev',id:R.id}).ok)break;
+  if(e.stations<600&&!e.stationJobs.length)V.act(state,'stations',{n:4});
+  if(d%30==0)V.act(state,'marketing',{perMonth:5});}
+ if(!s.dc&&s.canFoundDC.ok)V.act(state,'foundDC',{});
+ if(s.dc){const dc=state.ventures.dc; if(!dc.queue.length&&s.dc.modules<120)V.act(state,'buildModules',{n:6});
+  if(s.dc.readyCount>=6&&d<days-20)V.onDcResult(state,V.dcContract(state,6),true);
+  for(const id of['power','cooling','line'])V.act(state,'dcUpgrade',{id});
+  if(d>400)V.act(state,'dcUpgrade',{id:'laser'});
+  if(!dc.lab)for(const R of V.DC_RESEARCH)if(V.act(state,'research',{line:'dc',id:R.id}).ok)break;
+  for(const o of dc.offers)if(o.units+s.dc.committed<s.dc.usablePF*.8)V.act(state,'acceptCompute',{id:o.id});}
+ V.tick(state,rng);}
+const money=(m)=>{const neg=m<0;m=Math.abs(m);const s=m>=1000?`$${(m/1000).toFixed(2)}B`:m>=100?`$${Math.round(m)}M`:`$${m.toFixed(1)}M`;return neg?'−'+s:s};
+const el=document.getElementById('tab-v');
+const G={get state(){return state},save(){},refresh(){UI()},log(h){state.log.unshift(h)},toast(h){const t=document.getElementById('toast');t.innerHTML=h;t.hidden=false},money,esc:(s)=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])),
+ openLaunchFor(c){window.lastLaunch=c;G.toast('launch '+c.count+' '+c.mass+'t')},bestLift(){return{mass:22}}};
+function UI(){APOGEE_VENTURES_UI.render(el,G)}
+if(q.get('view'))localStorage.setItem('apogee-vn-view',q.get('view'));
+UI();
+if(q.get('live'))setInterval(()=>{state.day++;V.tick(state,rng);UI()},200);
+</script></body></html>

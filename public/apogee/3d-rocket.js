@@ -413,6 +413,55 @@
 
   function lathe(prof, seg, phi, len) { return new T.LatheGeometry(prof.map(([x, y]) => new T.Vector2(Math.max(0.001, x), y)), seg, phi || 0, len || TAU); }
 
+  // ---------- Halo payload: a flat-packed stack of thin satellites on a dispenser ----------
+  // payload.userData.halo = { sats: [Group], rods: [Mesh], count, per } ; each sat Group has userData.wing (Group, scale.x 0..1)
+  // and userData.folded (the packed panel slab). flight.js separates the sats and unfolds the wings.
+  function buildHaloStack(payload, r, nh, count, sm) {
+    const m = shared();
+    count = Math.max(1, Math.round(+count || 1));
+    const nVis = Math.max(4, Math.min(sm ? 20 : 30, count));
+    const w = r * 1.42, d = r * 0.74;
+    const adH = nh * 0.05;
+    const slabT = Math.min(r * 0.13, (nh * 0.5) / nVis);
+    const base = new T.Mesh(new T.CylinderGeometry(r * 0.62, r * 0.7, adH, 24), m.rk_dark);
+    base.position.y = adH / 2; payload.add(base);
+    // body texture: dark chassis with panel seams and a phased-array face
+    const bc = canvas(128, 64), bg = bc.getContext('2d');
+    bg.fillStyle = '#9da3ad'; bg.fillRect(0, 0, 128, 64);
+    bg.fillStyle = '#c3c8cf'; for (let x = 4; x < 128; x += 20) bg.fillRect(x, 6, 16, 52);
+    bg.strokeStyle = '#4a4e55'; bg.lineWidth = 2; bg.strokeRect(1, 1, 126, 62);
+    const bodyMat = stdMat({ map: tex(bc, true), roughness: 0.35, metalness: 0.55 });
+    const pc = canvas(256, 64), pg = pc.getContext('2d');
+    pg.fillStyle = '#b9bec6'; pg.fillRect(0, 0, 256, 64);
+    for (let cx = 0; cx < 32; cx++) for (let cy = 0; cy < 8; cy++) { pg.fillStyle = (cx + cy) % 4 ? '#13234a' : '#1a2c58'; pg.fillRect(cx * 8 + 1, cy * 8 + 1, 6, 6); }
+    const panelMat = stdMat({ map: tex(pc, true), roughness: 0.22, metalness: 0.55, side: T.DoubleSide });
+    const foldMat = stdMat({ color: 0x1b2a50, roughness: 0.3, metalness: 0.5 });
+    const bodyG = new T.BoxGeometry(w, slabT * 0.62, d);
+    const foldG = new T.BoxGeometry(w * 0.94, slabT * 0.26, d * 0.92);
+    const wingL = w * 2.8;
+    const wingG = new T.PlaneGeometry(wingL, d * 0.9); wingG.rotateX(-Math.PI / 2); wingG.translate(wingL / 2, 0, 0);
+    const sats = [];
+    for (let i = 0; i < nVis; i++) {
+      const g = new T.Group();
+      g.position.y = adH + slabT * (i + 0.5);
+      const body = new T.Mesh(bodyG, bodyMat); body.position.y = -slabT * 0.12; body.castShadow = true; g.add(body);
+      const fold = new T.Mesh(foldG, foldMat); fold.position.y = slabT * 0.33; g.add(fold);
+      const wing = new T.Group(); wing.position.set(w * 0.47, slabT * 0.33, 0); wing.scale.x = 0.001; wing.visible = false;
+      wing.add(new T.Mesh(wingG, panelMat)); g.add(wing);
+      g.userData.wing = wing; g.userData.folded = fold;
+      payload.add(g); sats.push(g);
+    }
+    // retention rods at the four corners
+    const top = adH + slabT * nVis;
+    const rodG = new T.CylinderGeometry(r * 0.025, r * 0.025, top, 6); rodG.translate(0, top / 2, 0);
+    const rods = [];
+    for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const rod = new T.Mesh(rodG, m.rk_metal); rod.position.set(sx * (w / 2 + r * 0.03), 0, sz * (d / 2 + r * 0.03));
+      payload.add(rod); rods.push(rod);
+    }
+    payload.userData.halo = { sats, rods, count, per: count / nVis, slabT, w, d, top };
+  }
+
   // ---------- rocket ----------
   function buildRocket(design, techs, o) {
     o = o || {};
@@ -693,6 +742,8 @@
           const holder = new T.Group(); holder.position.y = y; holder.add(fm);
           root.add(holder); fairing.push(holder);
         }
+        if (o.halo) buildHaloStack(payload, r, nh, o.halo, sm);
+        else {
         // satellite: adapter cone, foil-wrapped bus, dish, folded solar wings
         const adH = nh * 0.08;
         const adapter = new T.Mesh(new T.CylinderGeometry(r * 0.3, r * 0.55, adH, 24), m.rk_dark);
@@ -728,6 +779,7 @@
         wings.scale.x = 0.05;
         payload.add(wings);
         payload.userData.wings = wings;
+        }
         payload.visible = false;
       }
       root.add(payload);
