@@ -307,7 +307,7 @@
           const k = n - 1 - i; // top of the stack leaves first and fastest
           const v = ax.clone().multiplyScalar(0.5 + k * (12 / Math.max(4, n)))
             .addScaledVector(side, (Math.random() - 0.5) * 0.35).add(V(0, 0, (Math.random() - 0.5) * 0.35));
-          haloFree.sats.push({ g, v, spin: V((Math.random() - 0.5) * 0.12, (Math.random() - 0.5) * 0.2, (Math.random() - 0.5) * 0.12), unfold: 1.2 + Math.random() * 1.4 + k * 0.03 });
+          haloFree.sats.push({ g, v, spin: V((Math.random() - 0.5) * 0.06, (Math.random() - 0.5) * 0.12, (Math.random() - 0.5) * 0.06), unfold: 1.2 + Math.random() * 1.4 + k * 0.03 });
         });
       }
     }

@@ -432,9 +432,9 @@
     bg.strokeStyle = '#4a4e55'; bg.lineWidth = 2; bg.strokeRect(1, 1, 126, 62);
     const bodyMat = stdMat({ map: tex(bc, true), roughness: 0.35, metalness: 0.55 });
     const pc = canvas(256, 64), pg = pc.getContext('2d');
-    pg.fillStyle = '#b9bec6'; pg.fillRect(0, 0, 256, 64);
-    for (let cx = 0; cx < 32; cx++) for (let cy = 0; cy < 8; cy++) { pg.fillStyle = (cx + cy) % 4 ? '#13234a' : '#1a2c58'; pg.fillRect(cx * 8 + 1, cy * 8 + 1, 6, 6); }
-    const panelMat = stdMat({ map: tex(pc, true), roughness: 0.22, metalness: 0.55, side: T.DoubleSide });
+    pg.fillStyle = '#4b525e'; pg.fillRect(0, 0, 256, 64);
+    for (let cx = 0; cx < 32; cx++) for (let cy = 0; cy < 8; cy++) { pg.fillStyle = (cx + cy) % 4 ? '#0f1d42' : '#16295a'; pg.fillRect(cx * 8 + 1, cy * 8 + 1, 7, 7); }
+    const panelMat = stdMat({ map: tex(pc, true), roughness: 0.32, metalness: 0.35, envMapIntensity: 0.6, side: T.DoubleSide });
     const foldMat = stdMat({ color: 0x1b2a50, roughness: 0.3, metalness: 0.5 });
     const bodyG = new T.BoxGeometry(w, slabT * 0.62, d);
     const foldG = new T.BoxGeometry(w * 0.94, slabT * 0.26, d * 0.92);
