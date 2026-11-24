@@ -82,6 +82,8 @@
   const LAB_RP = [1, 2.2, 4];
   const TEST_RP = [0.6, 1.2, 2];
   const SAT_DAY = [1, 3, 6];
+  const CHIP_SELF = [0.35, 0.7, 1];
+  const CHIP_INC = [0.8, 1.8, 3.2];
   const VIS_REP = [1, 2, 3], VIS_INC = [0.3, 0.7, 1.2];
   const BT = {
     pad: { name: 'Launch pad', icon: '🚀', w: 2, h: 2, cost: [6, 10, 18], days: [20, 15, 18], up: [0.08, 0.12, 0.18],
@@ -112,10 +114,12 @@
       fx: (l) => `+${VIS_REP[l - 1]} rep and +$${VIS_INC[l - 1]}M a month`, info: 'Tourists pay to watch. +50% next to a launch pad, +25% in the city.' },
     satfab: { name: 'Satellite factory', icon: '🛰️', w: 3, h: 2, cost: [15, 30, 55], days: [30, 30, 36], up: [0.3, 0.5, 0.8], net: true,
       fx: (l) => `Builds ${SAT_DAY[l - 1]} Halo sat${l > 1 ? 's' : ''} a day`, info: 'Clean rooms for Halo satellites. A rocket factory next door adds 15%.' },
+    fab: { name: 'Chip fab', icon: '💾', w: 3, h: 2, cost: [25, 45, 80], days: [40, 35, 40], up: [0.4, 0.6, 0.9],
+      fx: (l) => `Makes ${Math.round(CHIP_SELF[l - 1] * 100)}% of the chips you need · sells spare chips`, info: 'Your own semiconductor plant. During a chip shortage your satellites, cars and compute modules keep their normal cost and speed for the share of chips you make yourself. Spare wafers sell for income. Fabs add up (100% max).' },
     ground: { name: 'Ground station', icon: '📡', w: 1, h: 1, cost: [2, 3, 5], days: [8, 8, 10], up: [0.05, 0.07, 0.1], net: true,
       fx: (l) => `Halo gateway (${l} dish${l > 1 ? 'es' : ''})`, info: 'Connects Halo satellites to the internet. Serves the region of the site it stands on.' },
   };
-  const ORDER = ['pad', 'factory', 'office', 'housing', 'lab', 'test', 'tank', 'mc', 'lz', 'port', 'tower', 'solar', 'visitor', 'satfab', 'ground'];
+  const ORDER = ['pad', 'factory', 'office', 'housing', 'lab', 'test', 'tank', 'mc', 'lz', 'port', 'tower', 'solar', 'visitor', 'satfab', 'fab', 'ground'];
 
   // ---------- Helpers ----------
   const tile = (site, x, y) => (x < 0 || y < 0 || x >= site.w || y >= site.h ? null : site.map[y][x]);
@@ -249,7 +253,7 @@
     ensure(st);
     const o = { factoryLines: 0, buildSpeed: 1, engineerCap: 8, rpPerDay: 0, heritageMult: 1, satFactory: 0, groundStations: 0, groundStationsByRegion: {},
       pads: 0, padDays: [], launchEveryDays: 0, polarPad: false, landingZone: false, bargePort: false, catchTower: false, launchBonus: 0, landingBonus: 0,
-      hireMult: 1, upkeepMonth: 0, repPerMonth: 0, incomeMonth: 0, solarCut: 0, landValue: 0, buildingValue: 0, buildings: 0, building: 0, plots: 0 };
+      hireMult: 1, chipSelf: 0, upkeepMonth: 0, repPerMonth: 0, incomeMonth: 0, solarCut: 0, landValue: 0, buildingValue: 0, buildings: 0, building: 0, plots: 0 };
     let up = 0, fSpeed = 0, fN = 0, padRate = 0;
     for (const b of cs(st).b) {
       o.buildingValue += b.spent;
@@ -279,6 +283,7 @@
         case 'solar': o.solarCut += 0.05 * L * e; break;
         case 'visitor': o.repPerMonth += VIS_REP[L - 1] * e; o.incomeMonth += VIS_INC[L - 1] * e; break;
         case 'satfab': o.satFactory += SAT_DAY[L - 1] * e; break;
+        case 'fab': o.chipSelf += CHIP_SELF[L - 1] * Math.min(1.2, e); o.incomeMonth += CHIP_INC[L - 1] * e; break;
         case 'ground': {
           o.groundStations += L;
           const rg = SITE[b.site].region;
@@ -302,6 +307,7 @@
     o.launchEveryDays = padRate ? r2(1 / padRate) : 0;
     o.rpPerDay = r2(o.rpPerDay);
     o.satFactory = r2(o.satFactory);
+    o.chipSelf = Math.min(1, r2(o.chipSelf));
     o.repPerMonth = r2(o.repPerMonth);
     o.incomeMonth = r2(o.incomeMonth);
     o.landValue = r2(o.landValue);
@@ -679,9 +685,10 @@
       <div><small>👷 Desks</small><b>${st.engineers}/${bo.engineerCap}</b></div>
       <div><small>🔬 Science/day</small><b>${r2(st.engineers * (root.APOGEE_SIM ? root.APOGEE_SIM.FACILITY.rpPerEngineerDay : 0.25) + bo.rpPerDay)}</b></div>
       ${bo.satFactory ? `<div><small>🛰️ Sats/day</small><b>${bo.satFactory}</b></div>` : ''}
+      ${bo.chipSelf ? `<div><small>💾 Own chips</small><b>${Math.round(bo.chipSelf * 100)}%</b></div>` : ''}
       ${bo.groundStations ? `<div><small>📡 Gateways</small><b>${bo.groundStations}</b></div>` : ''}
       <div><small>💸 Upkeep/mo</small><b>${money(bo.upkeepMonth)}</b></div>
-      ${bo.incomeMonth ? `<div><small>🎟️ Visitors/mo</small><b class="money">${money(bo.incomeMonth)}</b></div>` : ''}
+      ${bo.incomeMonth ? `<div><small>💵 Income/mo</small><b class="money">${money(bo.incomeMonth)}</b></div>` : ''}
       ${bo.repPerMonth ? `<div><small>⭐ Rep/mo</small><b>+${bo.repPerMonth}</b></div>` : ''}
       <div><small>🗺️ Land</small><b>${bo.plots} plots</b></div>
       <div><small>🏦 Campus worth</small><b>${money(bo.landValue + bo.buildingValue)}</b></div>
