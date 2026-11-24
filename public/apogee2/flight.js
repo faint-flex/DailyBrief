@@ -19,6 +19,7 @@
   let canvas = null, R = null, gl = false, fallbackCam = null;
   let ov = null, octx = null, fadeEl = null, W = 1, H = 1, dpr = 1;
   let fade = 0;
+  let wx = null, wxEl = null; // launch ops: launch-site weather (plan.weather) and its haze overlay
   const keys = { left: false, right: false, burn: false };
   let phase = null;
   let skipReq = false;
@@ -43,6 +44,9 @@
       fadeEl = document.createElement('div');
       fadeEl.style.cssText = 'position:absolute;inset:0;background:#000;opacity:0;pointer-events:none';
       ov.insertAdjacentElement('afterend', fadeEl);
+      wxEl = document.createElement('div'); // launch ops: weather haze, under the fade
+      wxEl.style.cssText = 'position:absolute;inset:0;opacity:0;pointer-events:none;mix-blend-mode:screen';
+      ov.insertAdjacentElement('afterend', wxEl);
     }
     if (!R) {
       const A = A3();
@@ -89,6 +93,7 @@
     if (!gl || !F || !F.create) return null;
     const fx = safe(() => F.create(scene));
     if (!fx) return null;
+    if (wx && wx.wind && fx.wind) safe(() => fx.wind.set(wx.wind.x, 0, wx.wind.z)); // launch ops: wind on smoke
     const call = (name, args) => { if (typeof fx[name] === 'function') safe(() => fx[name].apply(fx, args)); };
     return {
       exhaust: (...a) => call('exhaust', a), landingBurn: (...a) => call('landingBurn', a), explode: (...a) => call('explode', a),
@@ -124,6 +129,13 @@
     };
   }
 
+  // Launch ops: weather haze. Low weather fades out as we climb; upper winds show between ~3 and 25 km.
+  function wxTint(altKm) {
+    if (!wxEl) return;
+    const k = !wx || !wx.haze ? 0 : wx.aloft ? Math.min(1, altKm / 4) * Math.max(0, Math.min(1, (25 - altKm) / 10)) : Math.max(0, 1 - altKm / 12);
+    wxEl.style.opacity = (k * (wx ? wx.haze : 0)).toFixed(3);
+  }
+
   function cut() { fade = 1; }
   function stepFade(dt) {
     fade = Math.max(0, fade - dt / 0.5);
@@ -135,9 +147,10 @@
     const h = items.map(([k, v]) => `<div><small>${k}</small>${v}</div>`).join('');
     if (h !== hudHtml) { hudHtml = h; $('hud').innerHTML = h; }
   }
-  function banner(text, sub) {
+  function banner(text, sub, low) {
     const h = text ? `${text}${sub ? `<small>${sub}</small>` : ''}` : '';
     if (h !== bannerHtml) { bannerHtml = h; $('banner').innerHTML = h; }
+    $('banner').classList.toggle('low', !!low); // playtest #23: countdown sits in the lower third, clear of the rocket
   }
   function buzz(p) { if (navigator.vibrate) try { navigator.vibrate(p); } catch (e) { /* ignore */ } }
 
@@ -321,6 +334,11 @@
       const sz = geo.d * 8 + 30;
       if (fx && fx.has('explode')) fx.explode(p, sz, where === 'ground' ? padTop : p.y - altAt(t) * 1000); else fl.add(scene, p, sz * 1.5);
       if (where === 'space' && fx && fx.has('explode')) fl.add(scene, p, sz);
+      // Crew: the launch abort system pulls the capsule clear before the rocket is lost.
+      if (plan.crew && rk.payload && rk.payload.userData.crew) {
+        scene.attach(rk.payload); rk.payload.visible = true;
+        payloadFree = { obj: rk.payload, v: axisOf(visAngle(t)).multiplyScalar(30 + geo.d * 3), t: 0 };
+      }
       rk.root.visible = false;
       for (const st of rk.stages) A.setPlume(st, 0, 0, t);
     }
@@ -493,6 +511,7 @@
         t += dt;
         const p = progress(t);
         const altKm = altAt(t);
+        wxTint(altKm); // launch ops
         const speed = (plan.target === 'GTO' || TARGET_DEEP(plan.target) ? 10.2 : 7.8) * Math.pow(p, 1.25) * 3600;
         // stage logic
         while (curStage < n - 1 && t >= starts[curStage + 1] - SEP && !dead) {
@@ -510,8 +529,8 @@
           onDeploy();
           banner(plan.orbitText || 'ORBIT ✓', plan.orbitSub || '');
         }
-        if (t < COUNT) banner(`T−${Math.ceil(COUNT - t)}`, plan.title);
-        else if (!dead && !done && t < COUNT + 2) banner('LIFTOFF', plan.title);
+        if (t < COUNT) banner(`T−${Math.ceil(COUNT - t)}`, plan.title + (wx && wx.text ? `<br>${wx.text}` : ''), true); // launch ops: weather line
+        else if (!dead && !done && t < COUNT + 2) banner('LIFTOFF', plan.title, true);
         else if (!dead && !done && t > maxqFrom && t < maxqFrom + 1.6) banner('MAX-Q', 'Peak aerodynamic pressure');
         else if (!dead && !done && t < starts[1] + 1.5 && t > starts[1] - SEP && n > 1) banner('STAGE SEPARATION', '');
         else if (!dead && !done) banner('');
@@ -547,6 +566,7 @@
     const manual = plan.landing === 'manual';
     const steer = plan.landing === 'steer';
     const moveBoat = steer && mode === 'barge';
+    wxTint(1); // launch ops: low weather haze back for the landing
     const hands = manual || steer;
     let padX = 0, padV = 0;
     const padHalf = mode === 'catch' ? 7 : mode === 'barge' ? 20 : 17;
@@ -644,7 +664,10 @@
     let shot = null, shotT = 0;
     function sideCam(dt, base) {
       // Side-on view, x across the screen: keeps booster and target readable for steering.
-      const fov = 40, tanH = Math.tan(fov / DEG / 2), asp = W / H;
+      const asp = W / H;
+      // playtest #12: portrait phones have little width, so widen the view and allow pulling back further.
+      const narrow = Math.max(1, 0.7 / asp);
+      const fov = 40 * Math.min(1.35, Math.sqrt(narrow)), tanH = Math.tan(fov / DEG / 2);
       const top = base.y + st1H + 8;
       const bottom = (mode === 'catch' ? 0 : surfaceY) - 3;
       const xMin = Math.min(b.x - 10, padX - padHalf - 10, mode === 'catch' ? towerX - 8 : Infinity);
@@ -653,18 +676,20 @@
       const Wc = xMax - xMin;
       const need = Math.max(st1H * 2.4, top - bottom) / 1.02;
       const dFit = Math.max(need / tanH, (Wc / 2) / (tanH * asp)) * 1.08;
-      const dMax = st1H / (0.13 * 2 * tanH); // keep the booster at least ~13% of screen height
+      const dMax = st1H / (0.13 * 2 * tanH) * narrow; // keep the booster at least ~13% of screen height (less when portrait)
       const d = top - bottom > 450 ? Math.min(dFit, dMax) : dFit; // low down, always show the target
       const hv = d * tanH, hw = hv * asp;
       const cy = Math.max(bottom + hv * 0.4, top - hv * 0.62);
       let cx = (xMin + xMax) / 2;
-      cx = clamp(cx, b.x - hw * 0.7, b.x + hw * 0.7);
+      cx = clamp(cx, b.x - hw * 0.7, b.x + hw * 0.7); // booster stays ≥15% from the screen edge
       const k = camS.init ? 1 - Math.exp(-dt * 3) : 1;
-      camS.cx += (cx - camS.cx) * k; camS.cy += (cy - camS.cy) * k; camS.d += (d - camS.d) * k;
+      // playtest #12: smooth the aim point relative to the booster, so a fast fall or drift never leaves it off screen.
+      camS.cx += (cx - b.x - camS.cx) * k; camS.cy += (cy - base.y - camS.cy) * k; camS.d += (d - camS.d) * k;
       camS.init = true;
+      const ax = b.x + camS.cx, ay = base.y + camS.cy;
       const yaw = 0.1;
-      const pos = V(camS.cx + camS.d * Math.sin(yaw), camS.cy + camS.d * 0.1, camS.d * Math.cos(yaw));
-      setCam(pos, V(camS.cx, camS.cy, 0), fov, Math.max(0.5, camS.d * 0.02));
+      const pos = V(ax + camS.d * Math.sin(yaw), ay + camS.d * 0.1, camS.d * Math.cos(yaw));
+      setCam(pos, V(ax, ay, 0), fov, Math.max(0.5, camS.d * 0.02));
     }
     // Aim between two points so both are in frame (vertical fov in degrees).
     function frame2(cp, p1, p2, minFov, maxFov, margin) {
@@ -996,6 +1021,9 @@
     // Build the Earth now (it is used once the rocket is high) so staging does not stutter.
     if (gl) safe(() => { const A = A3(); if (A.prepareEarth) A.prepareEarth(); else if (A.buildEarth) A.buildEarth(); });
     results = {};
+    wx = plan.weather || null; // launch ops
+    if (wxEl) wxEl.style.background = wx && wx.tint ? wx.tint : 'none';
+    wxTint(0);
     queue = [
       () => ascent(plan),
       (res) => (plan.recovery !== 'expend' && res.stage1Ok ? landing(plan) : null),
@@ -1003,7 +1031,7 @@
     return new Promise((resolve) => { resolveRun = resolve; next(); });
   }
 
-  function close() { $('flight').hidden = true; $('result').hidden = true; banner(''); }
+  function close() { $('flight').hidden = true; $('result').hidden = true; banner(''); if (wxEl) wxEl.style.opacity = 0; }
 
   function bindPilot() {
     const hold = (id, key) => {

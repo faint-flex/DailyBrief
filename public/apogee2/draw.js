@@ -120,7 +120,8 @@
       y = top;
     }
     if (from === 0 && o.legs != null) drawLegs(ctx, r, 0, o.legs, px, 'front');
-    if (to === design.stages.length - 1 && !o.noNose) {
+    if (to === design.stages.length - 1 && !o.noNose && o.capsule) drawCapsule(ctx, y, geo.nose, r, body, dark, accent, px); // crew capsule nose
+    else if (to === design.stages.length - 1 && !o.noNose) {
       const h = geo.nose;
       ctx.beginPath();
       ctx.moveTo(-r, y);
@@ -138,6 +139,31 @@
       ctx.fillStyle = tg; ctx.beginPath(); ctx.arc(0, y - h * 0.88, r * 0.6, 0, Math.PI * 2); ctx.fill();
     }
     ctx.restore();
+  }
+
+  // Crew capsule on top of the stack (in place of the fairing): trunk, heat shield, capsule, abort tower.
+  function drawCapsule(ctx, y, h, r, body, dark, accent, px) {
+    const tH = h * 0.26, sH = h * 0.04, cH = h * 0.42, topR = r * 0.42, baseR = r * 0.96;
+    ctx.fillStyle = body; ctx.fillRect(-r, y - tH, r * 2, tH);
+    ctx.fillStyle = 'rgba(30,34,44,.18)'; ctx.fillRect(-r, y - tH * 0.55, r * 2, tH * 0.1);
+    let yy = y - tH;
+    ctx.fillStyle = dark; ctx.fillRect(-baseR, yy - sH, baseR * 2, sH);
+    yy -= sH;
+    ctx.beginPath(); ctx.moveTo(-baseR, yy); ctx.lineTo(-topR, yy - cH); ctx.lineTo(topR, yy - cH); ctx.lineTo(baseR, yy); ctx.closePath();
+    ctx.fillStyle = body; ctx.fill();
+    ctx.strokeStyle = 'rgba(30,34,44,.3)'; ctx.lineWidth = px; ctx.stroke();
+    ctx.fillStyle = accent; ctx.fillRect(-baseR * 0.9, yy - cH * 0.2, baseR * 1.8, Math.max(0.2, cH * 0.06));
+    ctx.fillStyle = '#1b2433';
+    for (const wx of [-0.38, 0.06]) ctx.fillRect(r * wx, yy - cH * 0.62, r * 0.3, cH * 0.16);
+    yy -= cH;
+    ctx.fillStyle = dark; ctx.fillRect(-topR * 0.7, yy - h * 0.03, topR * 1.4, h * 0.03);
+    yy -= h * 0.03;
+    // launch abort tower
+    const aH = h - tH - sH - cH - h * 0.03;
+    ctx.strokeStyle = '#9aa3b5'; ctx.lineWidth = Math.max(px, r * 0.05);
+    ctx.beginPath(); ctx.moveTo(-topR * 0.5, yy); ctx.lineTo(0, yy - aH * 0.55); ctx.lineTo(topR * 0.5, yy); ctx.stroke();
+    ctx.fillStyle = '#c9ced5'; ctx.fillRect(-r * 0.09, yy - aH * 0.95, r * 0.18, aH * 0.42);
+    ctx.fillStyle = '#ff5d6c'; ctx.fillRect(-r * 0.09, yy - aH, r * 0.18, aH * 0.07);
   }
 
   function bellLayout(st, r) {
@@ -429,7 +455,7 @@
     ctx.fillStyle = pg; ctx.beginPath(); ctx.ellipse(x, gy, rw * 3, 7, 0, 0, Math.PI * 2); ctx.fill();
   }
 
-  function drawPreview(canvas, design, techs) {
+  function drawPreview(canvas, design, techs, opts) {
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth, h = canvas.clientHeight;
     if (!w || !h) return;
@@ -447,7 +473,7 @@
     ctx.fillStyle = lg; ctx.fillRect(0, 0, w, h);
     ctx.fillStyle = 'rgba(0,0,0,.35)';
     ctx.beginPath(); ctx.ellipse(w / 2, base, geo.d * scale * 1.2, 4, 0, 0, Math.PI * 2); ctx.fill();
-    drawRocket(ctx, design, geo, { x: w / 2, y: base - geo.d * 0.05 * scale - 2, scale, legs: false });
+    drawRocket(ctx, design, geo, { x: w / 2, y: base - geo.d * 0.05 * scale - 2, scale, legs: false, capsule: !!(opts && opts.capsule) });
     ctx.fillStyle = '#8f9ab5';
     ctx.font = '11px -apple-system, sans-serif';
     ctx.fillText(`${Math.round(geo.total)} m tall`, 8, 16);

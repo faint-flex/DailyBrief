@@ -12,6 +12,10 @@
   const isOwn = (c) => isHalo(c) || isDc(c);
   const VENT = () => window.APOGEE_VENTURES || null;
   const VENTUI = () => window.APOGEE_VENTURES_UI || null;
+  const OPS = () => window.APOGEE_OPS || null; // launch ops: weather, static fires, investigations (launchops.js)
+  // Launch windows + deep-space transit (windows.js, optional).
+  const WND = () => window.APOGEE_WINDOWS || null;
+  const CREW = () => window.APOGEE_CREW || null; // crew.js: astronauts, capsule, Tranquil Station
   const $ = (id) => document.getElementById(id);
   const SAVE_KEY = 'apogee2-save-v1';
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -69,7 +73,7 @@
   function load() {
     try {
       const raw = localStorage.getItem(SAVE_KEY);
-      if (raw) { const s = JSON.parse(raw); if (s && s.v === 1) { netEnsure(s); campusEnsure(s); ventEnsure(s); return s; } }
+      if (raw) { const s = JSON.parse(raw); if (s && s.v === 1) { netEnsure(s); campusEnsure(s); ventEnsure(s); if (WND()) WND().ensure(s); /* windows */ return s; } }
     } catch (e) { /* ignore */ }
     return newGame();
   }
@@ -135,6 +139,7 @@
   function toast(text) {
     const t = $('toast');
     t.innerHTML = text; t.hidden = false;
+    t.classList.toggle('at-top', !!sheet); // playtest #24: keep toasts off sheet content
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { t.hidden = true; }, 2600);
   }
@@ -169,14 +174,17 @@
         toast(`🚀 ${esc(v.serial)} is ready to fly`);
       }
     }
+    // Windows: deep-space craft arriving today get paid (or crash).
+    if (WND()) { try { WND().tick(state, { log, toast, award, money }); } catch (e) { console.warn('Windows tick failed', e); } }
     const before = state.contracts.length;
     state.contracts = state.contracts.filter((c) => c.expires > state.day);
     if (state.contracts.length < before) log('A contract offer expired.');
     const cap = 7;
     const open = state.contracts.filter((c) => !isOwn(c)).length;
     if (open < cap && Math.random() < (open < 3 ? 0.35 : 0.14)) {
-      const c = S.makeContract(Math.random, state);
-      state.contracts.push(c);
+      // Windows: Mars offers expire when a Mars window closes; ones too far from a window are re-rolled.
+      const c = WND() ? WND().offer(() => S.makeContract(Math.random, state), state) : S.makeContract(Math.random, state);
+      if (c) state.contracts.push(c);
     }
     const N = NET();
     if (N && N.tick) {
@@ -187,6 +195,15 @@
         if (ts.length) toast(ts[ts.length - 1]);
       } catch (e) { console.warn('Halo tick failed', e); }
     }
+    // Crew: training, days in orbit, splashdowns, station crew offers.
+    const CR = CREW();
+    if (CR && CR.tick) {
+      try {
+        const r = CR.tick(state) || {};
+        for (const ev of r.events || []) log(ev);
+        if (r.toasts && r.toasts.length) toast(r.toasts[r.toasts.length - 1]);
+      } catch (e) { console.warn('Crew tick failed', e); }
+    }
     const V = VENT();
     if (V && V.tick) {
       try {
@@ -195,6 +212,16 @@
         const ts = r.toasts || [];
         if (ts.length) toast(ts[ts.length - 1]);
       } catch (e) { console.warn('Ventures tick failed', e); }
+    }
+    // Launch ops: static fires and failure investigations count down.
+    const O = OPS();
+    if (O && O.tick) {
+      try {
+        const r = O.tick(state) || {};
+        for (const ev of r.events || []) log(ev);
+        const ts = r.toasts || [];
+        if (ts.length) toast(ts[ts.length - 1]);
+      } catch (e) { console.warn('Launch ops tick failed', e); }
     }
     if (!state.vehicles.length && !sheet && !state.won) {
       const cheapest = Math.min(...state.designs.map((d) => S.designCost(d, state.techs)), 99);
@@ -271,16 +298,21 @@
   }
   function sameBooster(a, b) { return a.engine === b.engine && a.count === b.count && a.prop === b.prop; }
   function boostersFor(design) { return state.boosters.filter((b) => sameBooster(b.stage, design.stages[0])); }
+  // playtest #15: which designs can fly a landed booster again, and what scrapping it pays.
+  function designsForBooster(x) { return state.designs.filter((d) => sameBooster(x.stage, d.stages[0])); }
+  function scrapValue(x) { return Math.round(S.stageCost(x.stage, state.techs, 0) * 0.1 * 100) / 100; }
 
   // ---------- Ops tab ----------
   function renderOps() {
     const el = $('tab-ops');
+    const CR = CREW(); // Crew sub-view of the Launch tab
+    if (CR && CR.view === 'crew') { try { CR.render(el, GAME); return; } catch (e) { console.warn('Crew render failed', e); } }
     const r = ready();
     const b = building();
     const show = r[0] ? r[0].design : (b[0] ? b[0].design : state.designs[0]);
     const heroTitle = r[0] ? `${esc(r[0].serial)} is on the pad` : b[0] ? `${esc(b[0].serial)} is being built` : 'No rocket on the pad';
     const heroSub = r[0] ? esc(r[0].design.name) + (r[0].booster ? ` · flown booster (${r[0].booster.flights} flight${r[0].booster.flights > 1 ? 's' : ''})` : '') : b[0] ? `${b[0].days} days to go` : 'Build one in the Hangar';
-    let html = `<div class="hero"><canvas id="hero-canvas"></canvas><div class="over"><h3>${heroTitle}</h3><div class="small dim">${heroSub}</div></div></div>`;
+    let html = (CR ? CR.subnav() : '') + `<div class="hero"><canvas id="hero-canvas"></canvas><div class="over"><h3>${heroTitle}</h3><div class="small dim">${heroSub}</div></div></div>`;
     if (state.won) html += `<div class="card done"><h3>🏆 Mars city founded!</h3><p class="small">You did it on day ${state.day}. Keep flying, or start a new company on the Base tab.</p></div>`;
 
     html += `<div class="cols"><div><h2>Ready to fly</h2>`;
@@ -288,8 +320,9 @@
     for (const v of r) {
       html += `<div class="card"><div style="display:flex;gap:8px;align-items:center"><div class="grow"><h3>${esc(v.serial)} <span class="dim small">${esc(v.design.name)}</span></h3>
         <div class="small dim">${stagesLabel(v.design)}${v.booster ? ` · <span class="acc">flown booster ×${v.booster.flights}</span>` : ''}</div></div></div>
-        <div class="btns"><button class="btn primary sm" data-act="go-contracts">Pick a contract</button><button class="btn sm" data-act="test" data-id="${v.id}">Test flight</button></div></div>`;
+        <div class="btns"><button class="btn primary sm" data-act="go-contracts">Pick a contract</button><button class="btn sm" data-act="test" data-id="${v.id}">Test flight</button>${OPS() ? OPS().vehicleBtn(state, v) : ''}</div></div>`;
     }
+    if (OPS()) html += OPS().opsLeftHtml(state); // launch ops: test stand + investigations
     if (b.length) {
       html += `<h2>In the factory <span class="dim">(${state.factory} line${state.factory > 1 ? 's' : ''})</span></h2>`;
       b.forEach((v, i) => {
@@ -298,9 +331,15 @@
       });
     }
     if (state.boosters.length) {
-      html += `<h2>Landed boosters</h2><div class="card small">${state.boosters.map((x) => `<span class="pill acc">${esc(x.id)} · ${x.flights} flight${x.flights > 1 ? 's' : ''}</span>`).join(' ')}<p class="dim">Build the same design in the Hangar to reuse one.</p></div>`;
+      // playtest #15: show which designs fit each booster, and let the player scrap orphans.
+      html += `<h2>Landed boosters</h2><div class="card small">${state.boosters.map((x) => {
+        const fits = designsForBooster(x);
+        return `<div style="display:flex;gap:8px;align-items:center;padding:4px 0;flex-wrap:wrap"><span class="pill acc">${esc(x.id)} · ${x.flights} flight${x.flights > 1 ? 's' : ''}</span>
+          <span class="grow ${fits.length ? '' : 'bad'}">${fits.length ? `✓ Fits ${fits.map((d) => esc(d.name)).join(', ')}` : '⚠ No design fits it any more'}</span>
+          <button class="btn sm" data-act="scrap-booster" data-id="${esc(x.id)}">Scrap · +${money(scrapValue(x))}</button></div>`;
+      }).join('')}<p class="dim">Build a design that fits in the Hangar to reuse one.</p></div>`;
     }
-    html += `</div><div>${haloOpsCard()}<h2>Goals</h2><div class="card">`;
+    html += `</div><div>${OPS() ? OPS().opsWeatherHtml(state) : ''}${haloOpsCard()}${CR ? CR.opsCard(state) : ''}${WND() ? WND().opsCard(state) : '' /* windows: transits + calendar */}<h2>Goals</h2><div class="card">`;
     for (const m of MILESTONES) {
       const done = state.milestones[m.id];
       const extra = m.id === 'marsCity' ? ` (${state.marsCity}/5)` : '';
@@ -405,6 +444,7 @@
     const el = $('tab-contracts');
     const list = state.contracts.filter((c) => !isOwn(c)).sort((a, b) => b.reward - a.reward);
     let html = `<h2>Open contracts</h2><p class="small dim" style="margin:-4px 2px 10px">New offers arrive every few days. Higher reputation unlocks bigger jobs.</p>`;
+    if (WND()) html += WND().contractsCard(state); // windows: Mars/Moon calendar
     if (!list.length) html += `<div class="empty">No offers right now. Check back in a few days.</div>`;
     html += '<div class="grid">';
     for (const c of list) {
@@ -415,7 +455,7 @@
       html += `<div class="card tap" data-act="contract" data-id="${c.id}">
         <div style="display:flex;gap:10px;align-items:flex-start"><div class="grow">
           <h3>${esc(c.label)}</h3><div class="small dim">${esc(c.client)}</div>
-          <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><span class="pill blue">${t.short}</span><span class="pill">${c.crew ? '4 crew · 12 t' : tons(c.mass)}</span><span class="pill ${days < 15 ? 'bad' : ''}">${days} days left</span>
+          <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><span class="pill blue">${t.short}</span><span class="pill">${c.crew ? '4 crew · 12 t' : tons(c.mass)}</span><span class="pill ${days < 15 ? 'bad' : ''}">${days} days left</span>${WND() ? WND().contractPill(c, state) : ''}${c.crew && CREW() ? CREW().contractPill(state, c) : ''}
           ${fit ? `<span class="pill good">✓ ${esc(fit.v.serial)} can fly it</span>` : needsCapsule ? '<span class="pill bad">Needs Crew Capsule</span>' : (() => {
             const bd = bestDesignFor(c);
             if (bd && bd.cap >= c.mass) return `<span class="pill">◐ Build a ${esc(bd.d.name)} to fly it</span>`;
@@ -440,10 +480,13 @@
       const leoR = reuse ? S.capacity(d, 'LEO', reuse, state.techs) : 0;
       const gto = S.capacity(d, 'GTO', 'expend', state.techs);
       const fb = boostersFor(d);
+      // playtest #2: say what reuse is worth, or why this design can't land.
+      const reflightSave = reuse && leoR > 0 ? S.stageCost(d.stages[0], state.techs, 0) * (1 - S.refurbFrac(state.techs, reuse)) : 0;
+      const reuseNote = !reuse ? '' : leoR > 0 ? `<p class="small good">♻️ Saves ≈${money(reflightSave)} per reflight</p>` : `<p class="small bad">⚠ Too small to land: design a bigger booster</p>`;
       html += `<div class="card"><div style="display:flex;gap:10px"><div class="grow"><h3><span style="color:${d.color}">■</span> ${esc(d.name)}</h3>
         <div class="small dim">${stagesLabel(d)}</div></div><button class="btn sm" data-act="edit" data-id="${d.id}">Edit</button></div>
         <div class="kv"><div><small>To LEO</small><b>${tons(leoX)}</b></div>${reuse ? `<div><small>LEO, reusable</small><b>${tons(leoR)}</b></div>` : ''}<div><small>To GTO</small><b>${tons(gto)}</b></div><div><small>Cost</small><b>${money(cost)}</b></div><div><small>Build</small><b>${days} days</b></div></div>
-        ${errs.length ? `<p class="small bad">${errs.map(esc).join('<br>')}</p>` : ''}
+        ${reuseNote}${errs.length ? `<p class="small bad">${errs.map(esc).join('<br>')}</p>` : ''}
         <div class="btns"><button class="btn primary sm" data-act="build" data-id="${d.id}" ${errs.length || state.cash < cost ? 'disabled' : ''}>Build new · ${money(cost)}</button>
         ${fb.length ? `<button class="btn go sm" data-act="build-reuse" data-id="${d.id}" ${state.cash < reuseCost(d, fb[0]) ? 'disabled' : ''}>Reuse ${esc(fb[0].id)} · ${money(reuseCost(d, fb[0]))}</button>` : ''}</div></div>`;
     }
@@ -484,20 +527,38 @@
   function renderResearch() {
     const el = $('tab-research');
     let html = `<h2>Research</h2><div class="card row"><div class="grow"><b>${Math.floor(state.rp)} science</b><div class="small dim">+${(state.engineers * S.FACILITY.rpPerEngineerDay).toFixed(2)} a day from ${state.engineers} engineers, plus every launch. Hire more on the Base tab.</div></div></div>`;
-    html += '<div class="grid">';
+    // playtest #26: group by branch and point at a recommended next item.
     const ids = Object.keys(S.TECHS);
-    const order = ids.sort((a, b) => (state.techs[a] ? 1 : 0) - (state.techs[b] ? 1 : 0) || S.TECHS[a].rp - S.TECHS[b].rp);
-    for (const id of order) {
-      const t = S.TECHS[id];
-      const done = state.techs[id];
-      const reqOk = t.req.every((r) => state.techs[r]);
-      const can = !done && reqOk && state.rp >= t.rp;
-      html += `<div class="card ${done ? 'done' : reqOk ? '' : 'locked'}"><div class="tech"><div class="ic">${TECH_ICONS[id] || '🔬'}</div><div class="grow">
-        <b>${t.name}</b><div class="small dim">${t.desc}</div>
-        ${!reqOk ? `<div class="small bad">Needs: ${t.req.filter((r) => !state.techs[r]).map((r) => S.TECHS[r].name).join(', ')}</div>` : ''}</div>
-        ${done ? '<span class="pill good">Done</span>' : `<button class="btn sm ${can ? 'primary' : ''}" data-act="research" data-id="${id}" ${can ? '' : 'disabled'}>${t.rp} 🔬</button>`}</div></div>`;
+    const BRANCHES = [['♻️ Reuse', ['legs', 'fairing', 'barge', 'rapid', 'tower', 'shipreuse']], ['🔥 Engines', ['lighttanks', 'comet', 'steel', 'nova']], ['🪐 Deep space & crew', ['capsule', 'refill', 'habitat']]];
+    const known = new Set(BRANCHES.flatMap((x) => x[1]));
+    const extra = ids.filter((id) => !known.has(id));
+    if (extra.length) BRANCHES.push(['🧪 More', extra]);
+    const avail = ids.filter((id) => !state.techs[id] && S.TECHS[id].req.every((r) => state.techs[r]));
+    const PATH = ['legs', 'comet', 'rapid', 'barge', 'steel', 'capsule', 'refill', 'habitat']; // the road to Mars
+    const rec = PATH.find((id) => avail.includes(id)) || avail.sort((a, b) => S.TECHS[a].rp - S.TECHS[b].rp)[0] || null;
+    if (rec) {
+      const t = S.TECHS[rec];
+      html += `<div class="card rec-next"><div class="tech"><div class="ic">${TECH_ICONS[rec] || '🔬'}</div><div class="grow"><div class="small acc">⭐ Recommended next</div><b>${t.name}</b><div class="small dim">${t.desc}</div>
+        ${state.rp < t.rp ? `<div class="small dim">${Math.ceil(t.rp - state.rp)} more science needed</div>` : ''}</div>
+        <button class="btn sm ${state.rp >= t.rp ? 'primary' : ''}" data-act="research" data-id="${rec}" ${state.rp >= t.rp ? '' : 'disabled'}>${t.rp} 🔬</button></div></div>`;
     }
-    html += '</div>';
+    for (const [label, list] of BRANCHES) {
+      const inTree = list.filter((id) => S.TECHS[id]);
+      if (!inTree.length) continue;
+      const nDone = inTree.filter((id) => state.techs[id]).length;
+      html += `<h2>${label} <span class="dim small">${nDone}/${inTree.length} done</span></h2><div class="grid">`;
+      for (const id of inTree) {
+        const t = S.TECHS[id];
+        const done = state.techs[id];
+        const reqOk = t.req.every((r) => state.techs[r]);
+        const can = !done && reqOk && state.rp >= t.rp;
+        html += `<div class="card ${done ? 'done' : reqOk ? '' : 'locked'}"><div class="tech"><div class="ic">${TECH_ICONS[id] || '🔬'}</div><div class="grow">
+          <b>${t.name}</b>${id === rec ? ' <span class="pill acc">⭐ Recommended</span>' : ''}<div class="small dim">${t.desc}</div>
+          ${!reqOk ? `<div class="small bad">🔒 Needs: ${t.req.filter((r) => !state.techs[r]).map((r) => S.TECHS[r] ? S.TECHS[r].name : r).join(', ')}</div>` : ''}</div>
+          ${done ? '<span class="pill good">✓ Done</span>' : `<button class="btn sm ${can ? 'primary' : ''}" data-act="research" data-id="${id}" ${can ? '' : 'disabled'}>${t.rp} 🔬</button>`}</div></div>`;
+      }
+      html += '</div>';
+    }
     el.innerHTML = html;
   }
 
@@ -510,7 +571,7 @@
     const st = state.stats;
     const monthly = state.engineers * S.FACILITY.engineerSalary + 0.1 * f + (state.owned.barge ? 0.2 : 0) + (state.owned.tower ? 0.3 : 0);
     let html = `<h2>Team</h2><div class="card"><div style="display:flex;align-items:center;gap:10px"><div class="grow"><b>👷 ${state.engineers} engineers</b><div class="small dim">Each makes ${S.FACILITY.rpPerEngineerDay} science a day and costs ${money(S.FACILITY.engineerSalary)} a month.</div></div></div>
-      <div class="btns"><button class="btn primary sm" data-act="hire" ${state.cash < S.FACILITY.engineerHire ? 'disabled' : ''}>Hire · ${money(S.FACILITY.engineerHire)}</button><button class="btn sm" data-act="fire" ${state.engineers <= 1 ? 'disabled' : ''}>Let one go</button></div></div>`;
+      <div class="btns"><button class="btn primary sm" data-act="hire" ${state.cash < hireCost() ? 'disabled' : ''}>Hire · ${money(hireCost())}</button><button class="btn sm" data-act="fire" ${state.engineers <= 1 ? 'disabled' : ''}>Let one go</button></div></div>`;
     html += `<h2>Facilities</h2><div class="grid">`;
     html += `<div class="card"><b>🏭 Factory, level ${f}</b><div class="small dim">${f} build line${f > 1 ? 's' : ''} at ${(1 + 0.5 * (f - 1)).toFixed(1)}× speed.</div>
       ${f < 5 ? `<div class="btns"><button class="btn primary sm" data-act="factory" ${state.cash < S.FACILITY.factoryCost(f) ? 'disabled' : ''}>Upgrade · ${money(S.FACILITY.factoryCost(f))}</button></div>` : '<div class="small good">Max level</div>'}</div>`;
@@ -522,6 +583,12 @@
       <div><small>Earned</small><b>${money(st.earned)}</b></div><div><small>Monthly costs</small><b>${money(monthly)}</b></div></div></div>`;
     html += `<h2>Game</h2><div class="card small dim">Your game saves on this device automatically.<div class="btns"><button class="btn sm" data-act="help">How to play</button><button class="btn sm danger" data-act="reset">Start a new company</button></div></div>`;
     el.innerHTML = html;
+  }
+  // playtest #4: hiring gets gently dearer as the team grows (same rule as campus.js hireCost).
+  function hireCost() {
+    const C = CAMPUS();
+    if (C && C.hireCost && state.campus) return C.hireCost(state);
+    return Math.round(S.FACILITY.engineerHire * (1 + 0.06 * Math.max(0, state.engineers - 5)) * 100) / 100;
   }
   function facilityCard(id, name, desc, cost) {
     const tech = S.RECOVERY[id === 'barge' ? 'barge' : 'catch'].tech;
@@ -630,10 +697,16 @@
       html += `<h2>Upper stage</h2><div class="seg"><button data-act="l-up" data-id="0" class="${!s.upperReuse ? 'on' : ''}">Expend</button><button data-act="l-up" data-id="1" class="${s.upperReuse ? 'on' : ''}">Bring it home (refund 90%)</button></div>`;
     }
     const m = S.mission(v.design, payload, target, s.recovery, state.techs, { upperReuse: s.upperReuse });
-    const odds = S.launchOdds(v.design, state.heritage, state.designFlights[v.designId] || 0);
-    const lodds = S.landingOdds(s.recovery, state.landings, state.techs);
+    const wnd = c && !isOwn(c) && WND() ? WND().apply(m, target, state) : null; // windows: Moon penalty / Mars block
+    // Launch ops: weather, static fire and investigations adjust the odds.
+    const odds = S.launchOdds(v.design, state.heritage, state.designFlights[v.designId] || 0, OPS() ? OPS().launchMod(state, v) : undefined);
+    const lodds = S.landingOdds(s.recovery, state.landings, state.techs, OPS() ? OPS().landMod(state, s.recovery) : undefined);
+    if (OPS()) html += OPS().sheetHtml(state, v, s);
     const tankCost = m.tankers ? m.tankers * tankerUnit(v.design, s.recovery, s.upperReuse) : 0;
     const ratio = Math.min(1.4, m.have / m.need);
+    // Crew flights: show crew + capsule, add the abort-system note, block launch until a crew is ready.
+    const crewChk = c && c.crew && CREW() ? CREW().check(state, c) : { ok: true, html: '', abort: '' };
+    html += crewChk.html;
     html += `<h2>Flight check</h2><div class="card">
       <div style="display:flex;justify-content:space-between"><span class="small">Delta-v ${m.refilled ? '(after refilling)' : ''}</span><b class="${m.ok ? 'good' : 'bad'}">${Math.round(m.have).toLocaleString()} / ${m.need.toLocaleString()} m/s</b></div>
       <div class="bar ${m.ok ? 'good' : 'bad'}"><i style="width:${Math.min(100, ratio / 1.4 * 100)}%"></i><span class="mark" style="left:${100 / 1.4}%"></span></div>
@@ -642,10 +715,14 @@
       ${m.tankers ? `<div><small>Tanker flights</small><b>${m.tankers} · ${money(tankCost)}</b></div>` : ''}
       ${c && !isOwn(c) ? `<div><small>Contract pays</small><b class="money">${money(c.reward)}</b></div><div><small>This rocket cost</small><b>${money(v.cost || S.designCost(v.design, state.techs))}</b></div>` : ''}
       ${s.recovery !== 'expend' ? `<div><small>Booster saved if it lands</small><b class="good">≈ ${money(S.stageCost(v.design.stages[0], state.techs, 0) * (1 - S.refurbFrac(state.techs, s.recovery)))}</b></div>` : ''}</div>
+      ${crewChk.abort}
       ${!m.canLift ? '<p class="small bad">Too heavy to leave the pad. Add engines or remove fuel.</p>' : !m.ok ? `<p class="small bad">Not enough delta-v${s.recovery !== 'expend' ? '. Try expending the booster, or' : '. Try'} a bigger rocket.${S.TARGETS[target].deep && !state.techs.refill ? ' Orbital Refilling research helps for Moon and Mars.' : ''}</p>` : ''}
       </div>`;
+    if (wnd) html += WND().launchHtml(wnd, state, target); // windows: status, trip time, arrival odds
     const canPay = state.cash >= tankCost;
-    html += `<button class="btn primary big" data-act="launch" ${m.ok && canPay ? '' : 'disabled'}>🚀 Launch ${esc(v.serial)}</button>`;
+    const goOk = m.ok && canPay && !(wnd && wnd.blocked) && crewChk.ok;
+    const opsBtns = OPS() ? OPS().launchButtons(state, v, s, goOk, c) : null; // launch ops: no-go / risk it / scrub
+    html += opsBtns || `<button class="btn primary big" data-act="launch" ${goOk ? '' : 'disabled'}>🚀 Launch ${esc(v.serial)}</button>`;
     if (!canPay) html += `<p class="small bad">Not enough cash for the tanker flights.</p>`;
     return html;
   }
@@ -655,11 +732,13 @@
     const { c, v, payload, target } = launchCtx(s);
     if (!v) return;
     const m = S.mission(v.design, payload, target, s.recovery, state.techs, { upperReuse: s.upperReuse });
-    if (!m.ok) return;
+    const wnd = c && !isOwn(c) && WND() ? WND().apply(m, target, state) : null; // windows
+    if (!m.ok || (wnd && wnd.blocked)) return;
+    if (OPS() && OPS().gate(state, v).block) return; // launch ops: storm no-go
     const tankCost = m.tankers ? m.tankers * tankerUnit(v.design, s.recovery, s.upperReuse) : 0;
     state.cash -= tankCost;
     const design = v.design;
-    const odds = S.launchOdds(design, state.heritage, state.designFlights[v.designId] || 0);
+    const odds = S.launchOdds(design, state.heritage, state.designFlights[v.designId] || 0, OPS() ? OPS().launchMod(state, v) : undefined);
     let fail = null;
     if (Math.random() > odds) {
       const weights = design.stages.map((st) => st.count + 1);
@@ -667,9 +746,13 @@
       while (pick > weights[i]) { pick -= weights[i]; i++; }
       fail = { stage: Math.min(i, design.stages.length - 1), t: 0.15 + Math.random() * 0.75 };
     }
-    const autoLand = Math.random() < S.landingOdds(s.recovery, state.landings, state.techs);
+    const autoLand = Math.random() < S.landingOdds(s.recovery, state.landings, state.techs, OPS() ? OPS().landMod(state, s.recovery) : undefined);
     state.vehicles = state.vehicles.filter((x) => x !== v);
     const ctx = { c, v, recovery: s.recovery, landing: s.landing, upperReuse: s.upperReuse, tankers: m.tankers, tankCost, fail, target };
+    if (OPS()) ctx.ops = { wx: OPS().today(state).kind, sf: !!v.sfDone }; // launch ops: for the result screen
+    if (WND() && WND().takesTime(c)) ctx.transitDays = WND().transitDays(target); // windows: trip length
+    if (c && c.crew && CREW()) ctx.crewIds = CREW().board(state, c); // crew boards the capsule
+    const crewTxt = c && c.crew && CREW() ? CREW().flightText(state, c) : null;
     closeSheet();
     flying = true;
     // If the page is closed mid-flight, the next load finishes this flight with the pre-rolled outcome.
@@ -679,10 +762,12 @@
     const res = await F.run({
       design, techs: state.techs, target, fail, recovery: s.recovery, landing: s.landing, autoLand, crew: c && c.crew,
       payloadKind: c && c.kind, satCount: c && c.count,
+      weather: OPS() ? OPS().flightWeather(state) : null, // launch ops: haze + wind in the 3D flight
       title: isHalo(c) ? `Halo batch · ${c.count} sats` : isDc(c) ? `Compute modules · ${c.count}` : c ? `${c.label} · ${c.client}` : 'Test flight',
       failText: fail ? `Engine failure on stage ${fail.stage + 1}` : '',
       orbitText: isHalo(c) ? 'HALO BATCH DEPLOYED ✓' : isDc(c) ? 'COMPUTE MODULES DEPLOYED ✓' : !c ? 'ORBIT ✓' : t.deep ? 'ON ITS WAY ✓' : 'PAYLOAD DEPLOYED ✓',
-      orbitSub: isHalo(c) ? `${c.count} sats joining the Halo network` : isDc(c) ? `${c.count} modules joining your orbital data center` : c ? (m.refilled ? `Refilled by ${m.tankers} tanker flight${m.tankers > 1 ? 's' : ''}, heading for ${t.name}` : `${t.name}`) : 'Test flight complete',
+      orbitSub: isHalo(c) ? `${c.count} sats joining the Halo network` : isDc(c) ? `${c.count} modules joining your orbital data center` : c ? (ctx.transitDays ? (m.refilled ? `Refilled by ${m.tankers} tanker${m.tankers > 1 ? 's' : ''} · ` : '') + WND().orbitSub(target, ctx.transitDays) /* windows */ : m.refilled ? `Refilled by ${m.tankers} tanker flight${m.tankers > 1 ? 's' : ''}, heading for ${t.name}` : `${t.name}`) : 'Test flight complete',
+      ...(crewTxt || {}), // crew: orbit/abort banners
     });
     afterFlight(ctx, res);
   }
@@ -727,6 +812,9 @@
         haloLines(true);
         lines.push(['Science', '+4']);
         log(`<b>${esc(v.serial)}</b> deployed <b>${c.count} ${isDc(c) ? 'compute modules' : 'Halo sats'}</b> to low orbit.`);
+      } else if (c && WND() && WND().takesTime(c)) {
+        // Windows: Moon/Mars craft fly for days; payment, milestones and Mars city count come on arrival.
+        WND().depart(state, ctx, lines, { log });
       } else if (c) {
         state.cash += c.reward; state.stats.earned += c.reward;
         state.rep += c.rep;
@@ -759,14 +847,17 @@
         lines.push(['Upper stage came home', `+${money(up)}`]);
       }
     } else {
-      state.rep = Math.max(0, state.rep - 6);
+      const repHit = c && c.crew ? 3 : 6; // crew flights: the launch abort system saves the crew
+      state.rep = Math.max(0, state.rep - repHit);
       state.rp += 3;
       lines.push(['Result', '<span class="bad">Vehicle lost</span>']);
-      lines.push(['Reputation', '−6']);
+      lines.push(['Reputation', `−${repHit}`]);
       lines.push(['Science (lessons learned)', '+3']);
       log(`<b>${esc(v.serial)}</b> was lost: ${esc(fail ? `engine failure on stage ${fail.stage + 1}` : 'failure')}.${isHalo(c) ? ` ${c.count} Halo sats were lost with it.` : isDc(c) ? ` ${c.count} compute modules were lost with it.` : c ? ' The customer will wait for another try.' : ''}`);
       if (isOwn(c)) haloLines(false);
     }
+    // Crew: dock/abort, station supplies from cargo runs.
+    if (c && CREW()) { try { CREW().onFlight(state, ctx, ok, lines); } catch (e) { console.warn('Crew afterFlight failed', e); } }
     // Booster
     if (recovery !== 'expend') {
       if (res.stage1Ok !== false && (ok || (fail && fail.stage > 0))) {
@@ -793,9 +884,11 @@
     } else {
       lines.push(['Booster', '<span class="dim">Expended</span>']);
     }
+    // Launch ops: open failure investigations, note weather / static fire.
+    if (OPS()) { try { for (const ev of OPS().afterFlight(state, ctx, res, lines) || []) log(ev); } catch (e) { console.warn('Launch ops afterFlight failed', e); } }
     save();
     const box = $('result');
-    box.innerHTML = `<h3>${ok ? (isHalo(c) ? '✅ Halo batch in orbit' : isDc(c) ? '✅ Compute modules in orbit' : c ? '✅ Mission success' : '✅ Test flight success') : '💥 Mission failed'}</h3>
+    box.innerHTML = `<h3>${ok ? (ctx.transit ? `🛰️ On its way · arrives day ${ctx.transit.arrive}` /* windows */ : isHalo(c) ? '✅ Halo batch in orbit' : isDc(c) ? '✅ Compute modules in orbit' : c ? '✅ Mission success' : '✅ Test flight success') : '💥 Mission failed'}</h3>
       ${lines.map(([k, val]) => `<div class="line"><span>${k}</span><b>${val}</b></div>`).join('')}
       <button class="btn primary big" style="margin-top:14px" data-act="flight-done">Continue</button>`;
     box.hidden = false;
@@ -827,6 +920,7 @@
     html += '<div id="ed-mini" class="ed-mini" aria-live="polite"></div>';
     html += `<div class="editor"><div class="preview"><canvas id="ed-canvas"></canvas></div><div>`;
     html += `<input type="text" id="ed-name" maxlength="24" value="${esc(d.name)}" aria-label="Rocket name">`;
+    if (state.techs.capsule) html += `<div class="seg" style="margin:8px 0"><button data-act="ed-nose" data-id="0" class="${sheet.capsule ? '' : 'on'}">Fairing</button><button data-act="ed-nose" data-id="1" class="${sheet.capsule ? 'on' : ''}">👩‍🚀 Crew capsule</button></div>`; // preview only
     html += `<div class="seg" style="margin:8px 0">${COLORS.map((c) => `<button data-act="ed-color" data-id="${c}" class="${d.color === c ? 'on' : ''}" style="color:${c}" aria-label="Stripe color">■</button>`).join('')}</div>`;
     d.stages.forEach((st, i) => {
       const eng = S.ENGINES[st.engine];
@@ -903,13 +997,17 @@
     html += `</table>`;
     if (p.twr < 1.2) errs.push(p.twr < 1.05 ? 'Too heavy to lift off: add engines or less propellant on stage 1.' : 'Low thrust: you lose a lot of delta-v fighting gravity.');
     if (errs.length) html += `<p class="small bad">${errs.map(esc).join('<br>')}</p>`;
+    // playtest #15: warn before an edit strands landed boosters that only this design could use.
+    const orig = sheet.origId && state.designs.find((x) => x.id === sheet.origId);
+    const orphans = orig ? state.boosters.filter((b) => sameBooster(b.stage, orig.stages[0]) && !sameBooster(b.stage, d.stages[0]) && !state.designs.some((o) => o.id !== orig.id && sameBooster(b.stage, o.stages[0]))) : [];
+    if (orphans.length) html += `<p class="small bad">⚠ ${orphans.length} landed booster${orphans.length > 1 ? 's' : ''} (${orphans.map((b) => esc(b.id)).join(', ')}) won't fit this change. Keep stage 1 as it was to reuse ${orphans.length > 1 ? 'them' : 'it'}, or make a new design instead.</p>`;
     $('ed-stats').innerHTML = html;
     const leo = S.capacity(d, 'LEO', 'expend', state.techs), gto = S.capacity(d, 'GTO', 'expend', state.techs);
     const lr = reuse ? S.capacity(d, 'LEO', reuse, state.techs) : 0;
     const mini = $('ed-mini');
-    if (mini) mini.innerHTML = `<span>TWR <b class="${p.twr >= 1.2 ? 'good' : 'bad'}">${p.twr >= 1.2 ? '' : '⚠ '}${p.twr.toFixed(2)}</b></span><span>LEO <b>${leo > 0 ? tons(leo) : '—'}</b>${reuse ? ` · reuse <b>${lr > 0 ? tons(lr) : '—'}</b>` : ''}</span><span>GTO <b>${gto > 0 ? tons(gto) : '—'}</b></span><span>Cost <b>${money(S.designCost(d, state.techs))}</b></span>`;
+    if (mini) mini.innerHTML = `<span>TWR <b class="${p.twr >= 1.2 ? 'good' : 'bad'}">${p.twr >= 1.2 ? '' : '⚠ '}${p.twr.toFixed(2)}</b></span><span>LEO <b>${leo > 0 ? tons(leo) : '—'}</b>${reuse ? ` · reuse <b>${lr > 0 ? tons(lr) : '—'}</b>` : ''}</span><span>GTO <b>${gto > 0 ? tons(gto) : '—'}</b></span><span>Cost <b>${money(S.designCost(d, state.techs))}</b></span>${orphans.length ? `<span class="bad">⚠ Strands ${orphans.length} booster${orphans.length > 1 ? 's' : ''}</span>` : ''}`;
     $('ed-save').disabled = S.validate(d, state.techs).length > 0 || p.twr < 1.05;
-    D.drawPreview($('ed-canvas'), d, state.techs);
+    D.drawPreview($('ed-canvas'), d, state.techs, { capsule: !!sheet.capsule });
   }
 
   // ---------- Events ----------
@@ -933,12 +1031,41 @@
       case 'l-land': sheet.landing = id; state.lastLanding = id; save(); renderSheet(); break;
       case 'l-up': sheet.upperReuse = id === '1'; renderSheet(); break;
       case 'launch': launch(); break;
+      case 'ops-static': { // launch ops: static fire test
+        const r = OPS() && OPS().startStatic(state, id);
+        if (r) { if (r.log) log(r.log); toast(r.msg); save(); refresh(); }
+        break;
+      }
+      case 'ops-scrub': { // launch ops: scrub and wait a day (vehicle stays ready, contracts keep ticking)
+        if (!sheet || sheet.kind !== 'launch' || !OPS()) break;
+        const lc = launchCtx(sheet);
+        log(OPS().noteScrub(state, lc.v));
+        dayTick();
+        const after = sheet && sheet.kind === 'launch' ? launchCtx(sheet) : null;
+        if (!after) { refresh(); break; }
+        if (sheet.contractId && !after.c) { closeSheet(); toast('⏳ Scrubbed. The contract expired.'); break; }
+        toast(`⏳ Scrubbed · day ${state.day}: ${OPS().today(state).icon} ${OPS().today(state).name}`);
+        header(); renderSheet();
+        break;
+      }
       case 'flight-done': F.close(); flying = false; last = performance.now(); refresh(); break;
       case 'build': build(id, false); break;
       case 'build-reuse': build(id, true); break;
+      case 'scrap-booster': { // playtest #15
+        const x = state.boosters.find((b) => b.id === id);
+        if (!x) break;
+        if (designsForBooster(x).length && !window.confirm(`Scrap ${x.id}? A design can still reuse it.`)) break;
+        const val = scrapValue(x);
+        state.boosters = state.boosters.filter((b) => b !== x);
+        state.cash += val;
+        log(`Scrapped booster <b>${esc(x.id)}</b> for <b>${money(val)}</b>.`);
+        toast(`♻️ Scrapped ${esc(x.id)} · +${money(val)}`);
+        save(); refresh(); break;
+      }
       case 'edit': openEditor(id); break;
       case 'new-design': openEditor(null); break;
       case 'ed-color': sheet.draft.color = id; renderSheet(); break;
+      case 'ed-nose': sheet.capsule = id === '1'; renderSheet(); break; // crew capsule preview
       case 'ed-eng': sheet.draft.stages[+el.dataset.i].engine = id; renderSheet(); break;
       case 'ed-cnt': {
         const st = sheet.draft.stages[+el.dataset.i];
@@ -980,8 +1107,8 @@
         save(); refresh(); break;
       }
       case 'hire':
-        if (state.cash < S.FACILITY.engineerHire) break;
-        state.cash -= S.FACILITY.engineerHire; state.engineers++; save(); refresh(); break;
+        if (state.cash < hireCost()) break;
+        state.cash -= hireCost(); state.engineers++; save(); refresh(); break;
       case 'fire': if (state.engineers > 1) { state.engineers--; save(); refresh(); } break;
       case 'factory': {
         const cost = S.FACILITY.factoryCost(state.factory);

@@ -213,7 +213,8 @@
   }
 
   // Probability each stage burns without a fatal failure.
-  function launchOdds(design, heritage, designFlights) {
+  // mod (optional, launch ops): { failMul: scales the failure chance, mul: scales success } for weather, static fires, investigations.
+  function launchOdds(design, heritage, designFlights, mod) {
     let p = 1;
     for (const st of design.stages) {
       const r = engineRel(st.engine, heritage);
@@ -224,7 +225,9 @@
       p *= ok;
     }
     const newDesignRisk = Math.max(0.005, 0.05 - 0.009 * (designFlights || 0));
-    return p * (1 - newDesignRisk);
+    p *= 1 - newDesignRisk;
+    if (mod) p = (1 - (1 - p) * (mod.failMul == null ? 1 : mod.failMul)) * (mod.mul == null ? 1 : mod.mul);
+    return p;
   }
 
   function binom(n, k) {
@@ -233,7 +236,8 @@
     return r;
   }
 
-  function landingOdds(recovery, landings, techs) {
+  // mod (optional, launch ops): { add } added to the odds for weather and investigations.
+  function landingOdds(recovery, landings, techs, mod) {
     if (recovery === 'expend') return 0;
     const tries = (landings && landings[recovery]) || 0;
     let p;
@@ -241,6 +245,7 @@
     else if (recovery === 'barge') p = 0.42 + 0.06 * tries;
     else p = 0.48 + 0.06 * tries;
     if (has(techs, 'rapid')) p += 0.05;
+    if (mod && mod.add) return Math.max(0.02, Math.min(0.985, Math.min(0.97, p) + mod.add));
     return Math.min(0.97, p);
   }
 
@@ -263,7 +268,7 @@
     { kind: 'batch',     label: 'Internet satellite batch', target: 'LEO', min: 8, max: 18, rep: 20, a: 7,   b: 1.1, client: 'LEO' },
     { kind: 'comsat',    label: 'TV / comms satellite', target: 'GTO', min: 2.5, max: 7,   rep: 18, a: 8,   b: 5,  client: 'GTO' },
     { kind: 'cargo',     label: 'Station cargo run',    target: 'LEO', min: 5, max: 14,    rep: 30, a: 12,  b: 1.2,   client: 'STATION' },
-    { kind: 'crew',      label: 'Crew to orbit',        target: 'LEO', min: 12, max: 12,   rep: 40, a: 45,  b: 0,   client: 'CREW', tech: 'capsule' },
+    { kind: 'crew',      label: 'Crew to orbit',        target: 'LEO', min: 12, max: 12,   rep: 40, a: 22,  b: 0,   client: 'CREW', tech: 'capsule' }, // crew: was a: 45; crew.js adds a splashdown bonus
     { kind: 'llo',       label: 'Lunar orbiter',        target: 'LLO', min: 1.5, max: 6,   rep: 45, a: 16,  b: 6.5,  client: 'LLO' },
     { kind: 'mto',       label: 'Mars probe',           target: 'MTO', min: 1, max: 5,     rep: 55, a: 22,  b: 8,  client: 'MTO' },
     { kind: 'lunar',     label: 'Moon lander',          target: 'LUN', min: 4, max: 25,    rep: 65, a: 32,  b: 3,  client: 'LUN' },
