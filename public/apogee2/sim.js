@@ -268,7 +268,7 @@
     { kind: 'batch',     label: 'Internet satellite batch', target: 'LEO', min: 8, max: 18, rep: 20, a: 7,   b: 1.1, client: 'LEO' },
     { kind: 'comsat',    label: 'TV / comms satellite', target: 'GTO', min: 2.5, max: 7,   rep: 18, a: 8,   b: 5,  client: 'GTO' },
     { kind: 'cargo',     label: 'Station cargo run',    target: 'LEO', min: 5, max: 14,    rep: 30, a: 12,  b: 1.2,   client: 'STATION' },
-    { kind: 'crew',      label: 'Crew to orbit',        target: 'LEO', min: 12, max: 12,   rep: 40, a: 45,  b: 0,   client: 'CREW', tech: 'capsule' },
+    { kind: 'crew',      label: 'Crew to orbit',        target: 'LEO', min: 12, max: 12,   rep: 40, a: 22,  b: 0,   client: 'CREW', tech: 'capsule' }, // crew: was a: 45; crew.js adds a splashdown bonus
     { kind: 'llo',       label: 'Lunar orbiter',        target: 'LLO', min: 1.5, max: 6,   rep: 45, a: 16,  b: 6.5,  client: 'LLO' },
     { kind: 'mto',       label: 'Mars probe',           target: 'MTO', min: 1, max: 5,     rep: 55, a: 22,  b: 8,  client: 'MTO' },
     { kind: 'lunar',     label: 'Moon lander',          target: 'LUN', min: 4, max: 25,    rep: 65, a: 32,  b: 3,  client: 'LUN' },
