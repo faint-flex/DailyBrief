@@ -16,6 +16,10 @@
   // Launch windows + deep-space transit (windows.js, optional).
   const WND = () => window.APOGEE_WINDOWS || null;
   const CREW = () => window.APOGEE_CREW || null; // crew.js: astronauts, capsule, Tranquil Station
+  // Rideshare missions + fairing recovery (rideshare.js, optional).
+  const RS = () => window.APOGEE_RIDESHARE || null;
+  const isRide = (c) => !!(c && c.kind === 'rideshare');
+  const fairSave = () => { const R = RS(); try { return R ? R.fairingDiscount(state) : 0; } catch (e) { return 0; } };
   const $ = (id) => document.getElementById(id);
   const SAVE_KEY = 'apogee2-save-v1';
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -204,6 +208,8 @@
         if (r.toasts && r.toasts.length) toast(r.toasts[r.toasts.length - 1]);
       } catch (e) { console.warn('Crew tick failed', e); }
     }
+    // Rideshare customers arrive and give up.
+    if (RS()) { try { for (const ev of RS().tick(state, Math.random).events || []) log(ev); } catch (e) { console.warn('Rideshare tick failed', e); } }
     const V = VENT();
     if (V && V.tick) {
       try {
@@ -447,6 +453,12 @@
     if (WND()) html += WND().contractsCard(state); // windows: Mars/Moon calendar
     if (!list.length) html += `<div class="empty">No offers right now. Check back in a few days.</div>`;
     html += '<div class="grid">';
+    // Rideshare cards (rideshare.js): best ready rocket's capacity to each orbit.
+    if (RS()) {
+      try {
+        html += RS().contractCards(state, { money, tons, fit: (t) => { const b = rideBest(t); return b ? { v: b.v, cap: b.cap } : null; } });
+      } catch (e) { console.warn('Rideshare cards failed', e); }
+    }
     for (const c of list) {
       const fit = contractFit(c);
       const t = S.TARGETS[c.target];
@@ -473,7 +485,7 @@
     let html = `<h2>Rocket designs</h2><div class="grid">`;
     const reuse = bestReuse();
     for (const d of state.designs) {
-      const cost = S.designCost(d, state.techs);
+      const cost = S.designCost(d, state.techs) - fairSave(); // fairing halves in stock make it cheaper
       const days = S.buildDays(d, state.factory);
       const errs = S.validate(d, state.techs);
       const leoX = S.capacity(d, 'LEO', 'expend', state.techs);
@@ -491,19 +503,20 @@
         ${fb.length ? `<button class="btn go sm" data-act="build-reuse" data-id="${d.id}" ${state.cash < reuseCost(d, fb[0]) ? 'disabled' : ''}>Reuse ${esc(fb[0].id)} · ${money(reuseCost(d, fb[0]))}</button>` : ''}</div></div>`;
     }
     html += `</div><button class="btn big" data-act="new-design" style="max-width:340px">+ New rocket design</button>`;
+    if (RS()) { try { html += RS().hangarCard(state, { money }); } catch (e) { console.warn(e); } } // fairing stock
     html += `<p class="small dim" style="margin-top:12px">Tip: a booster that lands keeps its slot here. Build the same design again and you only pay to refurbish it.</p>`;
     el.innerHTML = html;
   }
 
   function reuseCost(d, b) {
     const s0 = S.stageCost(d.stages[0], state.techs, 0);
-    return S.designCost(d, state.techs) - s0 + s0 * b.refurb;
+    return S.designCost(d, state.techs) - s0 + s0 * b.refurb - fairSave();
   }
 
   function build(designId, reuse) {
     const d = state.designs.find((x) => x.id === designId);
     if (!d) return;
-    let cost = S.designCost(d, state.techs);
+    let cost = S.designCost(d, state.techs) - fairSave(); // reuses recovered fairing halves
     let days = S.buildDays(d, state.factory);
     let booster = null;
     if (reuse) {
@@ -515,10 +528,11 @@
     if (state.cash < cost) { toast('Not enough cash.'); return; }
     if (booster) state.boosters = state.boosters.filter((x) => x !== booster);
     state.cash -= cost;
+    const usedHalves = fairSave() > 0 && RS() ? RS().useFairings(state) : 0; // take halves out of stock
     const prefix = d.name.replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase() || 'RK';
     const serial = `${prefix}-${++state.serial}`;
     state.vehicles.push({ id: 'v' + state.nextId++, design: clone(d), designId: d.id, serial, status: 'building', days, total: days, cost, booster: booster ? { id: booster.id, flights: booster.flights } : null });
-    log(`Started building <b>${serial}</b> (${esc(d.name)})${booster ? ` on flown booster ${esc(booster.id)}` : ''} for <b>${money(cost)}</b>.`);
+    log(`Started building <b>${serial}</b> (${esc(d.name)})${booster ? ` on flown booster ${esc(booster.id)}` : ''}${usedHalves ? ` with ${usedHalves} recovered fairing ${usedHalves > 1 ? 'halves' : 'half'}` : ''} for <b>${money(cost)}</b>.`);
     toast(`🛠️ Building ${serial} · ${days} days`);
     save(); refresh();
   }
@@ -635,8 +649,28 @@
     s.recovery = pickRecovery(s);
     openSheet(s);
   }
+  // Rideshare: the ready rocket with the most capacity to an orbit.
+  function rideBest(target) {
+    let best = null;
+    for (const v of ready()) {
+      const cap = S.capacity(v.design, target, 'expend', state.techs);
+      if (!best || cap > best.cap) best = { v, cap };
+    }
+    return best;
+  }
+  function startRide(target) {
+    const b = rideBest(target);
+    const s = { kind: 'launch', contractId: null, ride: { target, picks: [] }, vehicleId: b ? b.v.id : null, recovery: null, landing: state.lastLanding || 'auto', upperReuse: false };
+    s.recovery = pickRecovery(s);
+    s.ride.picks = RS().fill(state, target, rideCap(s));
+    openSheet(s);
+  }
+  function rideCap(s) {
+    const v = state.vehicles.find((x) => x.id === s.vehicleId && x.status === 'ready');
+    return v ? S.capacity(v.design, s.ride.target, s.recovery, state.techs, { upperReuse: s.upperReuse }) : 0;
+  }
   function launchCtx(s) {
-    const c = s.contractId ? state.contracts.find((x) => x.id === s.contractId) : null;
+    const c = s.ride && RS() ? RS().contract(state, s.ride) : s.contractId ? state.contracts.find((x) => x.id === s.contractId) : null;
     const v = state.vehicles.find((x) => x.id === s.vehicleId && x.status === 'ready');
     const payload = c ? c.mass : 0;
     const target = c ? c.target : 'LEO';
@@ -696,6 +730,7 @@
     if (state.techs.shipreuse && v.design.stages.length > 1) {
       html += `<h2>Upper stage</h2><div class="seg"><button data-act="l-up" data-id="0" class="${!s.upperReuse ? 'on' : ''}">Expend</button><button data-act="l-up" data-id="1" class="${s.upperReuse ? 'on' : ''}">Bring it home (refund 90%)</button></div>`;
     }
+    if (isRide(c)) html += RS().pickerHtml(state, s.ride, rideCap(s), { money, tons }); // pick rideshare customers
     const m = S.mission(v.design, payload, target, s.recovery, state.techs, { upperReuse: s.upperReuse });
     const wnd = c && !isOwn(c) && WND() ? WND().apply(m, target, state) : null; // windows: Moon penalty / Mars block
     // Launch ops: weather, static fire and investigations adjust the odds.
@@ -719,7 +754,7 @@
       ${!m.canLift ? '<p class="small bad">Too heavy to leave the pad. Add engines or remove fuel.</p>' : !m.ok ? `<p class="small bad">Not enough delta-v${s.recovery !== 'expend' ? '. Try expending the booster, or' : '. Try'} a bigger rocket.${S.TARGETS[target].deep && !state.techs.refill ? ' Orbital Refilling research helps for Moon and Mars.' : ''}</p>` : ''}
       </div>`;
     if (wnd) html += WND().launchHtml(wnd, state, target); // windows: status, trip time, arrival odds
-    const canPay = state.cash >= tankCost;
+    const canPay = state.cash >= tankCost && !(isRide(c) && !c.count); // a rideshare needs at least one customer
     const goOk = m.ok && canPay && !(wnd && wnd.blocked) && crewChk.ok;
     const opsBtns = OPS() ? OPS().launchButtons(state, v, s, goOk, c) : null; // launch ops: no-go / risk it / scrub
     html += opsBtns || `<button class="btn primary big" data-act="launch" ${goOk ? '' : 'disabled'}>🚀 Launch ${esc(v.serial)}</button>`;
@@ -733,7 +768,7 @@
     if (!v) return;
     const m = S.mission(v.design, payload, target, s.recovery, state.techs, { upperReuse: s.upperReuse });
     const wnd = c && !isOwn(c) && WND() ? WND().apply(m, target, state) : null; // windows
-    if (!m.ok || (wnd && wnd.blocked)) return;
+    if (!m.ok || (wnd && wnd.blocked) || (isRide(c) && !c.count)) return;
     if (OPS() && OPS().gate(state, v).block) return; // launch ops: storm no-go
     const tankCost = m.tankers ? m.tankers * tankerUnit(v.design, s.recovery, s.upperReuse) : 0;
     state.cash -= tankCost;
@@ -761,12 +796,12 @@
     const t = S.TARGETS[target];
     const res = await F.run({
       design, techs: state.techs, target, fail, recovery: s.recovery, landing: s.landing, autoLand, crew: c && c.crew,
-      payloadKind: c && c.kind, satCount: c && c.count,
+      payloadKind: isRide(c) ? 'halo' : c && c.kind, satCount: c && c.count, // rideshare reuses the Halo multi-sat deploy
       weather: OPS() ? OPS().flightWeather(state) : null, // launch ops: haze + wind in the 3D flight
       title: isHalo(c) ? `Halo batch · ${c.count} sats` : isDc(c) ? `Compute modules · ${c.count}` : c ? `${c.label} · ${c.client}` : 'Test flight',
       failText: fail ? `Engine failure on stage ${fail.stage + 1}` : '',
       orbitText: isHalo(c) ? 'HALO BATCH DEPLOYED ✓' : isDc(c) ? 'COMPUTE MODULES DEPLOYED ✓' : !c ? 'ORBIT ✓' : t.deep ? 'ON ITS WAY ✓' : 'PAYLOAD DEPLOYED ✓',
-      orbitSub: isHalo(c) ? `${c.count} sats joining the Halo network` : isDc(c) ? `${c.count} modules joining your orbital data center` : c ? (ctx.transitDays ? (m.refilled ? `Refilled by ${m.tankers} tanker${m.tankers > 1 ? 's' : ''} · ` : '') + WND().orbitSub(target, ctx.transitDays) /* windows */ : m.refilled ? `Refilled by ${m.tankers} tanker flight${m.tankers > 1 ? 's' : ''}, heading for ${t.name}` : `${t.name}`) : 'Test flight complete',
+      orbitSub: isRide(c) ? `${c.count} rideshare sat${c.count > 1 ? 's' : ''} released to ${t.name}` : isHalo(c) ? `${c.count} sats joining the Halo network` : isDc(c) ? `${c.count} modules joining your orbital data center` : c ? (ctx.transitDays ? (m.refilled ? `Refilled by ${m.tankers} tanker${m.tankers > 1 ? 's' : ''} · ` : '') + WND().orbitSub(target, ctx.transitDays) /* windows */ : m.refilled ? `Refilled by ${m.tankers} tanker flight${m.tankers > 1 ? 's' : ''}, heading for ${t.name}` : `${t.name}`) : 'Test flight complete',
       ...(crewTxt || {}), // crew: orbit/abort banners
     });
     afterFlight(ctx, res);
@@ -815,6 +850,16 @@
       } else if (c && WND() && WND().takesTime(c)) {
         // Windows: Moon/Mars craft fly for days; payment, milestones and Mars city count come on arrival.
         WND().depart(state, ctx, lines, { log });
+      } else if (isRide(c)) {
+        // Rideshare: each customer pays separately (rideshare.js removes them from the queue).
+        state.cash += c.reward; state.stats.earned += c.reward;
+        state.rep += c.rep;
+        const sci = 4 + c.count;
+        state.rp += sci;
+        if (RS()) { try { for (const l of RS().onResult(state, c, true, { money, tons })) lines.push(l); } catch (e) { console.warn(e); } }
+        lines.push(['Reputation', `+${c.rep}`]);
+        lines.push(['Science', `+${sci}`]);
+        log(`<b>${esc(v.serial)}</b> flew a rideshare to ${S.TARGETS[c.target].name} with ${c.count} small sats. +${money(c.reward)}`);
       } else if (c) {
         state.cash += c.reward; state.stats.earned += c.reward;
         state.rep += c.rep;
@@ -886,6 +931,8 @@
     }
     // Launch ops: open failure investigations, note weather / static fire.
     if (OPS()) { try { for (const ev of OPS().afterFlight(state, ctx, res, lines) || []) log(ev); } catch (e) { console.warn('Launch ops afterFlight failed', e); } }
+    // Fairing halves under parafoils: the recovery ship tries to catch them (rideshare.js).
+    if (RS()) { try { for (const l of RS().fairingAfterFlight(state, ctx, ok)) lines.push(l); } catch (e) { console.warn('Fairing recovery failed', e); } }
     save();
     const box = $('result');
     box.innerHTML = `<h3>${ok ? (ctx.transit ? `🛰️ On its way · arrives day ${ctx.transit.arrive}` /* windows */ : isHalo(c) ? '✅ Halo batch in orbit' : isDc(c) ? '✅ Compute modules in orbit' : c ? '✅ Mission success' : '✅ Test flight success') : '💥 Mission failed'}</h3>
@@ -1026,6 +1073,15 @@
       case 'go-network': tab = 'network'; window.scrollTo(0, 0); refresh(); break;
       case 'contract': startLaunch(id); break;
       case 'test': startLaunch(null, id); break;
+      // Rideshare picker (rideshare.js)
+      case 'ride-open': if (RS()) startRide(id); break;
+      case 'ride-pick': {
+        const p = sheet.ride.picks, i = p.indexOf(id);
+        if (i >= 0) p.splice(i, 1); else p.push(id);
+        renderSheet(); break;
+      }
+      case 'ride-fill': sheet.ride.picks = RS().fill(state, sheet.ride.target, rideCap(sheet)); renderSheet(); break;
+      case 'ride-clear': sheet.ride.picks = []; renderSheet(); break;
       case 'l-veh': sheet.vehicleId = id; sheet.recovery = pickRecovery(sheet); renderSheet(); break;
       case 'l-rec': sheet.recovery = id; renderSheet(); break;
       case 'l-land': sheet.landing = id; state.lastLanding = id; save(); renderSheet(); break;
