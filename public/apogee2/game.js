@@ -196,6 +196,18 @@
         if (ts.length) toast(ts[ts.length - 1]);
       } catch (e) { console.warn('Ventures tick failed', e); }
     }
+    if (!state.vehicles.length && !sheet && !state.won) {
+      const cheapest = Math.min(...state.designs.map((d) => S.designCost(d, state.techs)), 99);
+      if (state.cash < cheapest) {
+        if ((state.bailouts || 0) < 2) {
+          state.bailouts = (state.bailouts || 0) + 1;
+          const amt = Math.round(cheapest * 1.6 + 4);
+          state.cash += amt; state.rep = Math.max(0, state.rep - 5);
+          log(`💼 Out of rockets and cash: investors put in <b>${money(amt)}</b> to keep you flying (reputation −5). They won't do this forever (${2 - state.bailouts} left).`);
+          toast(`💼 Investors put in ${money(amt)}`);
+        } else if (state.cash < 0) openSheet({ kind: 'bankrupt' });
+      }
+    }
     if (state.cash < -15 && !sheet) openSheet({ kind: 'bankrupt' });
     save();
   }
@@ -204,7 +216,7 @@
   function clock(now) {
     const dt = Math.min(0.5, (now - last) / 1000);
     last = now;
-    if (!flying && !(sheet && sheet.kind === 'intro') && state.speed > 0 && !state.won) {
+    if (!flying && !(sheet && (sheet.kind === 'intro' || sheet.kind === 'editor' || sheet.kind === 'launch')) && state.speed > 0 && !state.won) {
       acc += dt * state.speed;
       let changed = false;
       while (acc >= 1) { acc -= 1; dayTick(); changed = true; }
@@ -353,14 +365,15 @@
     dayTick() { dayTick(); refresh(); },
     bestLift(target) {
       // Best payload any ready rocket can carry to target (reusable if possible, else expended).
-      let best = { mass: 0, v: null, rec: null };
+      let best = { mass: 0, v: null, rec: null }, reuse = { mass: 0, v: null, rec: null };
       for (const v of ready()) {
         for (const rec of recoveryModes()) {
           const cap = S.capacity(v.design, target || 'LEO', rec, state.techs);
           if (cap > best.mass) best = { mass: cap, v, rec };
+          if (rec !== 'expend' && cap > reuse.mass) reuse = { mass: cap, v, rec };
         }
       }
-      return best;
+      return reuse.mass >= 1 ? Object.assign(reuse, { expendMass: best.mass }) : best;
     },
     readyCount() { return ready().length; },
     get tab() { return tab; },
@@ -379,6 +392,15 @@
     }
     return best;
   }
+  function bestDesignFor(c) {
+    let best = null;
+    for (const d of state.designs) {
+      if (S.validate && S.validate(d, state.techs).length) continue;
+      const cap = S.capacity(d, c.target, 'expend', state.techs);
+      if (!best || cap > best.cap) best = { d, cap };
+    }
+    return best;
+  }
   function renderContracts() {
     const el = $('tab-contracts');
     const list = state.contracts.filter((c) => !isOwn(c)).sort((a, b) => b.reward - a.reward);
@@ -394,7 +416,11 @@
         <div style="display:flex;gap:10px;align-items:flex-start"><div class="grow">
           <h3>${esc(c.label)}</h3><div class="small dim">${esc(c.client)}</div>
           <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><span class="pill blue">${t.short}</span><span class="pill">${c.crew ? '4 crew · 12 t' : tons(c.mass)}</span><span class="pill ${days < 15 ? 'bad' : ''}">${days} days left</span>
-          ${fit ? `<span class="pill good">✓ ${esc(fit.v.serial)} can fly it</span>` : needsCapsule ? '<span class="pill bad">Needs Crew Capsule</span>' : ''}</div>
+          ${fit ? `<span class="pill good">✓ ${esc(fit.v.serial)} can fly it</span>` : needsCapsule ? '<span class="pill bad">Needs Crew Capsule</span>' : (() => {
+            const bd = bestDesignFor(c);
+            if (bd && bd.cap >= c.mass) return `<span class="pill">◐ Build a ${esc(bd.d.name)} to fly it</span>`;
+            return `<span class="pill bad">✕ Needs ${tons(c.mass)} to ${t.short} · your best design: ${tons(bd ? Math.max(0, bd.cap) : 0)}</span>`;
+          })()}</div>
         </div><div class="money" style="font-size:17px">${money(c.reward)}</div></div></div>`;
     }
     html += '</div>';
@@ -419,7 +445,7 @@
         <div class="kv"><div><small>To LEO</small><b>${tons(leoX)}</b></div>${reuse ? `<div><small>LEO, reusable</small><b>${tons(leoR)}</b></div>` : ''}<div><small>To GTO</small><b>${tons(gto)}</b></div><div><small>Cost</small><b>${money(cost)}</b></div><div><small>Build</small><b>${days} days</b></div></div>
         ${errs.length ? `<p class="small bad">${errs.map(esc).join('<br>')}</p>` : ''}
         <div class="btns"><button class="btn primary sm" data-act="build" data-id="${d.id}" ${errs.length || state.cash < cost ? 'disabled' : ''}>Build new · ${money(cost)}</button>
-        ${fb.length ? `<button class="btn go sm" data-act="build-reuse" data-id="${d.id}">Reuse ${esc(fb[0].id)} · ${money(reuseCost(d, fb[0]))}</button>` : ''}</div></div>`;
+        ${fb.length ? `<button class="btn go sm" data-act="build-reuse" data-id="${d.id}" ${state.cash < reuseCost(d, fb[0]) ? 'disabled' : ''}>Reuse ${esc(fb[0].id)} · ${money(reuseCost(d, fb[0]))}</button>` : ''}</div></div>`;
     }
     html += `</div><button class="btn big" data-act="new-design" style="max-width:340px">+ New rocket design</button>`;
     html += `<p class="small dim" style="margin-top:12px">Tip: a booster that lands keeps its slot here. Build the same design again and you only pay to refurbish it.</p>`;
@@ -442,13 +468,13 @@
       if (!booster) return;
       cost = reuseCost(d, booster);
       days = Math.max(booster.days, Math.round(days * 0.45));
-      state.boosters = state.boosters.filter((x) => x !== booster);
     }
     if (state.cash < cost) { toast('Not enough cash.'); return; }
+    if (booster) state.boosters = state.boosters.filter((x) => x !== booster);
     state.cash -= cost;
     const prefix = d.name.replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase() || 'RK';
     const serial = `${prefix}-${++state.serial}`;
-    state.vehicles.push({ id: 'v' + state.nextId++, design: clone(d), designId: d.id, serial, status: 'building', days, total: days, booster: booster ? { id: booster.id, flights: booster.flights } : null });
+    state.vehicles.push({ id: 'v' + state.nextId++, design: clone(d), designId: d.id, serial, status: 'building', days, total: days, cost, booster: booster ? { id: booster.id, flights: booster.flights } : null });
     log(`Started building <b>${serial}</b> (${esc(d.name)})${booster ? ` on flown booster ${esc(booster.id)}` : ''} for <b>${money(cost)}</b>.`);
     toast(`🛠️ Building ${serial} · ${days} days`);
     save(); refresh();
@@ -592,6 +618,9 @@
       const ok = modes.includes(k);
       return `<button data-act="l-rec" data-id="${k}" class="${s.recovery === k ? 'on' : ''}" ${ok ? '' : 'disabled'}>${r2.name}${ok ? '' : ' 🔒'}</button>`;
     }).join('')}</div>`;
+    const lockHints = { rtls: 'Land back at the pad: research Landing Legs (🔬 Research tab)', barge: 'Ocean barge: research Ocean Landing Barge, then build a Drone ship port on Base', catch: 'Tower catch: research Tower Catch, then build a Catch tower next to a pad' };
+    const locked = Object.keys(lockHints).filter((k) => !modes.includes(k));
+    if (locked.length) html += `<p class="small dim">🔒 ${locked.map((k) => lockHints[k]).join('<br>🔒 ')}</p>`;
     if (s.recovery !== 'expend') {
       const opts = [['auto', 'Autopilot'], ['steer', s.recovery === 'barge' ? '🚢 Move the barge' : '🎯 Steer it'], ['manual', '🎮 Full manual']];
       const hint = { auto: 'Lands by itself, using the odds below.', steer: s.recovery === 'barge' ? 'The booster burns by itself. You slide the barge under it with ← →.' : 'The booster burns by itself. You steer it onto the target with ← →.', manual: 'You do everything: burn and steer.' }[s.landing];
@@ -610,7 +639,9 @@
       <div class="bar ${m.ok ? 'good' : 'bad'}"><i style="width:${Math.min(100, ratio / 1.4 * 100)}%"></i><span class="mark" style="left:${100 / 1.4}%"></span></div>
       <div class="kv"><div><small>Liftoff TWR</small><b class="${m.twr >= 1.2 ? '' : 'bad'}">${m.twr.toFixed(2)}</b></div><div><small>Launch success</small><b>${pct(odds)}</b></div>
       ${s.recovery !== 'expend' && s.landing === 'auto' ? `<div><small>Landing (auto)</small><b>${pct(lodds)}</b></div>` : ''}
-      ${m.tankers ? `<div><small>Tanker flights</small><b>${m.tankers} · ${money(tankCost)}</b></div>` : ''}</div>
+      ${m.tankers ? `<div><small>Tanker flights</small><b>${m.tankers} · ${money(tankCost)}</b></div>` : ''}
+      ${c && !isOwn(c) ? `<div><small>Contract pays</small><b class="money">${money(c.reward)}</b></div><div><small>This rocket cost</small><b>${money(v.cost || S.designCost(v.design, state.techs))}</b></div>` : ''}
+      ${s.recovery !== 'expend' ? `<div><small>Booster saved if it lands</small><b class="good">≈ ${money(S.stageCost(v.design.stages[0], state.techs, 0) * (1 - S.refurbFrac(state.techs, s.recovery)))}</b></div>` : ''}</div>
       ${!m.canLift ? '<p class="small bad">Too heavy to leave the pad. Add engines or remove fuel.</p>' : !m.ok ? `<p class="small bad">Not enough delta-v${s.recovery !== 'expend' ? '. Try expending the booster, or' : '. Try'} a bigger rocket.${S.TARGETS[target].deep && !state.techs.refill ? ' Orbital Refilling research helps for Moon and Mars.' : ''}</p>` : ''}
       </div>`;
     const canPay = state.cash >= tankCost;
@@ -641,6 +672,8 @@
     const ctx = { c, v, recovery: s.recovery, landing: s.landing, upperReuse: s.upperReuse, tankers: m.tankers, tankCost, fail, target };
     closeSheet();
     flying = true;
+    // If the page is closed mid-flight, the next load finishes this flight with the pre-rolled outcome.
+    state.inFlight = { ctx, res: { dead: !!fail, stage1Ok: !fail || fail.stage > 0, landed: s.recovery !== 'expend' && autoLand && (!fail || fail.stage > 0) } };
     save();
     const t = S.TARGETS[target];
     const res = await F.run({
@@ -664,6 +697,7 @@
   }
 
   function afterFlight(ctx, res) {
+    delete state.inFlight;
     const { c, v, recovery, fail } = ctx;
     const design = v.design;
     const ok = !res.dead;
@@ -736,12 +770,16 @@
     // Booster
     if (recovery !== 'expend') {
       if (res.stage1Ok !== false && (ok || (fail && fail.stage > 0))) {
+        const before = S.landingOdds(recovery, state.landings, state.techs);
         state.landings[recovery] = (state.landings[recovery] || 0) + 1;
+        const after = S.landingOdds(recovery, state.landings, state.techs);
+        if (after > before) lines.push(['Autopilot landing odds', `${pct(before)} → ${pct(after)}`]);
+        if (res.pinpoint) lines.push(['🎯 Pinpoint landing', 'refurbishing costs half']);
         if (res.landed) {
           state.stats.landings++;
           const flights = (v.booster ? v.booster.flights : 0) + 1;
           const id = v.booster ? v.booster.id : `B${1000 + state.stats.landings}`;
-          state.boosters.push({ id, stage: clone(design.stages[0]), flights, refurb: S.refurbFrac(state.techs, recovery), days: S.refurbDays(state.techs, recovery) });
+          state.boosters.push({ id, stage: clone(design.stages[0]), flights, refurb: S.refurbFrac(state.techs, recovery) * (res.pinpoint ? 0.5 : 1), days: S.refurbDays(state.techs, recovery) });
           lines.push(['Booster', `<span class="good">Landed · ${id} (${flights} flight${flights > 1 ? 's' : ''})</span>`]);
           log(`Booster <b>${id}</b> ${recovery === 'catch' ? 'was caught by the tower' : 'landed'}!`);
           award('firstLanding', lines);
@@ -786,6 +824,7 @@
     const d = sheet.draft;
     const lim = S.limits(state.techs);
     let html = `<div class="head"><h3>${sheet.origId ? 'Edit rocket' : 'New rocket'}</h3><button class="x" data-act="close">✕</button></div>`;
+    html += '<div id="ed-mini" class="ed-mini" aria-live="polite"></div>';
     html += `<div class="editor"><div class="preview"><canvas id="ed-canvas"></canvas></div><div>`;
     html += `<input type="text" id="ed-name" maxlength="24" value="${esc(d.name)}" aria-label="Rocket name">`;
     html += `<div class="seg" style="margin:8px 0">${COLORS.map((c) => `<button data-act="ed-color" data-id="${c}" class="${d.color === c ? 'on' : ''}" style="color:${c}" aria-label="Stripe color">■</button>`).join('')}</div>`;
@@ -865,6 +904,10 @@
     if (p.twr < 1.2) errs.push(p.twr < 1.05 ? 'Too heavy to lift off: add engines or less propellant on stage 1.' : 'Low thrust: you lose a lot of delta-v fighting gravity.');
     if (errs.length) html += `<p class="small bad">${errs.map(esc).join('<br>')}</p>`;
     $('ed-stats').innerHTML = html;
+    const leo = S.capacity(d, 'LEO', 'expend', state.techs), gto = S.capacity(d, 'GTO', 'expend', state.techs);
+    const lr = reuse ? S.capacity(d, 'LEO', reuse, state.techs) : 0;
+    const mini = $('ed-mini');
+    if (mini) mini.innerHTML = `<span>TWR <b class="${p.twr >= 1.2 ? 'good' : 'bad'}">${p.twr >= 1.2 ? '' : '⚠ '}${p.twr.toFixed(2)}</b></span><span>LEO <b>${leo > 0 ? tons(leo) : '—'}</b>${reuse ? ` · reuse <b>${lr > 0 ? tons(lr) : '—'}</b>` : ''}</span><span>GTO <b>${gto > 0 ? tons(gto) : '—'}</b></span><span>Cost <b>${money(S.designCost(d, state.techs))}</b></span>`;
     $('ed-save').disabled = S.validate(d, state.techs).length > 0 || p.twr < 1.05;
     D.drawPreview($('ed-canvas'), d, state.techs);
   }
@@ -983,7 +1026,12 @@
     window.addEventListener('resize', () => { if (tab === 'ops') renderOps(); if (tab === 'network') renderNetwork(); if (sheet && sheet.kind === 'editor') editorStats(); });
     refresh();
     if (state.intro) openSheet({ kind: 'intro' });
-    requestAnimationFrame(clock);
+    if (state.inFlight && state.inFlight.ctx) {
+    const f = state.inFlight;
+    log('Your last flight finished while the game was closed.');
+    try { afterFlight(f.ctx, f.res); } catch (e) { console.warn('resume flight', e); delete state.inFlight; save(); }
+  }
+  requestAnimationFrame(clock);
   }
   init();
 })();

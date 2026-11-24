@@ -555,6 +555,7 @@
       x: (Math.random() < 0.5 ? -1 : 1) * (60 + Math.random() * 100),
       y: 1700, vx: (Math.random() - 0.5) * 24, vy: -185, th: (Math.random() - 0.5) * 0.15, fuel: 15, burning: false,
     };
+    let pin = false;
     const failMode = steer || plan.autoLand ? null : (Math.random() < 0.5 ? 'hard' : 'miss');
     if (steer) { b.x = (Math.random() < 0.5 ? -1 : 1) * (50 + Math.random() * 70); b.vx = (Math.random() - 0.5) * 16; }
     const aimX = failMode === 'miss' ? (padHalf + 14) * (b.x > 0 ? 1 : -1) : 0;
@@ -861,7 +862,8 @@
             padV = Math.max(-16, Math.min(16, padV));
             padX += padV * dt;
           }
-          if (steer) b.vx += Math.sin(t * 0.8) * 1.2 * dt; // wind gusts
+          if (steer) b.vx += (Math.sin(t * 0.8) * 2.6 + Math.sin(t * 2.3 + 1) * 1.6) * dt; // wind gusts
+          if (steer && c.slide) b.fuel -= dt * 0.35; // side thrusters use landing fuel
           let ax = 0, ay = -G;
           if (b.burning) {
             ax += A_ * Math.sin(b.th); ay += A_ * Math.cos(b.th);
@@ -874,7 +876,7 @@
           if (!hands && b.y < 200) { const k = Math.min(1, dt * 2.5); b.x += (aimX - b.x) * k; b.vx *= 1 - k; b.th *= 1 - k; }
           b.vx += ax * dt; b.vy += ay * dt;
           if (steer && !moveBoat) {
-            const want = (c.slide || 0) * 18;
+            const want = (c.slide || 0) * 14;
             const k = Math.min(1, dt * 1.6);
             b.vx += (want - b.vx) * k;
             b.th = Math.max(-0.2, Math.min(0.2, (want - b.vx) * 0.02 + b.vx * 0.006));
@@ -884,7 +886,7 @@
             b.y = 0;
             const onPad = Math.abs(b.x - padX) <= padHalf;
             const soft = Math.abs(b.vy) <= 8 && Math.abs(b.vx - (moveBoat ? padV : 0)) <= 5 && Math.abs(b.th) <= 0.26;
-            if (onPad && soft) { outcome = 'landed'; b.vy = 0; b.vx = 0; }
+            if (onPad && soft) { outcome = 'landed'; b.vy = 0; b.vx = 0; pin = manual && Math.abs(b.x - padX) <= padHalf * 0.35; }
             else {
               outcome = 'crash';
               reason = !onPad ? (mode === 'barge' ? 'Missed the barge' : mode === 'catch' ? 'Missed the tower arms' : 'Missed the pad')
@@ -892,14 +894,14 @@
               buzz([60, 40, 120]);
             }
             outT = t; b.burning = false;
-            if (outcome === 'landed') banner(mode === 'catch' ? 'CAUGHT! 🦾' : 'THE BOOSTER HAS LANDED', 'It can fly again.');
+            if (outcome === 'landed') banner(mode === 'catch' ? 'CAUGHT! 🦾' : 'THE BOOSTER HAS LANDED', pin ? '🎯 Pinpoint! Refurbishing costs half.' : 'It can fly again.');
             else { banner('RAPID UNSCHEDULED DISASSEMBLY', reason); }
             if (pilotShown) { $('pilot').hidden = true; $('p-burn').hidden = false; $('flight-skip').hidden = false; }
           }
         }
         hud([
           ['ALT', `${Math.max(0, b.y).toFixed(0)} m`],
-          ['V/S', `<span style="color:${Math.abs(b.vy) <= 8 || b.y > 400 ? '#e9ecf4' : '#ff8d99'}">${b.vy.toFixed(0)} m/s</span>`],
+          ['V/S', `<span style="color:${!manual || Math.abs(b.vy) <= 8 || b.y > 400 ? '#e9ecf4' : '#ff8d99'}">${b.vy.toFixed(0)} m/s</span>`],
           ['H/S', `${b.vx.toFixed(1)} m/s`],
           ['FUEL', `${Math.max(0, b.fuel / 15 * 100).toFixed(0)}%`],
           ['TARGET', `${(b.x - padX).toFixed(0)} m`],
@@ -908,7 +910,7 @@
         if (!hands && !outcome && t > 3) banner('');
         if (outcome && t - outT > 3) {
           this.finished = true;
-          this.result = { landed: outcome === 'landed' };
+          this.result = { landed: outcome === 'landed', pinpoint: pin };
         }
         if (t > 90 && !outcome) { this.finished = true; this.result = { landed: false }; }
       },
@@ -949,9 +951,10 @@
   // Same timing as the 2D version: one step per frame, at most 0.05 s (slow devices run in slow motion).
   function loop(prev) {
     raf = requestAnimationFrame((now) => {
-      const fdt = Math.min(0.05, Math.max(0, (now - prev) / 1000));
+      const real = Math.min(0.25, Math.max(0, (now - prev) / 1000));
+      const fdt = Math.min(0.05, real);
       if (skipReq && phase.skip) { skipReq = false; phase.skip(); }
-      if (!phase.finished) phase.step(fdt);
+      for (let rem = real; rem > 1e-4 && !phase.finished; rem -= 0.05) phase.step(Math.min(0.05, rem));
       if (phase.finished) { const r = phase.result; next(r); return; }
       stepFade(fdt);
       try { phase.draw(fdt); } catch (e) { if (!loop.warned) { loop.warned = true; console.warn('flight draw:', e); } }
