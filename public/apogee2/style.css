@@ -294,7 +294,6 @@ table.cap th { color: var(--dim); font-weight: 600; font-size: 11px; }
 .stat small.dn-tod { text-transform: none; letter-spacing: 0; white-space: nowrap; font-size: 10px; }
 
 /* ---------- Base hub (hub.js): shortcut bar + panels over the Base map ---------- */
-body.hub-mode #tabs { display: none; } /* the shortcut bar on the Base is the menu */
 .hub-bar { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
 .hub-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 6px 12px; border-radius: 999px;
   border: 1px solid var(--line); background: var(--panel); color: inherit; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
@@ -321,10 +320,9 @@ body.hub-mode #tabs { display: none; } /* the shortcut bar on the Base is the me
 .hub-dslot .cols > *, .hub-dslot .grid > *, .hub-dslot .card { min-width: 0; }
 .hub-dslot .btns { flex-wrap: wrap; }
 @media (max-width: 760px) {
-  body.hub-mode main { padding-bottom: calc(24px + var(--safe-b)); }
   .hub-chip { padding: 6px 8px; font-size: 12px; }
   .hub-tip { display: none; }
-  .hub-drawer, .hub-drawer.wide { left: 0; width: auto; border-left: 0; box-shadow: none; }
+  .hub-drawer, .hub-drawer.wide { left: 0; width: auto; border-left: 0; box-shadow: none; bottom: calc(58px + var(--safe-b)); } /* stops above the bottom tab bar */
   .hub-dslot { padding: 4px 12px calc(16px + var(--safe-b)); }
   .hub-dbar { padding: 6px 8px; gap: 4px; }
   .hub-dbar .btn { padding: 6px 9px; }
@@ -349,3 +347,6 @@ body.hub-mode #tabs { display: none; } /* the shortcut bar on the Base is the me
   .pilot.has-legs #p-burn { width: 104px; }
   .pilot.has-legs #p-legs { width: 82px; font-size: 13px; }
 }
+
+/* 4 speed buttons: drop the key hints in the tab bar when space is tight */
+@media (max-width: 1600px) { .tabs button kbd { display: none; } }
