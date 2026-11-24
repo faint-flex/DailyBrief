@@ -4,6 +4,14 @@
   const S = window.APOGEE_SIM;
   const D = window.APOGEE_DRAW;
   const F = window.APOGEE_FLIGHT;
+  // Halo network (optional modules: guard for their absence).
+  const NET = () => window.APOGEE_NET || null;
+  const NETUI = () => window.APOGEE_NETUI || null;
+  const isHalo = (c) => !!(c && c.kind === 'halo');
+  const isDc = (c) => !!(c && c.kind === 'dc');
+  const isOwn = (c) => isHalo(c) || isDc(c);
+  const VENT = () => window.APOGEE_VENTURES || null;
+  const VENTUI = () => window.APOGEE_VENTURES_UI || null;
   const $ = (id) => document.getElementById(id);
   const SAVE_KEY = 'apogee2-save-v1';
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -52,15 +60,67 @@
     st.contracts.push({ id: 'c-start2', kind: 'smallsat', label: 'Small satellite', client: 'Pebble Sats', target: 'LEO', mass: 0.6, reward: 7.2, expires: 110, rep: 5 });
     for (let i = 0; i < 3; i++) st.contracts.push(S.makeContract(Math.random, st));
     st.log.unshift({ day: 1, text: 'Founded the company with <b>$40M</b> and one Pathfinder rocket.' });
+    netEnsure(st);
+    campusEnsure(st);
+    ventEnsure(st);
     return st;
   }
 
   function load() {
     try {
       const raw = localStorage.getItem(SAVE_KEY);
-      if (raw) { const s = JSON.parse(raw); if (s && s.v === 1) return s; }
+      if (raw) { const s = JSON.parse(raw); if (s && s.v === 1) { netEnsure(s); campusEnsure(s); ventEnsure(s); return s; } }
     } catch (e) { /* ignore */ }
     return newGame();
+  }
+  const CAMPUS = () => window.APOGEE_CAMPUS;
+  function campusEnsure(st) {
+    const C = CAMPUS();
+    if (C && C.ensure) { try { C.ensure(st); } catch (e) { console.warn('Campus ensure failed', e); } }
+  }
+  // Global chip shortages: hit satellites, cars and compute modules. A chip fab on your campus covers part of it.
+  function chipSelf() {
+    const C = CAMPUS();
+    try { return C && C.bonus && state.campus ? Math.min(1, C.bonus(state).chipSelf || 0) : 0; } catch (e) { return 0; }
+  }
+  function chipShortageTick() {
+    const s = state.chipShortage;
+    if (s && s.until === state.day) {
+      log('✅ The global chip shortage is over.');
+      toast('✅ Chip shortage over');
+    }
+    if (s && s.until > state.day) return;
+    const busy = state.net || (state.ventures && (state.ventures.ev || state.ventures.dc));
+    if (!busy || state.day < 120 || Math.random() > 1 / 260) return;
+    const days = 45 + Math.round(Math.random() * 40), sev = Math.round((0.3 + Math.random() * 0.2) * 100) / 100;
+    state.chipShortage = { start: state.day, until: state.day + days, sev };
+    const self = chipSelf(), hit = Math.round(sev * (1 - self) * 100);
+    log(`⚠ <b>Global chip shortage</b> for ${days} days: satellites, cars and compute modules cost up to ${Math.round(sev * 100)}% more and build that much slower.${self ? ` Your chip fab makes ${Math.round(self * 100)}% of your chips, so you only feel ${hit}%.` : ' Build a 💾 Chip fab on the Base tab to protect yourself.'}`);
+    toast(self >= 1 ? '⚠ Chip shortage! Your own fab keeps you running ✓' : `⚠ Chip shortage: −${hit}% output for ${days} days`);
+  }
+  function ventEnsure(st) {
+    const V = VENT();
+    if (V && V.ensure) { try { V.ensure(st); } catch (e) { console.warn('Ventures ensure failed', e); } }
+  }
+  function campusSync() {
+    const C = CAMPUS();
+    if (!C || !C.bonus || !state.campus) return null;
+    try {
+      const bo = C.bonus(state);
+      state.factory = Math.max(1, bo.factoryLines || 0);
+      state.owned.barge = !!bo.bargePort;
+      state.owned.tower = !!bo.catchTower;
+      return bo;
+    } catch (e) { return null; }
+  }
+  function netEnsure(st) {
+    const N = NET();
+    if (N && N.ensure) { try { N.ensure(st); } catch (e) { console.warn('Halo ensure failed', e); } }
+  }
+  function netSummary() {
+    const N = NET();
+    if (!N || !N.summary || !state.net) return null;
+    try { return N.summary(state); } catch (e) { return null; }
   }
   let saveTimer = 0;
   function save() {
@@ -83,8 +143,17 @@
   function dayTick() {
     state.day++;
     state.rp += state.engineers * S.FACILITY.rpPerEngineerDay;
+    const C = CAMPUS();
+    if (C && C.tick && state.campus) {
+      try {
+        const r = C.tick(state) || {};
+        for (const ev of r.events || []) log(ev);
+        if (r.toasts && r.toasts.length) toast(r.toasts[r.toasts.length - 1]);
+      } catch (e) { console.warn('Campus tick failed', e); }
+    }
+    const hasCampus = !!campusSync();
     if (state.day % 30 === 0) {
-      const bill = state.engineers * S.FACILITY.engineerSalary + 0.1 * state.factory + (state.owned.barge ? 0.2 : 0) + (state.owned.tower ? 0.3 : 0);
+      const bill = hasCampus ? state.engineers * S.FACILITY.engineerSalary : state.engineers * S.FACILITY.engineerSalary + 0.1 * state.factory + (state.owned.barge ? 0.2 : 0) + (state.owned.tower ? 0.3 : 0);
       state.cash -= bill;
       log(`Paid monthly costs: <b>${money(bill)}</b>.`);
     }
@@ -104,9 +173,28 @@
     state.contracts = state.contracts.filter((c) => c.expires > state.day);
     if (state.contracts.length < before) log('A contract offer expired.');
     const cap = 7;
-    if (state.contracts.length < cap && Math.random() < (state.contracts.length < 3 ? 0.35 : 0.14)) {
+    const open = state.contracts.filter((c) => !isOwn(c)).length;
+    if (open < cap && Math.random() < (open < 3 ? 0.35 : 0.14)) {
       const c = S.makeContract(Math.random, state);
       state.contracts.push(c);
+    }
+    const N = NET();
+    if (N && N.tick) {
+      try {
+        const r = N.tick(state, Math.random) || {};
+        for (const ev of r.events || []) log(ev);
+        const ts = r.toasts || [];
+        if (ts.length) toast(ts[ts.length - 1]);
+      } catch (e) { console.warn('Halo tick failed', e); }
+    }
+    const V = VENT();
+    if (V && V.tick) {
+      try {
+        const r = V.tick(state, Math.random) || {};
+        for (const ev of r.events || []) log(ev);
+        const ts = r.toasts || [];
+        if (ts.length) toast(ts[ts.length - 1]);
+      } catch (e) { console.warn('Ventures tick failed', e); }
     }
     if (state.cash < -15 && !sheet) openSheet({ kind: 'bankrupt' });
     save();
@@ -144,6 +232,10 @@
     else if (tab === 'hangar') renderHangar();
     else if (tab === 'research') renderResearch();
     else if (tab === 'base') renderBase();
+    else if (tab === 'network') renderNetwork();
+    else if (tab === 'ventures') renderVentures();
+    if (tab !== 'network') { const U = NETUI(); if (U && U.hide) U.hide(); }
+    if (tab !== 'base') { const C = CAMPUS(); if (C && C.dispose) { try { C.dispose(); } catch (e) { /* ignore */ } } }
     if (sheet && sheet.live) renderSheet();
   }
 
@@ -196,7 +288,7 @@
     if (state.boosters.length) {
       html += `<h2>Landed boosters</h2><div class="card small">${state.boosters.map((x) => `<span class="pill acc">${esc(x.id)} · ${x.flights} flight${x.flights > 1 ? 's' : ''}</span>`).join(' ')}<p class="dim">Build the same design in the Hangar to reuse one.</p></div>`;
     }
-    html += `</div><div><h2>Goals</h2><div class="card">`;
+    html += `</div><div>${haloOpsCard()}<h2>Goals</h2><div class="card">`;
     for (const m of MILESTONES) {
       const done = state.milestones[m.id];
       const extra = m.id === 'marsCity' ? ` (${state.marsCity}/5)` : '';
@@ -206,6 +298,74 @@
     el.innerHTML = html;
     D.drawPadScene($('hero-canvas'), r[0] ? show : null, state.techs);
   }
+
+  // ---------- Halo network ----------
+  function haloOpsCard() {
+    const N = NET();
+    if (!N) return '';
+    const sm = netSummary();
+    if (!sm || !sm.founded) {
+      if (!state.milestones.firstOrbit) return '';
+      const can = N.canFound ? N.canFound(state) : { ok: false };
+      return `<h2>🛰️ Halo internet</h2><div class="card tap" data-act="go-network"><b>Start your own satellite internet company</b>
+        <div class="small dim">${can.ok ? 'Ready to found. Build a constellation and sell internet from space.' : esc(can.why || 'Not available yet.')}</div>
+        <div class="btns"><button class="btn primary sm" data-act="go-network">Open Network ▸</button></div></div>`;
+    }
+    const pm = sm.profitMonth || 0;
+    return `<h2>🛰️ Halo internet</h2><div class="card tap" data-act="go-network">
+      <div class="kv" style="margin-top:0"><div><small>Subscribers</small><b>${fmtInt(sm.subs || 0)}</b></div>
+      <div><small>Profit / month</small><b class="${pm >= 0 ? 'good' : 'bad'}">${pm >= 0 ? '▲' : '▼'} ${money(pm)}</b></div>
+      <div><small>Sats in orbit</small><b>${fmtInt((sm.sats && sm.sats.orbit) || 0)}</b></div>
+      <div><small>Coverage</small><b>${pct(sm.coverage || 0)}</b></div></div>
+      <div class="btns"><button class="btn sm" data-act="go-network">Open Network ▸</button></div></div>`;
+  }
+  function fmtInt(n) {
+    n = Math.round(n);
+    if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 1 : 2) + 'M';
+    if (Math.abs(n) >= 1e4) return Math.round(n / 1e3) + 'k';
+    return n.toLocaleString();
+  }
+  function renderNetwork() {
+    const el = $('tab-network');
+    const U = NETUI();
+    if (!U || !U.render) { el.innerHTML = '<div class="empty">The Network module did not load. Reload the page.</div>'; return; }
+    try { U.render(el, GAME); } catch (e) { console.error(e); el.innerHTML = `<div class="empty">Network screen error: ${esc(e.message)}</div>`; }
+  }
+  function renderVentures() {
+    const el = $('tab-ventures');
+    const U = VENTUI();
+    if (!U || !U.render) { el.innerHTML = '<div class="empty">The Ventures module did not load. Reload the page.</div>'; return; }
+    try { U.render(el, GAME); } catch (e) { console.error(e); el.innerHTML = `<div class="empty">Ventures screen error: ${esc(e.message)}</div>`; }
+  }
+  // Network tab hands us a 'halo' batch contract; fly it with the normal launch sheet.
+  function openLaunchFor(contract) {
+    if (!contract) return;
+    state.contracts = state.contracts.filter((x) => !isOwn(x) || x.kind !== contract.kind || x.id === contract.id);
+    if (!state.contracts.some((x) => x.id === contract.id)) state.contracts.push(contract);
+    save();
+    startLaunch(contract.id);
+  }
+  const GAME = {
+    get state() { return state; },
+    save, refresh, log, toast, money, esc, openLaunchFor,
+    pct, tons, fmtInt,
+    goTab(t) { tab = t; window.scrollTo(0, 0); refresh(); },
+    dayTick() { dayTick(); refresh(); },
+    bestLift(target) {
+      // Best payload any ready rocket can carry to target (reusable if possible, else expended).
+      let best = { mass: 0, v: null, rec: null };
+      for (const v of ready()) {
+        for (const rec of recoveryModes()) {
+          const cap = S.capacity(v.design, target || 'LEO', rec, state.techs);
+          if (cap > best.mass) best = { mass: cap, v, rec };
+        }
+      }
+      return best;
+    },
+    readyCount() { return ready().length; },
+    get tab() { return tab; },
+  };
+  window.APOGEE_GAME = GAME;
 
   // ---------- Contracts tab ----------
   function contractFit(c) {
@@ -221,7 +381,7 @@
   }
   function renderContracts() {
     const el = $('tab-contracts');
-    const list = state.contracts.slice().sort((a, b) => b.reward - a.reward);
+    const list = state.contracts.filter((c) => !isOwn(c)).sort((a, b) => b.reward - a.reward);
     let html = `<h2>Open contracts</h2><p class="small dim" style="margin:-4px 2px 10px">New offers arrive every few days. Higher reputation unlocks bigger jobs.</p>`;
     if (!list.length) html += `<div class="empty">No offers right now. Check back in a few days.</div>`;
     html += '<div class="grid">';
@@ -318,6 +478,8 @@
   // ---------- Base tab ----------
   function renderBase() {
     const el = $('tab-base');
+    const C = CAMPUS();
+    if (C && C.render && state.campus) { try { C.render(el, GAME); return; } catch (e) { console.warn('Campus render failed', e); } }
     const f = state.factory;
     const st = state.stats;
     const monthly = state.engineers * S.FACILITY.engineerSalary + 0.1 * f + (state.owned.barge ? 0.2 : 0) + (state.owned.tower ? 0.3 : 0);
@@ -411,7 +573,9 @@
     const { c, v, payload, target } = launchCtx(s);
     const t = S.TARGETS[target];
     let html = `<div class="head"><h3>${c ? esc(c.label) : 'Test flight'}</h3><button class="x" data-act="close">✕</button></div>`;
-    html += c ? `<div class="small dim">${esc(c.client)} · ${t.name} · ${c.crew ? '4 crew in a 12 t capsule' : tons(c.mass)} · pays <span class="money">${money(c.reward)}</span></div>`
+    html += isDc(c) ? `<div class="small dim">🖥️ ${c.count || '?'} compute modules for your orbital data center · ${t.name} · ${tons(c.mass)} · no payment, the modules earn money in orbit</div>`
+      : isHalo(c) ? `<div class="small dim">🛰️ ${c.count || '?'} Halo sats for your own network · ${t.name} · ${tons(c.mass)} · no payment, the sats earn money in orbit</div>`
+      : c ? `<div class="small dim">${esc(c.client)} · ${t.name} · ${c.crew ? '4 crew in a 12 t capsule' : tons(c.mass)} · pays <span class="money">${money(c.reward)}</span></div>`
       : `<div class="small dim">No payload. Builds flight experience for your engines and earns science.</div>`;
     if (c && c.crew && !state.techs.capsule) {
       return html + `<div class="empty" style="margin-top:12px">You need the <b>Crew Capsule</b> research to fly people.</div>`;
@@ -481,10 +645,11 @@
     const t = S.TARGETS[target];
     const res = await F.run({
       design, techs: state.techs, target, fail, recovery: s.recovery, landing: s.landing, autoLand, crew: c && c.crew,
-      title: c ? `${c.label} · ${c.client}` : 'Test flight',
+      payloadKind: c && c.kind, satCount: c && c.count,
+      title: isHalo(c) ? `Halo batch · ${c.count} sats` : isDc(c) ? `Compute modules · ${c.count}` : c ? `${c.label} · ${c.client}` : 'Test flight',
       failText: fail ? `Engine failure on stage ${fail.stage + 1}` : '',
-      orbitText: !c ? 'ORBIT ✓' : t.deep ? 'ON ITS WAY ✓' : 'PAYLOAD DEPLOYED ✓',
-      orbitSub: c ? (m.refilled ? `Refilled by ${m.tankers} tanker flight${m.tankers > 1 ? 's' : ''}, heading for ${t.name}` : `${t.name}`) : 'Test flight complete',
+      orbitText: isHalo(c) ? 'HALO BATCH DEPLOYED ✓' : isDc(c) ? 'COMPUTE MODULES DEPLOYED ✓' : !c ? 'ORBIT ✓' : t.deep ? 'ON ITS WAY ✓' : 'PAYLOAD DEPLOYED ✓',
+      orbitSub: isHalo(c) ? `${c.count} sats joining the Halo network` : isDc(c) ? `${c.count} modules joining your orbital data center` : c ? (m.refilled ? `Refilled by ${m.tankers} tanker flight${m.tankers > 1 ? 's' : ''}, heading for ${t.name}` : `${t.name}`) : 'Test flight complete',
     });
     afterFlight(ctx, res);
   }
@@ -509,9 +674,26 @@
       if (!fail || i < fail.stage) state.heritage[st.engine] = (state.heritage[st.engine] || 0) + 1;
     });
     if (ctx.tankCost) lines.push(['Tanker flights', `−${money(ctx.tankCost)}`]);
+    const haloLines = (good) => {
+      const N = NET();
+      let out = [];
+      const V = VENT();
+      try {
+        if (isDc(c)) out = (V && V.onDcResult) ? (V.onDcResult(state, c, good) || []) : [];
+        else out = (N && N.onBatchResult) ? (N.onBatchResult(state, c, good) || []) : [];
+      } catch (e) { console.warn(e); }
+      for (const l of out) lines.push(Array.isArray(l) ? l : [isDc(c) ? '🖥️ Compute' : '🛰️ Halo', l]);
+      state.contracts = state.contracts.filter((x) => x.id !== c.id);
+    };
     if (ok) {
       state.stats.successes++;
-      if (c) {
+      if (isOwn(c)) {
+        state.rep += c.rep || 0;
+        state.rp += 4;
+        haloLines(true);
+        lines.push(['Science', '+4']);
+        log(`<b>${esc(v.serial)}</b> deployed <b>${c.count} ${isDc(c) ? 'compute modules' : 'Halo sats'}</b> to low orbit.`);
+      } else if (c) {
         state.cash += c.reward; state.stats.earned += c.reward;
         state.rep += c.rep;
         const sci = 4 + Math.round(c.rep / 2);
@@ -548,7 +730,8 @@
       lines.push(['Result', '<span class="bad">Vehicle lost</span>']);
       lines.push(['Reputation', '−6']);
       lines.push(['Science (lessons learned)', '+3']);
-      log(`<b>${esc(v.serial)}</b> was lost: ${esc(fail ? `engine failure on stage ${fail.stage + 1}` : 'failure')}.${c ? ' The customer will wait for another try.' : ''}`);
+      log(`<b>${esc(v.serial)}</b> was lost: ${esc(fail ? `engine failure on stage ${fail.stage + 1}` : 'failure')}.${isHalo(c) ? ` ${c.count} Halo sats were lost with it.` : isDc(c) ? ` ${c.count} compute modules were lost with it.` : c ? ' The customer will wait for another try.' : ''}`);
+      if (isOwn(c)) haloLines(false);
     }
     // Booster
     if (recovery !== 'expend') {
@@ -574,7 +757,7 @@
     }
     save();
     const box = $('result');
-    box.innerHTML = `<h3>${ok ? (c ? '✅ Mission success' : '✅ Test flight success') : '💥 Mission failed'}</h3>
+    box.innerHTML = `<h3>${ok ? (isHalo(c) ? '✅ Halo batch in orbit' : isDc(c) ? '✅ Compute modules in orbit' : c ? '✅ Mission success' : '✅ Test flight success') : '💥 Mission failed'}</h3>
       ${lines.map(([k, val]) => `<div class="line"><span>${k}</span><b>${val}</b></div>`).join('')}
       <button class="btn primary big" style="margin-top:14px" data-act="flight-done">Continue</button>`;
     box.hidden = false;
@@ -699,6 +882,7 @@
       case 'close': closeSheet(); break;
       case 'go-hangar': if (sheet) closeSheet(); tab = 'hangar'; refresh(); break;
       case 'go-contracts': tab = 'contracts'; refresh(); break;
+      case 'go-network': tab = 'network'; window.scrollTo(0, 0); refresh(); break;
       case 'contract': startLaunch(id); break;
       case 'test': startLaunch(null, id); break;
       case 'l-veh': sheet.vehicleId = id; sheet.recovery = pickRecovery(sheet); renderSheet(); break;
@@ -792,11 +976,11 @@
       }
       if (e.key === 'Escape' && sheet && sheet.kind !== 'intro' && sheet.kind !== 'bankrupt') { closeSheet(); return; }
       if (sheet) return;
-      const tabs = ['ops', 'contracts', 'hangar', 'research', 'base'];
-      if (e.key >= '1' && e.key <= '5') { tab = tabs[+e.key - 1]; refresh(); }
+      const tabs = ['ops', 'contracts', 'hangar', 'research', 'base', 'network'];
+      if (e.key >= '1' && e.key <= '6') { tab = tabs[+e.key - 1]; window.scrollTo(0, 0); refresh(); }
       else if (e.key === 'p' || e.key === 'P') { state.speed = state.speed ? 0 : 1; save(); header(); }
     });
-    window.addEventListener('resize', () => { if (tab === 'ops') renderOps(); if (sheet && sheet.kind === 'editor') editorStats(); });
+    window.addEventListener('resize', () => { if (tab === 'ops') renderOps(); if (tab === 'network') renderNetwork(); if (sheet && sheet.kind === 'editor') editorStats(); });
     refresh();
     if (state.intro) openSheet({ kind: 'intro' });
     requestAnimationFrame(clock);
