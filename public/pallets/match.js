@@ -1,9 +1,10 @@
 // Pro number matching for Pallet Router. Pure functions, so they can be tested
 // in Node and used in the page.
 
-/** Uppercase letters and digits only, leading zeros dropped. "006365941" -> "6365941". */
+/** Uppercase letters and digits only, leading zeros and a letter suffix dropped. "006365941" -> "6365941", "00279297590DR" -> "279297590". */
 export function norm(code) {
-  const clean = String(code || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+  // A letter suffix after the number (00279297590DR) is not on the manifest: drop it.
+  const clean = String(code || '').toUpperCase().replace(/[^0-9A-Z]/g, '').replace(/^(\d{6,})[A-Z]{1,3}$/, '$1');
   const stripped = clean.replace(/^0+/, '');
   return stripped || clean;
 }
