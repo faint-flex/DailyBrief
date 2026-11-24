@@ -48,6 +48,9 @@
     { id: 'chip3', name: 'Tensor Pod Mk3', desc: 'Unlocks Tensor Pod Mk3 (60 PF per module).', cost: 110, days: 120, req: 'chip2' },
     { id: 'shield', name: 'Debris shielding', desc: 'Module failures −60%.', cost: 20, days: 50 },
   ];
+  // Research also costs science (late-game science sink).
+  for (const R of EV_RESEARCH.concat(DC_RESEARCH)) R.sci = Math.round(R.cost * 4);
+  const IPO = { share: 0.15, minDays: 150, ev: { mult: 6, name: 'Voltline Motors' }, dc: { mult: 8, name: 'Orbital Compute' } };
   const DC_UPGRADES = {
     cooling: { name: 'Radiators', max: 3, cost: [14, 32, 65], desc: 'Bigger radiator wings: more usable compute and uptime.' },
     power: { name: 'Solar arrays', max: 3, cost: [12, 28, 58], desc: 'Bigger arrays: more usable compute.' },
@@ -185,6 +188,18 @@
   }
 
   // ---------------------------------------------------------------- actions
+  function ipoCheck(state, which) {
+    const V = ensure(state), line = which === 'dc' ? V.dc : V.ev;
+    if (!line) return { ok: false, why: 'Found it first.' };
+    if (line.ipo) return { ok: false, why: 'Already public.' };
+    if (state.day - (line.founded || state.day) < IPO.minDays) return { ok: false, why: `Needs ${IPO.minDays} days of history (${state.day - (line.founded || state.day)} so far).` };
+    const h = line.history || [];
+    const last = h[h.length - 1];
+    if (!last || !(last.profit > 0)) return { ok: false, why: 'Needs a profitable last month.' };
+    const valuation = r2(Math.max(0, last.rev) * 12 * IPO[which].mult);
+    return { ok: true, why: '', valuation };
+  }
+  function ownCut(line, profit) { return profit > 0 && line && line.own ? profit * line.own : profit; }
   function pay(state, cost) {
     if (state.cash < cost) return false;
     state.cash = r2(state.cash - cost); return true;
@@ -284,9 +299,22 @@
         if (line.research[R.id]) return no('Already done.');
         if (line.lab) return no('Lab busy with another project.');
         if (R.req && !line.research[R.req]) return no('Needs earlier research.');
+        if ((state.rp || 0) < R.sci) return no(`Needs ${R.sci} science.`);
         if (!pay(state, R.cost)) return no(`Needs $${R.cost}M.`);
+        state.rp -= R.sci;
         line.lab = { id: R.id, left: R.days, total: R.days };
         return yes(`Researching ${R.name}`, R.cost);
+      }
+      case 'ipo': {
+        const which = args.line === 'dc' ? 'dc' : 'ev';
+        const c = ipoCheck(state, which);
+        if (!c.ok) return no(c.why);
+        const line = which === 'dc' ? d : e;
+        const raise = r2(c.valuation * IPO.share);
+        line.ipo = { day: state.day, valuation: c.valuation, share: IPO.share, raised: raise };
+        line.own = 1 - IPO.share;
+        state.cash = r2(state.cash + raise);
+        return yes(`${IPO[which].name} IPO: sold ${Math.round(IPO.share * 100)}% at a $${Math.round(c.valuation)}M valuation and raised $${Math.round(raise)}M. You keep ${Math.round((1 - IPO.share) * 100)}% of its profit.`, -raise);
       }
       // ---- compute
       case 'buildModules': {
@@ -455,7 +483,7 @@
     // robotaxi
     const taxi = e.research.robotaxi ? e.totals.delivered * 0.000004 : 0;
     const revenue = rev + taxi; const cost = cogs + fixed;
-    state.cash = r2(state.cash + revenue - cost);
+    state.cash = r2(state.cash + ownCut(e, revenue - cost));
     e.last = { orders, built, cap, revenue, cost, taxi, fixed, profit: revenue - cost };
     e.lastProfit = revenue - cost;
     e.m.rev += revenue; e.m.cost += cost; e.m.cars += built;
@@ -546,7 +574,7 @@
     const spotRev = spotUnits * spotP;
     const ops = 0.05 + u.mods * 0.01;
     const revenue = dealRev + spotRev; const cost = ops + penalty;
-    state.cash = r2(state.cash + revenue - cost);
+    state.cash = r2(state.cash + ownCut(d, revenue - cost));
     d.last = { revenue, cost, profit: revenue - cost, dealRev, spotRev, spotUnits, spotP, penalty, ops, usable: u.usable, raw: u.raw };
     d.lastProfit = revenue - cost;
     d.m.rev += revenue; d.m.cost += cost; d.totals.rev += revenue; d.totals.profit += revenue - cost;
@@ -598,7 +626,7 @@
   }
 
   root.APOGEE_VENTURES = {
-    VERSION, CAR_TYPES, EV_RESEARCH, FACTORY, STATION_BATCH, PILOT_LINE, MOD_GENS, DC_RESEARCH, DC_UPGRADES, LINE_RATE,
+    ipoCheck, IPO, VERSION, CAR_TYPES, EV_RESEARCH, FACTORY, STATION_BATCH, PILOT_LINE, MOD_GENS, DC_RESEARCH, DC_UPGRADES, LINE_RATE,
     EV_FOUND_COST, DC_FOUND_COST, EV_FOUND_REP, DC_FOUND_REP,
     ensure, tick, summary, act, dcContract, onDcResult, modelStats, canFoundEV, canFoundDC, perks, haloOn, netSum,
   };

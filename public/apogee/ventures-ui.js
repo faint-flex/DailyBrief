@@ -298,15 +298,25 @@
   }
 
   // ---------- research (shared)
+  function ipoCard(which, G) {
+    const V = window.APOGEE_VENTURES, raw = G.state.ventures && G.state.ventures[which];
+    if (!V || !V.ipoCheck || !raw) return '';
+    const name = which === 'dc' ? 'Orbital Compute' : 'Voltline Motors';
+    if (raw.ipo) return `<div class="card"><div class="vn-row"><b class="vn-grow">🔔 ${name} is public</b>${st('ok', '✓', 'Listed')}</div><div class="vn-small">Sold ${Math.round(raw.ipo.share * 100)}% on day ${raw.ipo.day} at a ${G.money(raw.ipo.valuation)} valuation, raised ${G.money(raw.ipo.raised)}. You keep ${Math.round((1 - raw.ipo.share) * 100)}% of its profit.</div></div>`;
+    const c = V.ipoCheck(G.state, which);
+    return `<div class="card"><div class="vn-row"><b class="vn-grow">🔔 Take ${name} public (IPO)</b>${c.ok ? st('ok', '✓', 'Ready') : st('idle', '🔒', 'Not yet')}</div>
+      <div class="vn-small">Sell ${Math.round(V.IPO.share * 100)}% on the stock market for a big cash injection. Valuation follows revenue. ${c.ok ? `Valued at about ${G.money(c.valuation)} now.` : G.esc(c.why)}</div>
+      <div class="vn-btns">${btn('ipo', { line: which }, c.ok ? `Ring the bell · raise ${G.money(c.valuation * V.IPO.share)}` : 'Ring the bell', { primary: c.ok, disabled: !c.ok })}</div></div>`;
+  }
   function research(line, list, which, G) {
-    return list.map((R) => {
+    return ipoCard(which, G) + list.map((R) => {
       const done = line.research[R.id];
       const busy = line.lab && line.lab.id === R.id;
       const locked = R.req && !line.research[R.req];
       const status = done ? st('ok', '✓', 'Done') : busy ? st('warn', '⏳', `${line.lab.left}d left`) : locked ? st('idle', '🔒', 'Locked') : st('idle', '○', `${R.days} days`);
       return `<div class="card"><div class="vn-row"><b class="vn-grow">${G.esc(R.name)}</b>${status}</div><div class="vn-small">${G.esc(R.desc)}</div>
         ${busy ? prog(1 - line.lab.left / line.lab.total, 'Researching…') : ''}
-        ${!done && !busy ? `<div class="vn-btns">${btn('research', { line: which, id: R.id }, `Research · ${G.money(R.cost)}`, { disabled: locked || !!line.lab || G.state.cash < R.cost, title: line.lab ? 'Lab busy' : '' })}</div>` : ''}</div>`;
+        ${!done && !busy ? `<div class="vn-btns">${btn('research', { line: which, id: R.id }, `Research · ${G.money(R.cost)}${R.sci ? ` · ${R.sci} 🔬` : ''}`, { disabled: locked || !!line.lab || G.state.cash < R.cost || (G.state.rp || 0) < (R.sci || 0), title: line.lab ? 'Lab busy' : '' })}</div>` : ''}</div>`;
     }).join('');
   }
 
@@ -460,7 +470,7 @@
       const r = VT().act(g.state, act, args);
       g.toast(r.ok ? `✓ ${g.esc(r.msg)}` : `✕ ${g.esc(r.msg)}`);
       if (r.ok) {
-        if (/^found|designModel|buildFactory|research/.test(act)) g.log(`Ventures: ${g.esc(r.msg)}${r.cost ? ` (${g.money(r.cost)})` : ''}.`);
+        if (/^found|designModel|buildFactory|research|ipo/.test(act)) g.log(`Ventures: ${g.esc(r.msg)}${r.cost ? ` (${g.money(r.cost)})` : ''}.`);
         if (act === 'designModel') ds.name = '';
         g.save();
       }
