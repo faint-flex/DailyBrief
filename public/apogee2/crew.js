@@ -276,7 +276,7 @@
     const m = C.mission;
     let html = subnav();
     if (!st.techs.capsule) {
-      html += `<div class="card locked"><b>🔒 Research Crew Capsule to fly people</b><div class="small dim">It needs Landing Legs and costs ${window.APOGEE_SIM.TECHS.capsule.rp} science (Research tab). You can hire and train astronauts now, so they are ready when it is.</div></div>`;
+      html += `<div class="card locked"><b>🔒 Research Crew Capsule to fly people</b><div class="small dim">It needs Landing Legs and costs ${window.APOGEE_SIM.TECHS.capsule.rp} science (🔬 Research). You can hire and train astronauts now, so they are ready when it is.</div></div>`;
     }
     html += `<div class="cols"><div>`;
     // Roster
@@ -329,7 +329,7 @@
       <div style="display:flex;justify-content:space-between;margin-top:8px"><span class="small">Supplies</span><b>${sup}% · ${sup >= 30 ? 'Well stocked' : sup > 0 ? 'Running low' : 'Empty'}</b></div>
       <div class="bar ${sup >= 30 ? 'good' : 'bad'}"><i style="width:${sup}%"></i></div>
       <div class="kv"><div><small>Crew visits</small><b>${C.station.visits}</b></div><div><small>Crew aboard</small><b>${m && m.station ? 4 : 0}</b></div></div>
-      <p class="small dim" style="margin:8px 0 0">Station cargo runs (Contracts tab) add ${CFG.cargoSupplies}% supplies. A stocked station gives 50% more science per visit.</p></div>`;
+      <p class="small dim" style="margin:8px 0 0">Station cargo runs (📋 Contracts) add ${CFG.cargoSupplies}% supplies. A stocked station gives 50% more science per visit.</p></div>`;
     html += `</div></div>`;
     el.innerHTML = html;
   }

@@ -69,7 +69,7 @@
     legs:      { name: 'Landing Legs & Grid Fins', rp: 30,  req: [],               desc: 'Boosters can fly back and land at the pad, then fly again.' },
     fairing:   { name: 'Fairing Recovery',         rp: 25,  req: [],               desc: 'A ship catches the two fairing halves as they float down under parafoils. Caught halves make your next fairing up to 80% cheaper.' },
     lighttanks:{ name: 'Al-Li Tanks',              rp: 35,  req: [],               desc: 'Lighter tank walls: 20% less tank dry mass.' },
-    barge:     { name: 'Ocean Landing Barge',      rp: 50,  req: ['legs'],         desc: 'Land boosters downrange at sea. Much less fuel held back. Buy the barge on the Base tab.' },
+    barge:     { name: 'Ocean Landing Barge',      rp: 50,  req: ['legs'],         desc: 'Land boosters downrange at sea. Much less fuel held back. Build a drone ship port on your Base.' },
     rapid:     { name: 'Rapid Turnaround',         rp: 70,  req: ['legs'],         desc: 'Refurbishing a booster costs 4% (not 10%), takes 3 days, and landings are more reliable.' },
     comet:     { name: 'Comet Methane Engine',     rp: 90,  req: [],               desc: 'Twice the thrust of Ember with better efficiency. Comet Vac for upper stages.' },
     capsule:   { name: 'Crew Capsule',             rp: 110, req: ['legs'],         desc: 'Fly astronauts. Unlocks crew contracts.' },

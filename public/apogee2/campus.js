@@ -45,25 +45,25 @@
       unlock: (st) => ({ ok: st.rep >= 40 || has(st, 'firstGTO'), need: '40 reputation or a satellite delivered to GTO' }),
       map: ['SSBggtggR', 'SBBgggggR', 'SSBggwggR', 'SSBggwwgR', 'SBBRRRRRR', 'SSBggggtR', 'SSBgggggR', 'SBBggtggR', 'SSBgggggR'] },
     { id: 'gw-fjord', name: 'Fjordvik Gateway', icon: '📡', sub: 'Ground-station land · Europe', region: 'europe', base: 0.14, permit: 1.5, gateway: true,
-      desc: 'A windy northern headland. Ground stations here serve Europe.', unlock: (st) => ({ ok: netOn(st), need: 'Found Halo (Network tab)' }),
+      desc: 'A windy northern headland. Ground stations here serve Europe.', unlock: (st) => ({ ok: netOn(st), need: 'Found Halo (🛰️ Halo)' }),
       map: ['RggggS', 'RgtggS', 'RRRRgS', 'gggwgS', 'tgggBS', 'ggggBS'] },
     { id: 'gw-red', name: 'Red Plains Gateway', icon: '📡', sub: 'Ground-station land · Oceania', region: 'oceania', base: 0.05, permit: 1.5, gateway: true,
-      desc: 'Red outback desert. Ground stations here serve Oceania.', unlock: (st) => ({ ok: netOn(st), need: 'Found Halo (Network tab)' }),
+      desc: 'Red outback desert. Ground stations here serve Oceania.', unlock: (st) => ({ ok: netOn(st), need: 'Found Halo (🛰️ Halo)' }),
       map: ['Rddddd', 'Rddrdd', 'RRRRRR', 'dddddd', 'ddrddd', 'dddddd'] },
     { id: 'gw-alti', name: 'Altiplano Gateway', icon: '📡', sub: 'Ground-station land · South America', region: 'samerica', base: 0.08, permit: 1.5, gateway: true,
-      desc: 'High plateau with clear skies. Ground stations here serve South America.', unlock: (st) => ({ ok: netOn(st), need: 'Found Halo (Network tab)' }),
+      desc: 'High plateau with clear skies. Ground stations here serve South America.', unlock: (st) => ({ ok: netOn(st), need: 'Found Halo (🛰️ Halo)' }),
       map: ['crcccR', 'ccccrR', 'ccwccR', 'RRRRRR', 'cccccc', 'ccrccc'] },
     { id: 'gw-sahel', name: 'Sahel Gateway', icon: '📡', sub: 'Ground-station land · Africa', region: 'africa', base: 0.05, permit: 1.5, gateway: true,
-      desc: 'Dry savanna. Ground stations here serve Africa.', unlock: (st) => ({ ok: netOn(st), need: 'Found Halo (Network tab)' }),
+      desc: 'Dry savanna. Ground stations here serve Africa.', unlock: (st) => ({ ok: netOn(st), need: 'Found Halo (🛰️ Halo)' }),
       map: ['Rdddtd', 'Rddddd', 'RRRRRR', 'dddtdd', 'dddddd', 'tddddd'] },
     { id: 'gw-kaido', name: 'Kaido Gateway', icon: '📡', sub: 'Ground-station land · East Asia', region: 'easia', base: 0.3, permit: 2.5, gateway: true,
-      desc: 'Hillside by the sea. Ground stations here serve East Asia.', unlock: (st) => ({ ok: netOn(st), need: 'Found Halo (Network tab)' }),
+      desc: 'Hillside by the sea. Ground stations here serve East Asia.', unlock: (st) => ({ ok: netOn(st), need: 'Found Halo (🛰️ Halo)' }),
       map: ['tggRSS', 'gggRBS', 'tggRBS', 'gwgRBS', 'gggRBS', 'tggRSS'] },
     { id: 'gw-dune', name: 'Dunehaven Gateway', icon: '📡', sub: 'Ground-station land · Middle East', region: 'mideast', base: 0.12, permit: 2, gateway: true,
-      desc: 'Coastal desert. Ground stations here serve the Middle East.', unlock: (st) => ({ ok: netOn(st), need: 'Found Halo (Network tab)' }),
+      desc: 'Coastal desert. Ground stations here serve the Middle East.', unlock: (st) => ({ ok: netOn(st), need: 'Found Halo (🛰️ Halo)' }),
       map: ['Rddddd', 'RdrddB', 'RRRRRB', 'ddddBS', 'dddBSS', 'ddBSSS'] },
     { id: 'gw-monsoon', name: 'Monsoon Bay Gateway', icon: '📡', sub: 'Ground-station land · South Asia', region: 'sasia', base: 0.1, permit: 2, gateway: true,
-      desc: 'Green delta country. Ground stations here serve South Asia.', unlock: (st) => ({ ok: netOn(st), need: 'Found Halo (Network tab)' }),
+      desc: 'Green delta country. Ground stations here serve South Asia.', unlock: (st) => ({ ok: netOn(st), need: 'Found Halo (🛰️ Halo)' }),
       map: ['RggtgS', 'RgwggS', 'RRRRBS', 'ggggBS', 'gtggBS', 'gggwBS'] },
   ];
   // Gateway sites were cramped (6x6): widen them to 10x10 by repeating their inland rows/columns.
@@ -361,7 +361,7 @@
     const t = BT[type];
     const S = root.APOGEE_SIM;
     if (t.tech && !(st.techs && st.techs[t.tech])) return `Research ${S && S.TECHS[t.tech] ? S.TECHS[t.tech].name : t.tech} first`;
-    if (t.net && !netOn(st)) return 'Found Halo on the Network tab first';
+    if (t.net && !netOn(st)) return 'Found Halo first (🛰️ Halo)';
     return '';
   }
   function check(st, sid, type, x, y, rot) {
@@ -472,7 +472,7 @@
       if (c.told[s.id]) continue;
       if (s.unlock(st).ok) {
         c.told[s.id] = 1;
-        events.push(`New land available: <b>${s.name}</b> (${s.sub}). See the Base tab.`);
+        events.push(`New land available: <b>${s.name}</b> (${s.sub}). See your Base.`);
         toasts.push(`${s.icon} New land available: ${s.name}`);
       }
     }

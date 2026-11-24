@@ -104,7 +104,7 @@
     const days = 45 + Math.round(Math.random() * 40), sev = Math.round((0.3 + Math.random() * 0.2) * 100) / 100;
     state.chipShortage = { start: state.day, until: state.day + days, sev };
     const self = chipSelf(), hit = Math.round(sev * (1 - self) * 100);
-    log(`⚠ <b>Global chip shortage</b> for ${days} days: satellites, cars and compute modules cost up to ${Math.round(sev * 100)}% more and build that much slower.${self ? ` Your chip fab makes ${Math.round(self * 100)}% of your chips, so you only feel ${hit}%.` : ' Build a 💾 Chip fab on the Base tab to protect yourself.'}`);
+    log(`⚠ <b>Global chip shortage</b> for ${days} days: satellites, cars and compute modules cost up to ${Math.round(sev * 100)}% more and build that much slower.${self ? ` Your chip fab makes ${Math.round(self * 100)}% of your chips, so you only feel ${hit}%.` : ''}`);
     toast(self >= 1 ? '⚠ Chip shortage! Your own fab keeps you running ✓' : `⚠ Chip shortage: −${hit}% output for ${days} days`);
   }
   function ventEnsure(st) {
@@ -343,7 +343,7 @@
     const heroTitle = r[0] ? `${esc(r[0].serial)} is on the pad` : b[0] ? `${esc(b[0].serial)} is being built` : 'No rocket on the pad';
     const heroSub = r[0] ? esc(r[0].design.name) + (r[0].booster ? ` · flown booster (${r[0].booster.flights} flight${r[0].booster.flights > 1 ? 's' : ''})` : '') : b[0] ? `${b[0].days} days to go` : 'Build one in the Hangar';
     let html = (CR ? CR.subnav() : '') + `<div class="hero"><canvas id="hero-canvas"></canvas><div class="over"><h3>${heroTitle}</h3><div class="small dim">${heroSub}</div></div></div>`;
-    if (state.won) html += `<div class="card done"><h3>🏆 Mars city founded!</h3><p class="small">You did it on day ${state.day}. Keep flying, or start a new company on the Base tab.</p></div>`;
+    if (state.won) html += `<div class="card done"><h3>🏆 Mars city founded!</h3><p class="small">You did it on day ${state.day}. Keep flying, or start a new company from the Base.</p></div>`;
 
     html += `<div class="cols"><div><h2>Ready to fly</h2>`;
     if (!r.length) html += `<div class="empty">No rockets ready. ${b.length ? 'One is in the factory.' : `<br><button class="btn primary sm" data-act="go-hangar" style="margin-top:8px">Build a rocket</button>`}</div>`;
@@ -564,7 +564,7 @@
   // ---------- Research tab ----------
   function renderResearch() {
     const el = $('tab-research');
-    let html = `<h2>Research</h2><div class="card row"><div class="grow"><b>${Math.floor(state.rp)} science</b><div class="small dim">+${(state.engineers * S.FACILITY.rpPerEngineerDay).toFixed(2)} a day from ${state.engineers} engineers, plus every launch. Hire more on the Base tab.</div></div></div>`;
+    let html = `<h2>Research</h2><div class="card row"><div class="grow"><b>${Math.floor(state.rp)} science</b><div class="small dim">+${(state.engineers * S.FACILITY.rpPerEngineerDay).toFixed(2)} a day from ${state.engineers} engineers, plus every launch. Hire more on your Base.</div></div></div>`;
     // playtest #26: group by branch and point at a recommended next item.
     const ids = Object.keys(S.TECHS);
     const BRANCHES = [['♻️ Reuse', ['legs', 'fairing', 'barge', 'rapid', 'tower', 'shipreuse']], ['🔥 Engines', ['lighttanks', 'spark', 'srb', 'forge', 'srbheavy', 'frost', 'comet', 'aerospike', 'steel', 'nova']], ['🪐 Deep space & crew', ['capsule', 'refill', 'habitat']]];
@@ -744,7 +744,7 @@
       const ok = modes.includes(k);
       return `<button data-act="l-rec" data-id="${k}" class="${s.recovery === k ? 'on' : ''}" ${ok ? '' : 'disabled'}>${r2.name}${ok ? '' : ' 🔒'}</button>`;
     }).join('')}</div>`;
-    const lockHints = { rtls: 'Land back at the pad: research Landing Legs (🔬 Research tab)', barge: 'Ocean barge: research Ocean Landing Barge, then build a Drone ship port on Base', catch: 'Tower catch: research Tower Catch, then build a Catch tower next to a pad or add catch arms to a pad tower' };
+    const lockHints = { rtls: 'Land back at the pad: research Landing Legs (🔬 Research)', barge: 'Ocean barge: research Ocean Landing Barge, then build a Drone ship port on Base', catch: 'Tower catch: research Tower Catch, then build a Catch tower next to a pad or add catch arms to a pad tower' };
     const locked = Object.keys(lockHints).filter((k) => !modes.includes(k));
     if (locked.length) html += `<p class="small dim">🔒 ${locked.map((k) => lockHints[k]).join('<br>🔒 ')}</p>`;
     if (s.recovery !== 'expend') {
