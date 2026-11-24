@@ -474,7 +474,8 @@
   }
 
   // ---------- Hiring ----------
-  function hireCost(st) { const S = root.APOGEE_SIM; return r2((S ? S.FACILITY.engineerHire : 0.8) * bonus(st).hireMult); }
+  // playtest #4: each engineer past the first 5 makes the next hire 6% dearer (40 engineers ≈ 3× the base price).
+  function hireCost(st) { const S = root.APOGEE_SIM; return r2((S ? S.FACILITY.engineerHire : 0.8) * bonus(st).hireMult * (1 + 0.06 * Math.max(0, (st.engineers || 0) - 5))); }
 
   // ---------- UI ----------
   const CSS = `
