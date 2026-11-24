@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { breakoutStep, memeReject, safetyCheck, runBot, scorecard, impact, BREAKOUT } from '../src/cryptobot.js';
+import { setPause, breakoutStep, memeReject, safetyCheck, runBot, scorecard, impact, BREAKOUT } from '../src/cryptobot.js';
 
+setPause(async () => {});
 const flat = (n, close = 100, vol = 1000) => Array.from({ length: n }, () => ({ high: close, close, vol }));
 const store = () => { const m = new Map(); return { m, get: async (k) => structuredClone(m.get(k)), put: async (k, v) => m.set(k, structuredClone(v)) }; };
 const ok = (body) => new Response(JSON.stringify(body), { status: 200 });
