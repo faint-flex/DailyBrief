@@ -338,8 +338,8 @@
           const noz = st.group.getWorldPosition(V()).addScaledVector(ax, -st.bh);
           const dir = ax.clone().negate();
           const ak = where === 'ground' ? (rk.root.position.y - padTop) / 1000 : altKm;
-          fx.exhaust(noz, dir, pw, ak, st.r, fdt);
-          if (where === 'ground' && rk.root.position.y - padTop < 90) fx.landingBurn(noz, dir, pw, padTop, fdt);
+          if (where === 'ground') fx.exhaust(noz, dir, pw, ak, st.r, fdt, padTop);
+          else fx.exhaust(noz, dir, pw, ak, st.r, fdt);
         }
       });
       // pre-launch venting
@@ -584,16 +584,8 @@
         vis = true;
       } catch (e) { console.warn('flight: 3D landing setup failed', e); vis = false; }
     }
-    // Catch arms: angles that put each arm beside the booster (closed) or well clear of it (open).
-    function armAngle(arm, bx, gap) {
-      const p = arm.pivot.getWorldPosition(V());
-      const zt = arm.s * (geo.d / 2 + gap);
-      return Math.atan2(p.z - zt, bx - p.x);
-    }
-    if (vis && arms) {
-      model.group.updateMatrixWorld(true);
-      for (const a of arms) { a.open = armAngle(a, 0, 13); a.pivot.rotation.y = a.open; }
-    }
+    // Catch arms: the model's convention is rotation.y = s*0.55 open, 0 closed around the booster.
+    if (vis && arms) for (const a of arms) { a.open = a.s * 0.55; a.closed = 0; a.pivot.rotation.y = a.open; }
 
     // ---- cameras ----
     const camS = { pos: V(), look: V(), init: false, cx: 0, cy: 0, d: 0 };
@@ -605,14 +597,14 @@
       const bottom = (mode === 'catch' ? 0 : surfaceY) - 3;
       const xMin = Math.min(b.x - 10, padX - padHalf - 10, mode === 'catch' ? towerX - 8 : Infinity);
       const xMax = Math.max(b.x + 10, padX + padHalf + 10);
-      // Ground sits ~22% up from the bottom (clear of the touch controls); booster top stays in view.
+      // Ground sits ~30% up from the bottom (clear of the touch controls); booster top stays in view.
       const Wc = xMax - xMin;
-      const need = Math.max(st1H * 2.4, top - bottom) / 1.41;
+      const need = Math.max(st1H * 2.4, top - bottom) / 1.26;
       const dFit = Math.max(need / tanH, (Wc / 2) / (tanH * asp)) * 1.08;
       const dMax = st1H / (0.13 * 2 * tanH); // keep the booster at least ~13% of screen height
       const d = Math.min(dFit, dMax);
       const hv = d * tanH, hw = hv * asp;
-      const cy = Math.max(bottom + hv * 0.55, top - hv * 0.86);
+      const cy = Math.max(bottom + hv * 0.4, top - hv * 0.86);
       let cx = (xMin + xMax) / 2;
       cx = clamp(cx, b.x - hw * 0.7, b.x + hw * 0.7);
       const k = camS.init ? 1 - Math.exp(-dt * 3) : 1;
@@ -666,7 +658,7 @@
       A.setPlume(st, on ? 0.9 : 0, 0, t);
       if (on && fx) {
         const noz = base.clone().addScaledVector(ax, -st.bh);
-        fx.landingBurn(noz, ax.clone().negate(), 0.9, flameY, fdt);
+        fx.landingBurn(noz, ax.clone().negate(), 0.9, flameY, fdt, { radius: st.r, water: mode === 'barge' });
       }
       if (outcome === 'landed' && fx && t - outT < 2.5) {
         ventT += fdt;
@@ -682,15 +674,12 @@
       // site animation
       if (mode === 'barge' && model) {
         model.group.position.x = padX;
-        model.group.position.y = Math.sin(t * 0.9) * 0.12;
-        model.group.rotation.z = Math.sin(t * 0.7) * 0.004;
         if (sea && sea.userData.tick) sea.userData.tick(t);
       }
       if (arms) {
         const closed = outcome === 'landed' ? smooth(0, 1, (t - outT) * 2) : 0;
         for (const a of arms) {
-          if (a.closed == null && outcome === 'landed') a.closed = armAngle(a, b.x, 0.9);
-          a.pivot.rotation.y = a.closed == null ? a.open : a.open + (a.closed - a.open) * closed;
+          a.pivot.rotation.y = a.open + (a.closed - a.open) * closed;
         }
       }
       // camera
@@ -898,14 +887,12 @@
   }
 
   // ---------------- Runner ----------------
-  // Physics runs in fixed small steps against real time, so slow devices keep the same timing.
+  // Same timing as the 2D version: one step per frame, at most 0.05 s (slow devices run in slow motion).
   function loop(prev) {
     raf = requestAnimationFrame((now) => {
-      const fdt = Math.min(0.25, Math.max(0, (now - prev) / 1000));
+      const fdt = Math.min(0.05, Math.max(0, (now - prev) / 1000));
       if (skipReq && phase.skip) { skipReq = false; phase.skip(); }
-      const nSteps = Math.max(1, Math.ceil(fdt / (1 / 60) - 1e-6));
-      const h = fdt / nSteps;
-      for (let i = 0; i < nSteps && !phase.finished; i++) phase.step(h);
+      if (!phase.finished) phase.step(fdt);
       if (phase.finished) { const r = phase.result; next(r); return; }
       stepFade(fdt);
       try { phase.draw(fdt); } catch (e) { if (!loop.warned) { loop.warned = true; console.warn('flight draw:', e); } }

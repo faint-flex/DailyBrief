@@ -17,5 +17,5 @@ const sunAz=Math.atan2(A.R.sunDir.x,A.R.sunDir.z);
 cam.rotation.order='YXZ'; cam.rotation.set(T.MathUtils.degToRad(pitch), sunAz+Math.PI+T.MathUtils.degToRad(yaw), 0);
 let t=0; function f(){t+=1/60; if(q.get('climb')) alt=Math.min(400,(alt||1)*1.01);
   if(q.get('sunI')&&A.R.earth) A.R.earth.uniforms.uSunI.value=+q.get('sunI'); A.render(sc,{alt}); window.frames_=(window.frames_||0)+1;
-  document.getElementById('i').textContent='alt '+alt.toFixed(1)+' km  bake '+(A.R.earthBakeMs||0).toFixed(0)+' ms'; requestAnimationFrame(f);} f();
+  document.getElementById('i').textContent='alt '+alt.toFixed(1)+' km  bake '+(A.R.earthBakeMs||0).toFixed(0)+' ms'; requestAnimationFrame(f);} addEventListener("load",()=>setTimeout(f,0));
 </script></body></html>

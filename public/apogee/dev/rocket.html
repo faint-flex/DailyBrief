@@ -41,7 +41,7 @@ else if(view==='mid') put(geo.d*4,base+rk.stages[0].h,base+rk.stages[0].h-geo.d)
 else if(view==='flame') put(H*1.6,base-H*0.3,base-H*0.25);
 else if(view==='under'){cam.position.set(geo.d*2,base-H*1.2,geo.d*6);cam.lookAt(0,base,0);}
 const fire=num('fire',0), plume=num('plume',alt>0?Math.min(1,alt/60):0), fst=num('stage',0);
-let t=num('t',0); const info=document.getElementById('i');
+let t=num('t',0); if(q.has('heat')) rk.stages.forEach(s=>s.heat=+q.get('heat')); const info=document.getElementById('i');
 function f(){t+=1/60; rk.stages.forEach((s,i)=>A.setPlume(s,i===fst?fire:0,plume,t)); A.render(sc,{alt}); window.frames_=(window.frames_||0)+1;
  info.textContent=design.name+' d='+geo.d.toFixed(1)+' H='+H.toFixed(0)+' steel='+geo.steel+' calls='+A.R.renderer.info.render.calls+' tris='+A.R.renderer.info.render.triangles; requestAnimationFrame(f);} f();
 </script></body></html>

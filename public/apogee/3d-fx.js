@@ -130,7 +130,7 @@
       #include <fog_vertex>
     }`;
   const FRAG = `
-    uniform sampler2D map; uniform vec3 uSunV; uniform vec3 uUpV; uniform vec3 uSunCol; uniform vec3 uSkyAmb; uniform vec3 uGndAmb; uniform vec3 uGlowCol;
+    uniform sampler2D map; uniform float uOcc; uniform vec3 uSunV; uniform vec3 uUpV; uniform vec3 uSunCol; uniform vec3 uSkyAmb; uniform vec3 uGndAmb; uniform vec3 uGlowCol;
     varying vec2 vC; varying vec2 vUv; varying vec2 vCell; varying vec4 vCol; varying float vGlow; varying vec2 vRot;
     #include <fog_pars_fragment>
     void main(){
@@ -154,7 +154,8 @@
         gl_FragColor = vec4(col, d);
       #else
         float core = smoothstep(0.35, 1.0, t.a);
-        gl_FragColor = vec4(vCol.rgb * (1.0 + core * 1.5), d);
+        // premultiplied: emits light and also partly hides what is behind (a fireball is not see-through)
+        gl_FragColor = vec4(vCol.rgb * (1.0 + core * 1.5) * d, d * uOcc);
       #endif
       #include <tonemapping_fragment>
       #include <colorspace_fragment>
@@ -186,10 +187,13 @@
         uGlowCol: { value: new T.Color(1.6, 0.75, 0.3) },
       }]);
       uniforms.map = { value: lit ? tx.smoke : tx.fire };
+      uniforms.uOcc = { value: kind === 'fire' ? 0.55 : 0 };
       const defines = {}; if (lit) defines.LIT = 1; if (stretch) defines.STRETCH = 1;
       this.mat = new T.ShaderMaterial({
         uniforms, defines, vertexShader: VERT, fragmentShader: FRAG, fog: lit,
-        transparent: true, depthWrite: false, blending: lit ? T.NormalBlending : T.AdditiveBlending,
+        transparent: true, depthWrite: false,
+        blending: lit ? T.NormalBlending : T.CustomBlending,
+        blendSrc: T.OneFactor, blendDst: T.OneMinusSrcAlphaFactor, blendSrcAlpha: T.OneFactor, blendDstAlpha: T.OneMinusSrcAlphaFactor,
       });
       this.mesh = new T.Mesh(geo, this.mat);
       this.mesh.frustumCulled = false;
@@ -330,10 +334,10 @@
         const cap = lowEnd ? 5 : 12;
         const e = emitter('exh'); const moved = e.has && frame - e.frame <= 2 ? e.last.distanceTo(pos) : 0;
         // puffs must overlap along the path: widen them if the per-frame budget can't cover the distance moved
-        const s0 = Math.max(radius * (3.0 + 9 * thin), moved / cap / 0.35);
+        const s0 = Math.max(radius * (3.0 + 9 * thin), moved / cap / 0.25);
         const s1 = Math.max(radius * (15 + 40 * thin) * (lowEnd ? 1.15 : 1), s0 * 1.6);
         const life = (lowEnd ? 7 : 11) * (0.25 + 0.75 * Math.pow(rho, 0.6)) * rr(0.8, 1.2);
-        const spacing = s0 * 0.35;
+        const spacing = s0 * 0.25;
         const al = (0.6 * Math.pow(rho, 0.35) + 0.08) * vis * (0.4 + 0.6 * power);
         along('exh', pos, dt, 45 * Q * power, spacing, cap, (p, ao) => {
           perpBasis(dir, _u, _w);
@@ -347,7 +351,7 @@
             vz: dir.z * out + (_u.z * Math.cos(ang) + _w.z * Math.sin(ang)) * sp,
             s: s0 * rr(0.8, 1.2), s1: s1 * rr(0.7, 1.3), gr: rr(0.25, 0.45) * (1 + 2 * thin), life, age: ao,
             a: al * rr(0.75, 1), r: g * 1.01, g: g, b: g * 0.97, drag: 0.5 + 0.6 * rho, gy: 0.4 * rho,
-            rv: rr(-0.15, 0.15), glow: 1.4, gdec: 3.5, floor: gY, fin: 0.25, pw: 1.4, dil: 0,
+            rv: rr(-0.15, 0.15), glow: 1.4, gdec: 3.5, floor: gY, fin: 0.06, pw: 1.4,
           });
         });
       } else along('exh', pos, dt, 0, 1e9, 0, () => {});
@@ -413,11 +417,11 @@
       const strength = power * Math.pow(1 - Math.max(0, hg) / reach, 1.2);
       const hit = _v.copy(pos).addScaledVector(dir, Math.max(0, hg) / -dir.y);
       const hx = hit.x, hz = hit.z;
-      const e = emitter('landgnd'); e.acc += (lowEnd ? 30 : 75) * strength * dt;
+      const e = emitter('landgnd'); e.acc += (lowEnd ? 40 : 100) * strength * dt;
       let n = Math.min(Math.floor(e.acc), lowEnd ? 4 : 9); e.acc -= Math.floor(e.acc);
       for (let i = 0; i < n; i++) {
         const ang = rr(0, 6.283), sp = rr(30, 90) * (0.4 + strength);
-        const c = water ? [0.93, 0.95, 0.97] : [0.6 + rr(-0.05, 0.05), 0.53, 0.43];
+        const c = water ? [0.93, 0.95, 0.97] : opts.color ? [opts.color.r, opts.color.g, opts.color.b] : [0.66 + rr(-0.05, 0.05), 0.6, 0.52];
         smoke.add({
           x: hx + Math.cos(ang) * radius, y: groundY + radius * 0.6, z: hz + Math.sin(ang) * radius,
           vx: Math.cos(ang) * sp, vy: rr(1, 10) * (water ? 1.6 : 1), vz: Math.sin(ang) * sp,
@@ -452,7 +456,7 @@
           x: pos.x + _u.x * d, y: pos.y + _u.y * d, z: pos.z + _u.z * d,
           vx: _u.x * sp, vy: _u.y * sp + S * 0.4, vz: _u.z * sp,
           s: S * rr(0.35, 0.6), s1: S * rr(1.0, 1.6), gr: rr(1.2, 2.2), life: rr(1.0, 2.4), age: rr(0, 0.05),
-          a: rr(0.5, 0.9), r: 3.4, g: 1.9, b: 0.75, drag: rr(1.5, 2.6), gy: rr(2, 5), fin: 0.04, pw: 1.1, cool: rr(0.9, 1.6), floor: fl,
+          a: rr(0.5, 0.9), r: 3.2, g: 1.45, b: 0.4, drag: rr(1.5, 2.6), gy: rr(2, 5), fin: 0.04, pw: 1.1, cool: rr(0.9, 1.6), floor: fl,
           rv: rr(-0.6, 0.6),
         });
       }
@@ -518,7 +522,7 @@
         smoke.add({
           x: pos.x + fwd.x * ax + (a1.x * c + a2.x * s) * ring, y: pos.y + fwd.y * ax + (a1.y * c + a2.y * s) * ring, z: pos.z + fwd.z * ax + (a1.z * c + a2.z * s) * ring,
           vx: v.x, vy: v.y, vz: v.z,
-          s: radius * rr(1.4, 2.2), s1: radius * rr(2.5, 3.5), gr: 1, life: rr(0.7, 1.4), a: rr(0.35, 0.55) * (1 - t * 0.5),
+          s: radius * rr(1.6, 2.6), s1: radius * rr(3, 4.5), gr: 1, life: rr(0.8, 1.6), a: rr(0.5, 0.8) * (1 - t * 0.4),
           r: 1, g: 1, b: 1, drag: rr(0.25, 0.6), fin: 0.12, pw: 1.5,
         });
       }

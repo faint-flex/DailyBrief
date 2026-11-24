@@ -48,8 +48,8 @@ function sim(dt){
   }
   fx.step(dt,cam);
 }
-for(let i=0;i<T0*30;i++) sim(1/30);
 function f(){ sim(1/30); A.render(sc,{alt:altKm}); window.frames_=(window.frames_||0)+1;
   const c=fx.count(); document.getElementById('hud').textContent=mode+' t='+t.toFixed(1)+' alt='+altKm.toFixed(2)+'km smoke '+c.smoke+' fire '+c.fire+' spark '+c.spark;
-  requestAnimationFrame(f);} f();
+  requestAnimationFrame(f);}
+setTimeout(()=>{const t0=performance.now(); for(let i=0;i<T0*30;i++) sim(1/30); window.presimMs=performance.now()-t0; f();},50);
 </script></body></html>

@@ -62,7 +62,7 @@
   const H = {
     u: {
       uSkyTex: { value: null }, uAltM: { value: 0 }, uHazeBoost: { value: 0 },
-      uDa: { value: 6.5e-5 }, uDr: { value: 2.2e-5 }, uGroundFade: { value: 1 },
+      uDa: { value: 1.1e-4 }, uDr: { value: 2.6e-5 }, uGroundFade: { value: 1 },
       uSunDir: { value: new T.Vector3(0, 1, 0) }, uSunCol: { value: new T.Vector3(1, 1, 1) }, uAmb: { value: new T.Vector3(0.3, 0.4, 0.5) },
     },
     groundMats: new Set(), props: new Set(), fadeOn: false, tuned: false,
@@ -155,6 +155,9 @@ vec3 hazeCol(vec3 rel){ return skyAt(normalize(vec3(rel.x, 0.0, rel.z) + vec3(1e
 `;
   const NOISE_GLSL = `
 float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+vec3 vnoised(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f); vec2 du = 6.0 * f * (1.0 - f);
+  float a = hash12(i), b = hash12(i + vec2(1.0, 0.0)), c = hash12(i + vec2(0.0, 1.0)), d = hash12(i + vec2(1.0, 1.0));
+  return vec3(a + (b - a) * u.x + (c - a) * u.y + (a - b - c + d) * u.x * u.y, du * (vec2(b - a, c - a) + (a - b - c + d) * u.yx)); }
 float vnoise(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
   return mix(mix(hash12(i), hash12(i + vec2(1.0, 0.0)), u.x), mix(hash12(i + vec2(0.0, 1.0)), hash12(i + vec2(1.0, 1.0)), u.x), u.y); }
 `;
@@ -250,7 +253,7 @@ varying vec3 vWP;
 void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); vWP = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp; }`;
   const OCEAN_FRAG = `
 precision highp float;
-uniform float uTime; uniform vec3 uSunDir; uniform vec3 uSunCol; uniform vec3 uAmb; uniform float uFoamOn;
+uniform float uTime; uniform sampler2D uWaveTex; uniform vec3 uSunDir; uniform vec3 uSunCol; uniform vec3 uAmb; uniform float uFoamOn;
 varying vec3 vWP;
 ${HAZE_GLSL}
 ${NOISE_GLSL}
@@ -260,30 +263,25 @@ void main(){
   vec2 p = vWP.xz;
   vec2 gr = vec2(0.0);
   float crest = 0.0;
-  for (int i = 0; i < WAVES; i++) {
-    float fi = float(i);
-    float ang = 0.55 + (fract(sin(fi * 12.9898) * 43758.5453) - 0.5) * 1.9;
-    vec2 d = vec2(cos(ang), sin(ang));
-    float lam = 70.0 * pow(0.66, fi);
-    float k = 6.2831853 / lam; float w = sqrt(9.81 * k);
-    float att = 1.0 - smoothstep(lam * 18.0, lam * 90.0, L);
-    float ph = k * dot(d, p) - w * uTime + fi * 1.7;
-    float s = sin(ph);
-    gr += d * (0.13 * cos(ph)) * att;
-    crest += max(s, 0.0) * att / float(WAVES);
-  }
-  float nAtt = 1.0 - smoothstep(60.0, 400.0, L);
-  vec2 q = p * 0.9 + vec2(uTime * 0.6, uTime * 0.2);
-  float e = 0.35;
-  float n0 = vnoise(q);
-  gr += vec2(vnoise(q + vec2(e, 0.0)) - n0, vnoise(q + vec2(0.0, e)) - n0) * 0.5 * nAtt;
+  // three layers of a tileable wave-spectrum slope map, rotated, scaled and drifting differently
+  vec2 q1 = vec2(p.x * 0.8 - p.y * 0.6, p.x * 0.6 + p.y * 0.8);
+  vec4 w1 = texture2D(uWaveTex, p / 173.0 + uTime * vec2(0.0042, 0.0019));
+  vec4 w2 = texture2D(uWaveTex, q1 / 61.0 + uTime * vec2(-0.0061, 0.0093));
+  vec4 w3 = texture2D(uWaveTex, p.yx / 19.3 + uTime * vec2(0.021, -0.017));
+  float a3 = 1.0 - smoothstep(300.0, 1600.0, L);
+  vec2 s2 = w2.rg * 2.0 - 1.0; s2 = vec2(s2.x * 0.8 + s2.y * 0.6, -s2.x * 0.6 + s2.y * 0.8);
+  gr = (w1.rg * 2.0 - 1.0) * 0.11 + s2 * 0.085 + (w3.gr * 2.0 - 1.0) * 0.06 * a3;
+  crest = w1.b * 0.55 + w2.b * 0.45;
+  // wind patches: big slow areas of rougher and calmer water
+  float patchv = vnoise(p * 0.0021 + vec2(uTime * 0.004, 0.0)) * 0.7 + vnoise(p * 0.0007 + 5.0) * 0.6;
+  gr *= 0.55 + patchv * 0.9;
   vec3 N = normalize(vec3(-gr.x, 1.0, -gr.y));
   float NdV = max(dot(N, V), 0.0);
   vec3 Rf = reflect(-V, N); Rf.y = abs(Rf.y);
   vec3 sky = skyAt(Rf);
   float F = 0.02 + 0.98 * pow(1.0 - NdV, 5.0);
   float amb = dot(uAmb, vec3(0.3, 0.5, 0.2));
-  vec3 deep = vec3(0.010, 0.040, 0.060) * amb * 2.2;
+  vec3 deep = vec3(0.006, 0.032, 0.058) * amb * 2.2;
   float sd = seaDist(p); float ld = lagDist(p);
   float shallow = (1.0 - smoothstep(0.0, 120.0, sd)) * step(-1e4, sd);
   vec3 body = mix(deep, vec3(0.05, 0.16, 0.14) * amb * 2.2, shallow * 0.9);
@@ -303,8 +301,8 @@ void main(){
     col = mix(col, (uAmb * 1.1 + uSunCol * 0.25), foam * 0.85);
   }
   // sparse whitecaps
-  float wc = smoothstep(0.83, 0.95, crest + vnoise(p * 0.04 + uTime * 0.05) * 0.4) * (1.0 - smoothstep(300.0, 2500.0, L)) * uFoamOn;
-  col = mix(col, uAmb * 1.1 + uSunCol * 0.2, wc * 0.6);
+  float wc = smoothstep(0.86, 0.97, crest + vnoise(p * 0.03 + uTime * 0.05) * 0.25) * (1.0 - smoothstep(300.0, 2500.0, L)) * uFoamOn;
+  col = mix(col, uAmb * 1.1 + uSunCol * 0.2, wc * 0.45);
   float hf = hazeAmt(rel);
   col = mix(col, hazeCol(rel), hf);
   gl_FragColor = vec4(col, uGroundFade);
@@ -312,14 +310,54 @@ void main(){
   #include <colorspace_fragment>
 }`;
 
+  // Tileable slope map from a random directional wave spectrum (R,G = slope x,z; B = height).
+  let WAVETEX = null;
+  function waveTex() {
+    if (WAVETEX) return WAVETEX;
+    const N = 256, r = rand(1234);
+    const waves = [];
+    for (let i = 0; i < 90; i++) {
+      const km = 2 + Math.pow(r(), 1.6) * 30; // cycles per tile
+      const ang = 0.5 + (r() - 0.5) * 2.4 * (r() < 0.8 ? 0.6 : 1.4);
+      const kx = Math.round(Math.cos(ang) * km), kz = Math.round(Math.sin(ang) * km);
+      if (!kx && !kz) continue;
+      const k = Math.hypot(kx, kz);
+      waves.push([kx, kz, 1 / Math.pow(k, 1.9), r() * Math.PI * 2]);
+    }
+    const sx = new Float32Array(N * N), sz = new Float32Array(N * N), h = new Float32Array(N * N);
+    let mx = 0, mh = 0;
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      let ax = 0, az = 0, hh = 0;
+      for (const [kx, kz, A, ph] of waves) {
+        const t = (kx * x + kz * y) / N * Math.PI * 2 + ph;
+        const c = Math.cos(t), s = Math.sin(t);
+        // trochoid-ish sharpening: crest gets a sharper slope
+        hh += A * s; ax += A * kx * c; az += A * kz * c;
+      }
+      const i = y * N + x; sx[i] = ax; sz[i] = az; h[i] = hh;
+      mx = Math.max(mx, Math.abs(ax), Math.abs(az)); mh = Math.max(mh, Math.abs(hh));
+    }
+    const data = new Uint8Array(N * N * 4);
+    for (let i = 0; i < N * N; i++) {
+      data[i * 4] = Math.round((sx[i] / mx * 0.5 + 0.5) * 255);
+      data[i * 4 + 1] = Math.round((sz[i] / mx * 0.5 + 0.5) * 255);
+      data[i * 4 + 2] = Math.round((h[i] / mh * 0.5 + 0.5) * 255);
+      data[i * 4 + 3] = 255;
+    }
+    const t = new T.DataTexture(data, N, N, T.RGBAFormat, T.UnsignedByteType);
+    t.wrapS = t.wrapT = T.RepeatWrapping; t.magFilter = T.LinearFilter; t.minFilter = T.LinearMipmapLinearFilter;
+    t.generateMipmaps = true; t.anisotropy = 4; t.needsUpdate = true;
+    WAVETEX = t;
+    return t;
+  }
+
   function ocean(size) {
     const uni = Object.assign({}, H.u, {
-      uTime: { value: 0 }, uCoast: { value: new T.Vector4(0, 0, 0, 0) }, uLag: { value: new T.Vector4(0, 0, 0, 0) }, uFoamOn: { value: 1 },
+      uTime: { value: 0 }, uWaveTex: { value: waveTex() }, uCoast: { value: new T.Vector4(0, 0, 0, 0) }, uLag: { value: new T.Vector4(0, 0, 0, 0) }, uFoamOn: { value: 1 },
     });
     const mat = new T.ShaderMaterial({
       uniforms: uni, vertexShader: OCEAN_VERT, fragmentShader: OCEAN_FRAG,
-      defines: { WAVES: small() ? 5 : 8 },
-    });
+          });
     const mesh = new T.Mesh(new T.PlaneGeometry(size, size), mat);
     mesh.rotation.x = -Math.PI / 2;
     mesh.frustumCulled = false;
@@ -349,11 +387,13 @@ vec3 terrainAlbedo(vec2 p, float L){
   float midW = 1.0 - smoothstep(2500.0, 12000.0, L);
   float n1 = vnoise(p * 0.0035), n2 = vnoise(p * 0.017 + 7.0), n3 = vnoise(p * 0.09 + 3.0), n4 = vnoise(p * 0.5);
   float n5 = vnoise(p * 0.0009 + 11.0);
-  vec3 scrubG = vec3(0.060, 0.072, 0.030), scrubB = vec3(0.125, 0.100, 0.055), soil = vec3(0.26, 0.21, 0.14), grass = vec3(0.10, 0.115, 0.040);
+  vec3 scrubG = vec3(0.052, 0.058, 0.034), scrubB = vec3(0.110, 0.092, 0.060), soil = vec3(0.24, 0.20, 0.14), grass = vec3(0.075, 0.085, 0.040);
   vec3 c = mix(scrubG, scrubB, smoothstep(0.3, 0.8, n1 * 0.7 + n5 * 0.3));
   c = mix(c, grass, smoothstep(0.45, 0.8, n2) * 0.55);
   c = mix(c, soil, smoothstep(0.66, 0.9, mix(0.5, n3, midW)) * 0.6);
+  float n6 = vnoise(p * 2.7); float n7 = vnoise(p * 9.0);
   c *= 0.8 + 0.4 * mix(0.5, n4, fineW) * mix(1.0, n3 + 0.5, fineW * 0.5);
+  float vf = 1.0 - smoothstep(25.0, 140.0, L); c *= mix(1.0, 0.65 + 0.45 * n6 + 0.25 * (n7 - 0.5), vf);
   float sd = seaDist(p); float ld = lagDist(p);
   vec3 sand = vec3(0.56, 0.47, 0.33) * (0.88 + 0.24 * mix(0.5, n3, midW));
   vec3 wet = vec3(0.30, 0.25, 0.18);
@@ -480,7 +520,7 @@ vec3 terrainAlbedo(vec2 p, float L){
         const cs = 2.2 + rr() * 2.2;
         q.setFromEuler(new T.Euler(0, rr() * 6, 0));
         m4.compose(new T.Vector3(x, y + h + cs * 0.2, z), q, new T.Vector3(cs * 1.3, cs * 0.75, cs * 1.3)); crowns.setMatrixAt(t, m4);
-        col.setRGB(0.12 + rr() * 0.05, 0.15 + rr() * 0.06, 0.06); crowns.setColorAt(t, col);
+        col.setRGB(0.035 + rr() * 0.02, 0.045 + rr() * 0.02, 0.022); crowns.setColorAt(t, col);
         t++;
       } else if (b < n) {
         const s = 0.9 + rr() * 2.6;
@@ -488,7 +528,7 @@ vec3 terrainAlbedo(vec2 p, float L){
         m4.compose(new T.Vector3(x, y + s * 0.25, z), q, new T.Vector3(s * (1 + rr() * 0.6), s * (0.45 + rr() * 0.35), s));
         bushes.setMatrixAt(b, m4);
         const dry = rr();
-        col.setRGB(0.09 + dry * 0.12, 0.11 + dry * 0.07, 0.04 + dry * 0.03); bushes.setColorAt(b, col);
+        col.setRGB(0.035 + dry * 0.06, 0.042 + dry * 0.04, 0.022 + dry * 0.02); bushes.setColorAt(b, col);
         b++;
       }
     }
@@ -659,7 +699,7 @@ vec3 terrainAlbedo(vec2 p, float L){
   // ---------- lights ----------
   function lights(scene, target) {
     const R = A.R;
-    const sun = new T.DirectionalLight(0xffcf9c, 3.4);
+    const sun = new T.DirectionalLight(0xffb470, 3.6);
     sun.position.copy(R.sunDir).multiplyScalar(1500);
     sun.castShadow = R.renderer.shadowMap.enabled;
     sun.shadow.mapSize.set(2048, 2048);
@@ -667,7 +707,7 @@ vec3 terrainAlbedo(vec2 p, float L){
     sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.4;
     scene.add(sun); scene.add(sun.target);
     if (target) { sun.target.position.copy(target); sun.position.add(target); }
-    scene.add(new T.HemisphereLight(0x9ab6e0, 0x5a4a36, 0.75));
+    scene.add(new T.HemisphereLight(0x8aa6d8, 0x4a3e30, 0.6));
     scene.environment = R.env;
     scene.fog = null;
     return sun;
@@ -682,7 +722,7 @@ vec3 terrainAlbedo(vec2 p, float L){
     const outer = half + slope;
     const shape = new T.Shape();
     shape.moveTo(-outer, -outer); shape.lineTo(outer, -outer); shape.lineTo(outer, outer); shape.lineTo(-outer, outer); shape.closePath();
-    const hillMat = stdMat({ color: 0x4e5534, roughness: 1 });
+    const hillMat = stdMat({ color: 0x55553f, roughness: 1 });
     // four sloped sides as frustum pieces
     const sides = new T.Mesh(new T.CylinderGeometry(half * Math.SQRT2, outer * Math.SQRT2, top, 4, 1, true), hillMat);
     sides.rotation.y = Math.PI / 4; sides.position.y = top / 2; sides.receiveShadow = true; g.add(sides);
@@ -852,10 +892,10 @@ vec3 terrainAlbedo(vec2 p, float L){
     cyl(props, 0.3, 0.4, 30, em.steel, -625, 15, 250, 6);
     // floodlight poles around the hill
     for (let k = 0; k < (small() ? 4 : 8); k++) {
-      const a = k / 8 * Math.PI * 2 + 0.3, r = half + slope + 25;
+      const a = k / 8 * Math.PI * 2 + 0.3, r = half + slope + 45;
       const x = Math.cos(a) * r, z = Math.sin(a) * r;
       if (x > half && Math.abs(z) < tw) continue;
-      cyl(props, 0.25, 0.4, 24, em.steel, x, 12, z, 6); box(props, 3, 1.6, 0.6, em.steelDark, x, 24, z);
+      cyl(props, 0.2, 0.35, 22, em.steel, x, 11, z, 6); box(props, 2.2, 1.0, 0.5, em.steelDark, x, 22, z);
     }
     // roads
     const roadsG = new T.Group(); g.add(roadsG); registerProps(roadsG);

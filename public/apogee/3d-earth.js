@@ -128,7 +128,7 @@
     vec3 d = g - uSite; float r2 = dot(d, d);
     float k = exp(-r2 / 0.012);
     float s = dot(d, uEast);
-    e = mix(e, 0.04 - 4.0 * s + 0.12 * fbm(g * 9.0, 4) - 0.6 * max(0.0, -s - 0.06), k);
+    e = mix(e, 0.04 - clamp(4.0 * s, -0.14, 0.35) + 0.10 * fbm(g * 9.0, 4), k);
     return e;
   }
   void main() {
@@ -145,7 +145,7 @@
       float temp = 1.0 - lt * 1.25 - max(0.0, e - 0.3) * 1.2 + 0.08 * fbm(g * 3.0, 3);
       float det = fbm(g * 24.0, 4);
       vec3 rain = vec3(0.030, 0.060, 0.022);
-      vec3 grass = vec3(0.075, 0.10, 0.045);
+      vec3 grass = vec3(0.06, 0.095, 0.035);
       vec3 steppe = vec3(0.17, 0.15, 0.09);
       vec3 sand = vec3(0.40, 0.29, 0.17);
       vec3 redsand = vec3(0.34, 0.19, 0.10);
@@ -173,9 +173,9 @@
       vec3 w = vec3(fbm(q + 5.0, 4), fbm(q + 15.0, 4), fbm(q + 25.0, 4));
       float band = 0.20 * exp(-pow(alat / 8.0, 2.0)) - 0.12 * exp(-pow((alat - 24.0) / 8.0, 2.0)) + 0.20 * exp(-pow((alat - 52.0) / 14.0, 2.0)) + 0.02;
       float n = fbm(q * 1.6 + w * 1.6, 8) + band;
-      n += 0.25 * fbm(g * 22.0 + w * 3.0, 5);
+      n += 0.18 * fbm(g * 12.0 + w * 3.0, 5);
       float cov = smoothstep(0.02, 0.45, n);
-      cov *= 0.75 + 0.25 * smoothstep(-0.3, 0.3, fbm(g * 40.0, 3));
+      cov *= 0.85 + 0.15 * smoothstep(-0.3, 0.3, fbm(g * 18.0, 3));
       // city lights: clustered on lowland coasts and temperate/tropical land, none on ice or deserts
       float e = elevation(g);
       float land = smoothstep(0.0, 0.01, e);
@@ -188,26 +188,63 @@
     }
   }`;
 
-  function bake(renderer, W, H, mode, site, east) {
-    const rt = new T.WebGLRenderTarget(W, H, {
-      generateMipmaps: true, minFilter: T.LinearMipmapLinearFilter, magFilter: T.LinearFilter,
-      wrapS: T.RepeatWrapping, wrapT: T.ClampToEdgeWrapping, depthBuffer: false,
-    });
-    rt.texture.anisotropy = 4;
-    const mat = new T.ShaderMaterial({ vertexShader: BAKE_VS, fragmentShader: BAKE_FS, uniforms: { uMode: { value: mode }, uSite: { value: site }, uEast: { value: east } }, depthTest: false, depthWrite: false });
+  // Progressive bake: the two textures are rendered in horizontal bands (scissor), a few per frame,
+  // so the work is spread over frames while the rocket climbs (see prepareEarth()).
+  const BANDS = 8;
+  let baker = null;
+  function makeBaker() {
+    const R = A.R;
+    const W = R.small ? 1024 : 2048, H = W / 2;
+    // earth-scene -> geographic rotation: launch site (scene +y) at 28.5 N, scene +z = geographic east
+    const siteLat = T.MathUtils.degToRad(28.5);
+    const geoM = new T.Matrix3().setFromMatrix4(new T.Matrix4().makeRotationZ(-(Math.PI / 2 - siteLat)));
+    const site = new T.Vector3(0, 1, 0).applyMatrix3(geoM);
+    const east = new T.Vector3(0, 0, 1).applyMatrix3(geoM);
+    const mk = () => {
+      const rt = new T.WebGLRenderTarget(W, H, {
+        generateMipmaps: false, minFilter: T.LinearMipmapLinearFilter, magFilter: T.LinearFilter,
+        wrapS: T.RepeatWrapping, wrapT: T.ClampToEdgeWrapping, depthBuffer: false,
+      });
+      rt.texture.anisotropy = 4;
+      rt.scissorTest = true;
+      return rt;
+    };
+    const mat = new T.ShaderMaterial({ vertexShader: BAKE_VS, fragmentShader: BAKE_FS, uniforms: { uMode: { value: 0 }, uSite: { value: site }, uEast: { value: east } }, depthTest: false, depthWrite: false });
     const sc = new T.Scene();
     const quad = new T.Mesh(new T.PlaneGeometry(2, 2), mat);
     quad.frustumCulled = false; sc.add(quad);
-    const cam = new T.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    const prevRT = renderer.getRenderTarget();
-    const prevAC = renderer.autoClear;
-    renderer.setRenderTarget(rt); renderer.autoClear = true;
-    renderer.render(sc, cam);
-    renderer.setRenderTarget(prevRT); renderer.autoClear = prevAC;
-    quad.geometry.dispose(); mat.dispose();
-    return rt;
+    return { W, H, geoM, site, east, rts: [mk(), mk()], mat, sc, quad, cam: new T.OrthographicCamera(-1, 1, 1, -1, 0, 1), step: 0, ms: 0 };
   }
+  function bakeSteps(n) {
+    if (!baker) baker = makeBaker();
+    const B = baker, r = A.R.renderer;
+    if (B.step >= 2 * BANDS) return true;
+    const t0 = performance.now();
+    const prevRT = r.getRenderTarget(), prevAC = r.autoClear;
+    r.autoClear = false;
+    for (let i = 0; i < n && B.step < 2 * BANDS; i++, B.step++) {
+      const mode = B.step < BANDS ? 0 : 1, band = B.step % BANDS;
+      const rt = B.rts[mode];
+      const bh = B.H / BANDS;
+      rt.scissor.set(0, band * bh, B.W, bh);
+      rt.texture.generateMipmaps = band === BANDS - 1;
+      B.mat.uniforms.uMode.value = mode;
+      r.setRenderTarget(rt);
+      r.render(B.sc, B.cam);
+    }
+    r.setRenderTarget(prevRT); r.autoClear = prevAC;
+    B.ms += performance.now() - t0;
+    if (B.step >= 2 * BANDS) {
+      B.quad.geometry.dispose(); B.mat.dispose();
+      for (const rt of B.rts) rt.scissorTest = false;
+      return true;
+    }
+    return false;
+  }
+  // Call once per frame while climbing (cheap: two texture bands); true once the textures are ready.
+  function prepareEarth() { return bakeSteps(2); }
 
+  // ---------- meshes ----------
   // Dense spherical cap around +y (the camera is always on the +y axis).
   function capGeometry(radius, rings, segs, maxTheta) {
     const pos = [], idx = [];
@@ -246,20 +283,11 @@
     const R = A.R;
     if (R.earth) return R.earth;
     const small = !!R.small;
-    const W = small ? 1024 : 2048, H = W / 2;
     const NSTEP = small ? 5 : 8;
-
-    // earth-scene -> geographic rotation: launch site (scene +y) at 28.5 N, scene +z = geographic east
-    const siteLat = T.MathUtils.degToRad(28.5);
-    const rot = new T.Matrix4().makeRotationZ(-(Math.PI / 2 - siteLat));
-    const geoM = new T.Matrix3().setFromMatrix4(rot);
-    const site = new T.Vector3(0, 1, 0).applyMatrix3(geoM);
-    const east = new T.Vector3(0, 0, 1).applyMatrix3(geoM);
-
-    const t0 = performance.now();
-    const texA = bake(R.renderer, W, H, 0, site, east);
-    const texB = bake(R.renderer, W, H, 1, site, east);
-    R.earthBakeMs = performance.now() - t0;
+    bakeSteps(1e9);
+    const geoM = baker.geoM;
+    const texA = baker.rts[0], texB = baker.rts[1];
+    R.earthBakeMs = baker.ms;
 
     const uniforms = {
       uSun: { value: R.sunDir }, uSunI: { value: 12 }, uGeo: { value: geoM },
@@ -304,7 +332,7 @@
           float m1 = vnoise(pk * 0.025) + 0.5 * vnoise(pk * 0.07 + 3.0) + 0.25 * vnoise(pk * 0.2 + 7.0);
           float rid = pow(1.0 - abs(vnoise(pk * 0.035 + 11.0) * 2.0 - 1.0), 10.0);
           vec3 tint = mix(vec3(0.7, 0.85, 0.65), vec3(1.3, 1.15, 0.95), smoothstep(0.55, 1.2, m1));
-          land *= mix(vec3(1.0), tint * (1.0 - 0.3 * rid), fdm);
+          land *= mix(vec3(1.0), tint * (1.0 - 0.08 * rid), fdm);
         }
         float depth = clamp(-elev / 0.06, 0.0, 1.0);
         vec3 sea = mix(vec3(0.02, 0.085, 0.11), vec3(0.004, 0.016, 0.045), smoothstep(0.0, 0.5, depth));
@@ -420,7 +448,7 @@
       const alt = cam.position.length() - EARTH_R;
       const fade = Math.max(0, 1 - Math.pow(Math.min(1, alt / 70), 0.8)); // same as world3d sky fade
       uniforms.uSkyW.value = 1 - fade;
-      { const k = Math.max(0, Math.min(1, (alt - 10) / 130)); uniforms.uHazeK.value = 1.5 + (0.62 - 1.5) * k * k * (3 - 2 * k); }
+      { const k = Math.max(0, Math.min(1, (alt - 10) / 130)); uniforms.uHazeK.value = 1.1 + (0.62 - 1.1) * k * k * (3 - 2 * k); }
     };
     // render() spins E.clouds.rotation.y: a plain object here, the cap mesh must stay centred on +y,
     // so the spin is applied to the cloud texture lookup instead
@@ -432,11 +460,15 @@
 
   A.buildEarth = buildEarth;
   A.earthBlend = earthBlend;
+  A.prepareEarth = prepareEarth;
   // world3d's render() calls its own internal buildEarth(), which returns R.earth when it is set:
   // build ours first so render() uses it.
   const baseRender = A.render;
   A.render = function (nearScene, view) {
-    if (A.R && !A.R.earth && view && view.alt > 6 && view.earth !== false) buildEarth();
+    if (A.R && !A.R.earth && view && view.earth !== false) {
+      if (view.alt > 6) buildEarth();
+      else if (view.alt > 0.5) prepareEarth();
+    }
     return baseRender(nearScene, view);
   };
 })();

@@ -311,12 +311,12 @@
   const FUEL = {
     Kerosene: {
       core: [1.0, 0.88, 0.62], mid: [1.0, 0.5, 0.14], edge: [0.95, 0.26, 0.04], dia: [1.0, 0.8, 0.45],
-      jetB: 2.6, outB: 1.35, diaK: 0.45, len: 1.15, jetFrac: 0.48, spread: 3.4, turb: 1.0,
+      jetB: 0.75, outB: 0.5, diaK: 0.3, len: 1.15, jetFrac: 0.48, spread: 3.4, turb: 1.0,
       light: 0xffa04a, lightK: 1.0, glow: 0xffb060, halo: [1.0, 0.62, 0.28], haloK: 1.25,
     },
     Methane: {
       core: [0.9, 0.92, 1.0], mid: [0.48, 0.5, 1.0], edge: [1.0, 0.45, 0.16], dia: [1.0, 0.86, 1.0],
-      jetB: 3.0, outB: 0.45, diaK: 1.5, len: 0.85, jetFrac: 0.62, spread: 2.8, turb: 0.45,
+      jetB: 0.45, outB: 0.18, diaK: 1.0, len: 0.85, jetFrac: 0.62, spread: 2.8, turb: 0.45,
       light: 0xffd6c0, lightK: 0.6, glow: 0xe6dcff, halo: [0.85, 0.82, 1.0], haloK: 0.9,
     },
   };
@@ -364,13 +364,13 @@
     '    float dia = smoothstep(1.0 - w*0.8, 1.0 - w*0.8 + 0.12, face) * fadeD;',
     '    float disk = exp(-pow((ph - 0.04)*16.0, 2.0)) * smoothstep(0.35, 0.9, face) * fadeD * 0.7;',
     '    float body = pow(max(0.0, 1.0 - t), mix(1.9, 1.3, uExpand)) * pow(face, 1.4) * mix(0.85 + 0.3*n, 1.0, 0.4);',
-    '    col = mix(uMid, uCore, clamp(face*1.3*(1.0 - t*0.7), 0.0, 1.0)) * body * mix(1.0, 0.5, uExpand);',
+    '    col = mix(uMid, uCore, clamp(face*1.3*(1.0 - t*0.7), 0.0, 1.0)) * body * mix(1.0, 1.6, uExpand);',
     '    col += uDia * (dia + disk) * uDiaK;',
     '    col *= uBright * startK;',
     '  } else {',
     '    float fall = pow(max(0.0, 1.0 - t), mix(1.15, 1.5, uExpand));',
     '    float f = pow(face, mix(1.1, 2.4, uExpand));',
-    '    float I = fall * f * turb * mix(1.0, 0.45, uExpand);',
+    '    float I = fall * f * turb * mix(1.0, 2.2, uExpand);',
     '    col = mix(uEdge, uMid, smoothstep(0.12, 0.85, face));',
     '    col = mix(col, uCore, (1.0 - t) * face * 0.35 * (1.0 - uExpand));',
     '    col *= I * uBright * startK;',
@@ -382,7 +382,7 @@
   function flameMaterial(jet, F, seed) {
     const v3 = (a) => new T.Vector3(a[0], a[1], a[2]);
     return new T.ShaderMaterial({
-      transparent: true, depthWrite: false, blending: T.AdditiveBlending, side: T.DoubleSide,
+      transparent: true, depthWrite: false, blending: T.AdditiveBlending, side: T.FrontSide,
       uniforms: {
         uPower: { value: 1 }, uTime: { value: 0 }, uExpand: { value: 0 }, uJet: { value: jet ? 1 : 0 }, uSeed: { value: seed },
         uBright: { value: jet ? F.jetB : F.outB }, uDiaK: { value: F.diaK }, uTurb: { value: F.turb }, uSpread: { value: F.spread },
@@ -765,7 +765,7 @@
     hm.uScale.value = (A.R && A.R.pointScale) || 800;
     hm.uMin.value = 9 * ((A.R && A.R.renderer && A.R.renderer.getPixelRatio()) || 1);
     hm.uI.value = power * F.haloK * (1 - ex * 0.35) * flick;
-    st.light.intensity = 2.2e5 * Math.sqrt(st.engines) * F.lightK * power * flick * (1 - ex * 0.6);
+    st.light.intensity = 1.8e4 * Math.sqrt(st.engines) * F.lightK * power * flick * (1 - ex * 0.6);
   }
 
   // Legs: k = 0 stowed against the tank, 1 deployed. Smoothly eased; struts follow.
