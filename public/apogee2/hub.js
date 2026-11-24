@@ -34,7 +34,7 @@
     wrap = document.createElement('aside');
     wrap.id = 'hub-drawer'; wrap.className = 'hub-drawer'; wrap.hidden = true;
     wrap.setAttribute('aria-label', 'Panel');
-    wrap.innerHTML = '<div class="hub-dbar"><button class="btn sm" data-hub-close aria-label="Back to the Base map">✕ Base</button><nav class="hub-dtabs" aria-label="Panels"></nav></div><div class="hub-dslot"></div>';
+    wrap.innerHTML = '<div class="hub-dbar"><button class="btn sm" data-hub-close aria-label="Back to the Base map">✕ Back to Base</button><b class="hub-dtitle"></b></div><div class="hub-dslot"></div>';
     document.body.appendChild(wrap);
     return wrap;
   }
@@ -65,7 +65,7 @@
     if (!sec) return false;
     open = t;
     // Panel switcher inside the drawer (the selected one is marked with ✓ and an underline, not just colour)
-    w.querySelector('.hub-dtabs').innerHTML = DRAWER_TABS.map((k) => `<button class="hub-dt ${k === t ? 'on' : ''}" data-hub="${k}" ${k === t ? 'aria-current="page"' : ''} title="${esc(PANELS[k].name)}"><span aria-hidden="true">${PANELS[k].icon}</span><i>${PANELS[k].name}</i></button>`).join('');
+    w.querySelector('.hub-dtitle').textContent = `${PANELS[t].icon} ${PANELS[t].name}`; // the tab bar is the menu (Venom: keep the tabs)
     w.querySelector('.hub-dslot').appendChild(sec);
     w.classList.toggle('wide', WIDE.includes(t));
     w.hidden = false;
@@ -107,21 +107,11 @@
   function sync() { const sec = open && sectionOf(open); if (sec) sec.classList.add('on'); }
 
   // Shortcut bar on top of the Base map.
+  // The Base used to get its own row of panel buttons; the normal tab bar does that job now (Venom/LyFe: keep the tabs).
   function decorate(el) {
     if (!el) return;
     on();
-    let bar = el.querySelector('.hub-bar');
-    if (!bar) {
-      bar = document.createElement('div'); bar.className = 'hub-bar';
-      el.insertBefore(bar, el.firstChild);
-    }
-    const s = G() && G().state;
-    const html = ['ops', 'contracts', 'hangar', 'research', 'network', 'ventures'].map((t) => {
-      const P = PANELS[t];
-      return `<button class="hub-chip ${open === t ? 'on' : ''}" data-hub="${t}" title="${esc(P.sub)}"><span aria-hidden="true">${P.icon}</span>${P.name}${open === t ? ' ✓' : ''}</button>`;
-    }).join('');
-    const tip = s && !(s.hubTip) ? '<div class="hub-tip small">🏠 Your Base is the hub: tap a building, or use these buttons, to open its panel.</div>' : '';
-    if (bar._h !== html + tip) { bar.innerHTML = html + tip; bar._h = html + tip; }
+    const bar = el.querySelector('.hub-bar'); if (bar) bar.remove();
   }
 
   // Buttons for a selected building (campus.js buildingHTML).
@@ -138,7 +128,7 @@
     if (t.hasAttribute('data-hub-close')) { close(); return; }
     const p = t.getAttribute('data-hub');
     const s = G() && G().state; if (s && !s.hubTip) s.hubTip = 1;
-    if (open === p) { if (!t.classList.contains('hub-dt')) close(); } else openPanel(p);
+    if (open === p) close(); else openPanel(p);
   }, true);
   window.addEventListener('keydown', (e) => {
     if (e.key === '5' && open && !(e.target && e.target.tagName === 'INPUT')) { close(); return; } // 5 = Base

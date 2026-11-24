@@ -284,8 +284,9 @@
     $('s-rep').textContent = Math.round(state.rep);
     $('s-rp').textContent = Math.floor(state.rp);
     for (const b of document.querySelectorAll('#speed button')) b.classList.toggle('on', +b.dataset.speed === state.speed);
-    for (const b of document.querySelectorAll('#tabs button')) b.classList.toggle('on', b.dataset.tab === tab);
-    for (const s of document.querySelectorAll('.tab')) s.classList.toggle('on', s.id === 'tab-' + tab);
+    const shownTab = (tab === 'base' && window.APOGEE_HUB && window.APOGEE_HUB.drawer()) || tab; // Base hub: the open panel's tab lights up
+    for (const b of document.querySelectorAll('#tabs button')) b.classList.toggle('on', b.dataset.tab === shownTab);
+    for (const s of document.querySelectorAll('.tab')) s.classList.toggle('on', s.id === 'tab-' + tab || s.id === 'tab-' + shownTab); // keep the open panel shown (hiding it blanked it and reset its scroll)
   }
 
   function refresh() {
@@ -1229,7 +1230,7 @@
     state = load();
     if (window.APOGEE_HUB && CAMPUS() && state.campus) tab = 'base'; // Base hub: the game opens on the Base map
     document.addEventListener('click', onClick);
-    for (const b of document.querySelectorAll('#tabs button')) b.addEventListener('click', () => { tab = b.dataset.tab; window.scrollTo(0, 0); refresh(); });
+    for (const b of document.querySelectorAll('#tabs button')) b.addEventListener('click', () => { GAME.goTab(b.dataset.tab); }); // goTab: Base closes any open panel
     for (const b of document.querySelectorAll('#speed button')) b.addEventListener('click', () => { state.speed = +b.dataset.speed; save(); header(); });
     window.addEventListener('keydown', (e) => {
       if (e.target && e.target.tagName === 'INPUT') return;
