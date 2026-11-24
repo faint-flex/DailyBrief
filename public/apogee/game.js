@@ -376,7 +376,7 @@
     let vid = vehicleId || null;
     if (!vid && c) { const fit = contractFit(c); vid = fit ? fit.v.id : (r[0] && r[0].id); }
     if (!vid && r[0]) vid = r[0].id;
-    const s = { kind: 'launch', contractId, vehicleId: vid, recovery: null, landing: 'auto', upperReuse: false };
+    const s = { kind: 'launch', contractId, vehicleId: vid, recovery: null, landing: state.lastLanding || 'auto', upperReuse: false };
     s.recovery = pickRecovery(s);
     openSheet(s);
   }
@@ -429,7 +429,9 @@
       return `<button data-act="l-rec" data-id="${k}" class="${s.recovery === k ? 'on' : ''}" ${ok ? '' : 'disabled'}>${r2.name}${ok ? '' : ' 🔒'}</button>`;
     }).join('')}</div>`;
     if (s.recovery !== 'expend') {
-      html += `<h2>Landing</h2><div class="seg"><button data-act="l-land" data-id="auto" class="${s.landing === 'auto' ? 'on' : ''}">Autopilot</button><button data-act="l-land" data-id="manual" class="${s.landing === 'manual' ? 'on' : ''}">🎮 Fly it myself</button></div>`;
+      const opts = [['auto', 'Autopilot'], ['steer', s.recovery === 'barge' ? '🚢 Move the barge' : '🎯 Steer it'], ['manual', '🎮 Full manual']];
+      const hint = { auto: 'Lands by itself, using the odds below.', steer: s.recovery === 'barge' ? 'The booster burns by itself. You slide the barge under it with ← →.' : 'The booster burns by itself. You steer it onto the target with ← →.', manual: 'You do everything: burn and steer.' }[s.landing];
+      html += `<h2>Landing</h2><div class="seg">${opts.map(([k, l]) => `<button data-act="l-land" data-id="${k}" class="${s.landing === k ? 'on' : ''}">${l}</button>`).join('')}</div><p class="small dim">${hint}</p>`;
     }
     if (state.techs.shipreuse && v.design.stages.length > 1) {
       html += `<h2>Upper stage</h2><div class="seg"><button data-act="l-up" data-id="0" class="${!s.upperReuse ? 'on' : ''}">Expend</button><button data-act="l-up" data-id="1" class="${s.upperReuse ? 'on' : ''}">Bring it home (refund 90%)</button></div>`;
@@ -443,7 +445,7 @@
       <div style="display:flex;justify-content:space-between"><span class="small">Delta-v ${m.refilled ? '(after refilling)' : ''}</span><b class="${m.ok ? 'good' : 'bad'}">${Math.round(m.have).toLocaleString()} / ${m.need.toLocaleString()} m/s</b></div>
       <div class="bar ${m.ok ? 'good' : 'bad'}"><i style="width:${Math.min(100, ratio / 1.4 * 100)}%"></i><span class="mark" style="left:${100 / 1.4}%"></span></div>
       <div class="kv"><div><small>Liftoff TWR</small><b class="${m.twr >= 1.2 ? '' : 'bad'}">${m.twr.toFixed(2)}</b></div><div><small>Launch success</small><b>${pct(odds)}</b></div>
-      ${s.recovery !== 'expend' ? `<div><small>Landing (auto)</small><b>${pct(lodds)}</b></div>` : ''}
+      ${s.recovery !== 'expend' && s.landing === 'auto' ? `<div><small>Landing (auto)</small><b>${pct(lodds)}</b></div>` : ''}
       ${m.tankers ? `<div><small>Tanker flights</small><b>${m.tankers} · ${money(tankCost)}</b></div>` : ''}</div>
       ${!m.canLift ? '<p class="small bad">Too heavy to leave the pad. Add engines or remove fuel.</p>' : !m.ok ? `<p class="small bad">Not enough delta-v${s.recovery !== 'expend' ? '. Try expending the booster, or' : '. Try'} a bigger rocket.${S.TARGETS[target].deep && !state.techs.refill ? ' Orbital Refilling research helps for Moon and Mars.' : ''}</p>` : ''}
       </div>`;
@@ -701,7 +703,7 @@
       case 'test': startLaunch(null, id); break;
       case 'l-veh': sheet.vehicleId = id; sheet.recovery = pickRecovery(sheet); renderSheet(); break;
       case 'l-rec': sheet.recovery = id; renderSheet(); break;
-      case 'l-land': sheet.landing = id; renderSheet(); break;
+      case 'l-land': sheet.landing = id; state.lastLanding = id; save(); renderSheet(); break;
       case 'l-up': sheet.upperReuse = id === '1'; renderSheet(); break;
       case 'launch': launch(); break;
       case 'flight-done': F.close(); flying = false; last = performance.now(); refresh(); break;
