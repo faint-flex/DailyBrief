@@ -129,7 +129,7 @@
     const alt = (view && view.alt) || 0;
     const R = A.R;
     H.u.uAltM.value = alt * 1000;
-    H.u.uHazeBoost.value = sstep(3, 30, alt) * 0.85;
+    H.u.uHazeBoost.value = sstep(6, 30, alt) * 0.6;
     const fade = typeof A.earthBlend === 'function' ? 1 - A.earthBlend(alt) : 1 - sstep(8, 26, alt);
     H.u.uGroundFade.value = fade;
     const wantT = fade < 0.999;
@@ -191,7 +191,7 @@ float lagDist(vec2 p){ if (uLag.w < 0.5) return -1e5; vec2 n = uCoast.xy; vec2 t
   #endif
   hzC = linearToOutputTexel(vec4(hzC, 1.0)).rgb;
   gl_FragColor.rgb = mix(gl_FragColor.rgb, hzC, hzF);
-  gl_FragColor.a *= uGroundFade;
+  gl_FragColor.a *= uGroundFade * (1.0 - smoothstep(25000.0, 50000.0, length(hzRel.xz)));
 }`;
 
   // Adds height-aware haze matching the sky to a MeshStandardMaterial.
@@ -283,14 +283,15 @@ void main(){
   float amb = dot(uAmb, vec3(0.3, 0.5, 0.2));
   vec3 deep = vec3(0.006, 0.032, 0.058) * amb * 2.2;
   float sd = seaDist(p); float ld = lagDist(p);
+  if (uCoast.w > 0.5 && max(sd, ld) < -max(8.0, L * 0.004) && L < 18000.0) discard; // land covers it
   float shallow = (1.0 - smoothstep(0.0, 120.0, sd)) * step(-1e4, sd);
   vec3 body = mix(deep, vec3(0.05, 0.16, 0.14) * amb * 2.2, shallow * 0.9);
   if (ld > -1e4) body = mix(body, vec3(0.03, 0.07, 0.05) * amb * 2.2, smoothstep(-40.0, 30.0, ld) * 0.7);
   vec3 sunL = normalize(uSunDir);
   body += uSunCol * 0.04 * crest * max(dot(N, sunL) * 0.5 + 0.5, 0.0);
-  vec3 col = mix(body, sky, F);
-  float rough = mix(1400.0, 140.0, smoothstep(100.0, 9000.0, L));
-  float sp = pow(max(dot(Rf, sunL), 0.0), rough) * rough * 0.06;
+  vec3 col = mix(body, sky * mix(0.85, 0.6, smoothstep(2000.0, 12000.0, L)), F);
+  float rough = mix(1600.0, 500.0, smoothstep(100.0, 9000.0, L));
+  float sp = pow(max(dot(Rf, sunL), 0.0), rough) * rough * 0.03;
   col += uSunCol * sp * 2.0;
   // shore foam
   if (sd > -1e4) {
@@ -301,12 +302,12 @@ void main(){
     col = mix(col, (uAmb * 1.1 + uSunCol * 0.25), foam * 0.85);
   }
   // sparse whitecaps
-  float wc = smoothstep(0.86, 0.97, crest + vnoise(p * 0.03 + uTime * 0.05) * 0.25) * (1.0 - smoothstep(300.0, 2500.0, L)) * uFoamOn;
+  float wc = smoothstep(0.9, 0.98, crest + vnoise(p * 0.03 + uTime * 0.05) * 0.2) * smoothstep(60.0, 250.0, L) * (1.0 - smoothstep(600.0, 2500.0, L)) * uFoamOn;
   wc *= smoothstep(0.45, 0.8, w3.b) * smoothstep(0.3, 0.7, w2.b);
-  col = mix(col, uAmb * 1.1 + uSunCol * 0.2, wc * 0.5);
+  col = mix(col, uAmb * 1.1 + uSunCol * 0.2, wc * 0.35);
   float hf = hazeAmt(rel);
   col = mix(col, hazeCol(rel), hf);
-  gl_FragColor = vec4(col, uGroundFade);
+  gl_FragColor = vec4(col, uGroundFade * (1.0 - smoothstep(40000.0, 140000.0, length(rel.xz))));
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }`;
@@ -426,7 +427,9 @@ vec3 terrainAlbedo(vec2 p, float L){
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWP;')
         .replace('#include <project_vertex>', '#include <project_vertex>\nvWP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
       sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + TERRAIN_FRAG)
-        .replace('#include <map_fragment>', 'diffuseColor.rgb *= terrainAlbedo(vWP.xz, length(vWP - cameraPosition)) * 1.45;');
+        .replace('#include <map_fragment>', `float tL = length(vWP - cameraPosition);
+if (max(seaDist(vWP.xz), lagDist(vWP.xz)) > max(4.0, tL * 0.004)) discard;
+diffuseColor.rgb *= terrainAlbedo(vWP.xz, tL) * 1.45;`);
     }, 'terrain');
     H.groundMats.add(mat);
     return mat;
@@ -571,7 +574,7 @@ vec3 terrainAlbedo(vec2 p, float L){
       const yy = typeof y === 'function' ? y(P[i][0], P[i][1]) : y;
       pos.push(P[i][0] - dz * width / 2, yy + 0.06, P[i][1] + dx * width / 2, P[i][0] + dz * width / 2, yy + 0.06, P[i][1] - dx * width / 2);
       uv.push(0, len / 40, 1, len / 40);
-      if (i > 0) { const k = (i - 1) * 2; idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); }
+      if (i > 0) { const k = (i - 1) * 2; idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3); }
     }
     const g = new T.BufferGeometry();
     g.setAttribute('position', new T.Float32BufferAttribute(pos, 3));
@@ -748,9 +751,6 @@ vec3 terrainAlbedo(vec2 p, float L){
       // wing walls down the slope
       const ww = new T.Mesh(new T.BoxGeometry(Math.hypot(slope, top), 1.6, 1.6), em.concreteDark);
       ww.position.set(half + slope / 2, top / 2 - 0.4, s * (tw / 2 + 0.8)); ww.rotation.z = -Math.atan2(top, slope); g.add(ww);
-      // side fill (hide hill faces inside trench mouth)
-      const wf = new T.Mesh(new T.BoxGeometry(slope, top, 0.8), hillMat);
-      wf.position.set(half + slope / 2, top / 2 - 0.2, s * (tw / 2 + 2.0)); g.add(wf);
     }
     box(g, 1.6, top - floorY, tw, em.concreteDark, x0 - 0.8, floorY + (top - floorY) / 2, 0, false);
     // flame deflector wedge

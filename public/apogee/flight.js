@@ -343,6 +343,7 @@
           else fx.exhaust(noz, dir, pw, ak, rk.r || st.r, fdt);
         }
       });
+      if (t < COUNT + TPAD && A.prepareEarth) safe(() => A.prepareEarth());
       // pre-launch venting
       if (fx && t < COUNT && !dead) {
         const r = geo.d / 2;
@@ -602,12 +603,12 @@
       const xMax = Math.max(b.x + 10, padX + padHalf + 10);
       // Ground sits ~30% up from the bottom (clear of the touch controls); booster top stays in view.
       const Wc = xMax - xMin;
-      const need = Math.max(st1H * 2.4, top - bottom) / 1.26;
+      const need = Math.max(st1H * 2.4, top - bottom) / 1.02;
       const dFit = Math.max(need / tanH, (Wc / 2) / (tanH * asp)) * 1.08;
       const dMax = st1H / (0.13 * 2 * tanH); // keep the booster at least ~13% of screen height
       const d = Math.min(dFit, dMax);
       const hv = d * tanH, hw = hv * asp;
-      const cy = Math.max(bottom + hv * 0.4, top - hv * 0.86);
+      const cy = Math.max(bottom + hv * 0.4, top - hv * 0.62);
       let cx = (xMin + xMax) / 2;
       cx = clamp(cx, b.x - hw * 0.7, b.x + hw * 0.7);
       const k = camS.init ? 1 - Math.exp(-dt * 3) : 1;
@@ -754,7 +755,7 @@
     function drawBar() {
       if (!hands || outcome) return;
       const g = octx;
-      const bw = Math.min(W - 40, 460), x0 = (W - bw) / 2, y = H - (W < 600 ? 150 : 158);
+      const bw = Math.min(W - 40, 460), x0 = (W - bw) / 2, y = W < 600 ? 128 : 100;
       const span = 160;
       const toX = (m) => x0 + bw / 2 + clamp(m / span, -1, 1) * (bw / 2 - 12);
       const dx = b.x - padX;
@@ -935,7 +936,7 @@
     setup();
     fade = 1;
     // Build the Earth now (it is used once the rocket is high) so staging does not stutter.
-    if (gl) safe(() => { const A = A3(); if (A.buildEarth) A.buildEarth(); });
+    if (gl) safe(() => { const A = A3(); if (A.prepareEarth) A.prepareEarth(); else if (A.buildEarth) A.buildEarth(); });
     results = {};
     queue = [
       () => ascent(plan),
