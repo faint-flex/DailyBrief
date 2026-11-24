@@ -11,8 +11,8 @@
   const T = window.THREE;
   if (!A || !T) return;
 
-  const SUN_ELEV = 7.5, SUN_AZIM = -35; // degrees
-  const SKY = { turbidity: 6, rayleigh: 1.6, mie: 0.0055, g: 0.86 };
+  const SUN_ELEV = 7, SUN_AZIM = -35; // degrees
+  const SKY = { turbidity: 4, rayleigh: 1.6, mie: 0.0045, g: 0.85 };
 
   // ---------- helpers ----------
   function rand(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
@@ -216,12 +216,12 @@ float lagDist(vec2 p){ if (uLag.w < 0.5) return -1e5; vec2 n = uCoast.xy; vec2 t
       const r = rand(11);
       for (let i = 0; i < 1400; i++) { const v = r(); g.fillStyle = `rgba(${v > 0.5 ? '255,250,240' : '40,38,34'},${r() * 0.09})`; g.fillRect(r() * w, r() * w, 1 + r() * 6, 1 + r() * 6); }
       for (let i = 0; i < 30; i++) { g.fillStyle = `rgba(60,55,45,${r() * 0.08})`; g.beginPath(); g.arc(r() * w, r() * w, 6 + r() * 30, 0, 6.3); g.fill(); }
-      g.strokeStyle = 'rgba(50,48,44,0.35)'; g.lineWidth = 1.5;
+      g.strokeStyle = 'rgba(50,48,44,0.16)'; g.lineWidth = 1;
       for (let k = 0; k <= 4; k++) { g.beginPath(); g.moveTo(k * w / 4, 0); g.lineTo(k * w / 4, w); g.moveTo(0, k * w / 4); g.lineTo(w, k * w / 4); g.stroke(); }
     });
     concTex.wrapS = concTex.wrapT = T.RepeatWrapping;
     const cladTex = canvasTex(64, 64, (g, w) => {
-      g.fillStyle = '#d9d6cf'; g.fillRect(0, 0, w, w);
+      g.fillStyle = '#c4c1ba'; g.fillRect(0, 0, w, w);
       for (let x = 0; x < w; x += 4) { g.fillStyle = 'rgba(0,0,0,0.09)'; g.fillRect(x, 0, 1.5, w); }
     });
     cladTex.wrapS = cladTex.wrapT = T.RepeatWrapping;
@@ -232,7 +232,7 @@ float lagDist(vec2 p){ if (uLag.w < 0.5) return -1e5; vec2 n = uCoast.xy; vec2 t
       scorched: stdMat({ color: 0x3a3835, roughness: 1 }),
       steel: stdMat({ color: 0x7d8288, roughness: 0.5, metalness: 0.65 }),
       steelDark: stdMat({ color: 0x4a4e54, roughness: 0.55, metalness: 0.6 }),
-      white: stdMat({ color: 0xe8e6e0, roughness: 0.55, metalness: 0.1 }),
+      white: stdMat({ color: 0xcfccc4, roughness: 0.55, metalness: 0.1 }),
       clad: stdMat({ color: 0xffffff, map: cladTex, roughness: 0.7, metalness: 0.2 }),
       roof: stdMat({ color: 0xa6a8a8, roughness: 0.5, metalness: 0.6 }),
       orange: stdMat({ color: 0xc8682a, roughness: 0.55, metalness: 0.4 }),
@@ -302,7 +302,8 @@ void main(){
   }
   // sparse whitecaps
   float wc = smoothstep(0.86, 0.97, crest + vnoise(p * 0.03 + uTime * 0.05) * 0.25) * (1.0 - smoothstep(300.0, 2500.0, L)) * uFoamOn;
-  col = mix(col, uAmb * 1.1 + uSunCol * 0.2, wc * 0.45);
+  wc *= smoothstep(0.45, 0.8, w3.b) * smoothstep(0.3, 0.7, w2.b);
+  col = mix(col, uAmb * 1.1 + uSunCol * 0.2, wc * 0.5);
   float hf = hazeAmt(rel);
   col = mix(col, hazeCol(rel), hf);
   gl_FragColor = vec4(col, uGroundFade);
@@ -387,10 +388,11 @@ vec3 terrainAlbedo(vec2 p, float L){
   float midW = 1.0 - smoothstep(2500.0, 12000.0, L);
   float n1 = vnoise(p * 0.0035), n2 = vnoise(p * 0.017 + 7.0), n3 = vnoise(p * 0.09 + 3.0), n4 = vnoise(p * 0.5);
   float n5 = vnoise(p * 0.0009 + 11.0);
-  vec3 scrubG = vec3(0.052, 0.058, 0.034), scrubB = vec3(0.110, 0.092, 0.060), soil = vec3(0.24, 0.20, 0.14), grass = vec3(0.075, 0.085, 0.040);
+  vec3 scrubG = vec3(0.052, 0.058, 0.034), scrubB = vec3(0.110, 0.092, 0.060), soil = vec3(0.115, 0.095, 0.065), grass = vec3(0.075, 0.085, 0.040);
   vec3 c = mix(scrubG, scrubB, smoothstep(0.3, 0.8, n1 * 0.7 + n5 * 0.3));
   c = mix(c, grass, smoothstep(0.45, 0.8, n2) * 0.55);
-  c = mix(c, soil, smoothstep(0.66, 0.9, mix(0.5, n3, midW)) * 0.6);
+  c *= mix(1.0, 0.65 + 0.7 * smoothstep(0.2, 0.8, vnoise(p * 0.006 + 3.0)), midW);
+  c = mix(c, soil, smoothstep(0.7, 0.92, mix(0.5, n3, midW)) * 0.5);
   float n6 = vnoise(p * 2.7); float n7 = vnoise(p * 9.0);
   c *= 0.8 + 0.4 * mix(0.5, n4, fineW) * mix(1.0, n3 + 0.5, fineW * 0.5);
   float vf = 1.0 - smoothstep(25.0, 140.0, L); c *= mix(1.0, 0.65 + 0.45 * n6 + 0.25 * (n7 - 0.5), vf);
@@ -408,7 +410,7 @@ vec3 terrainAlbedo(vec2 p, float L){
     vec4 cl = uClear[i];
     if (cl.z > 0.0) {
       float dd = length(p - cl.xy) - cl.z + (n2 - 0.5) * 26.0;
-      vec3 grav = mix(vec3(0.34, 0.31, 0.26), vec3(0.24, 0.21, 0.16), n3) * (0.85 + 0.3 * mix(0.5, n4, fineW));
+      vec3 grav = mix(vec3(0.17, 0.16, 0.14), vec3(0.12, 0.11, 0.09), n3) * (0.85 + 0.3 * mix(0.5, n4, fineW));
       c = mix(c, grav, (1.0 - smoothstep(-6.0, 22.0, dd)) * cl.w);
     }
   }
@@ -424,7 +426,7 @@ vec3 terrainAlbedo(vec2 p, float L){
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWP;')
         .replace('#include <project_vertex>', '#include <project_vertex>\nvWP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
       sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + TERRAIN_FRAG)
-        .replace('#include <map_fragment>', 'diffuseColor.rgb *= terrainAlbedo(vWP.xz, length(vWP - cameraPosition));');
+        .replace('#include <map_fragment>', 'diffuseColor.rgb *= terrainAlbedo(vWP.xz, length(vWP - cameraPosition)) * 1.45;');
     }, 'terrain');
     H.groundMats.add(mat);
     return mat;
@@ -515,11 +517,11 @@ vec3 terrainAlbedo(vec2 p, float L){
       const y = hf(x, z);
       const tree = rr() < 0.17 && t < treesN;
       if (tree) {
-        const h = 6 + rr() * 9;
+        const h = 4 + rr() * 6;
         m4.compose(new T.Vector3(x, y + h * 0.5, z), q.identity(), new T.Vector3(1 + h * 0.03, h, 1 + h * 0.03)); trunks.setMatrixAt(t, m4);
-        const cs = 2.2 + rr() * 2.2;
+        const cs = 2.6 + rr() * 2.6;
         q.setFromEuler(new T.Euler(0, rr() * 6, 0));
-        m4.compose(new T.Vector3(x, y + h + cs * 0.2, z), q, new T.Vector3(cs * 1.3, cs * 0.75, cs * 1.3)); crowns.setMatrixAt(t, m4);
+        m4.compose(new T.Vector3(x, y + h + cs * 0.1, z), q, new T.Vector3(cs * 1.5 * (0.8 + rr() * 0.4), cs * 0.55, cs * 1.5)); crowns.setMatrixAt(t, m4);
         col.setRGB(0.035 + rr() * 0.02, 0.045 + rr() * 0.02, 0.022); crowns.setColorAt(t, col);
         t++;
       } else if (b < n) {
@@ -714,7 +716,7 @@ vec3 terrainAlbedo(vec2 p, float L){
   }
 
   // ---------- launch site ----------
-  const LAUNCH_COAST = { nx: 0.2, nz: 0.98, c: 520, lag: [-2900, 260, 520] }; // sea toward +z (east), matches the Earth scene
+  const LAUNCH_COAST = { nx: 0.2, nz: 0.98, c: 520, lag: [-3400, 260, 300] }; // sea toward +z (east), matches the Earth scene
 
   function padHill(g, top, half, slope, trench) {
     // Raised pad hill: concrete plateau with grass slopes; a trench gap is left open on +x.
@@ -722,7 +724,7 @@ vec3 terrainAlbedo(vec2 p, float L){
     const outer = half + slope;
     const shape = new T.Shape();
     shape.moveTo(-outer, -outer); shape.lineTo(outer, -outer); shape.lineTo(outer, outer); shape.lineTo(-outer, outer); shape.closePath();
-    const hillMat = stdMat({ color: 0x55553f, roughness: 1 });
+    const hillMat = stdMat({ color: 0x7a7458, roughness: 1 });
     // four sloped sides as frustum pieces
     const sides = new T.Mesh(new T.CylinderGeometry(half * Math.SQRT2, outer * Math.SQRT2, top, 4, 1, true), hillMat);
     sides.rotation.y = Math.PI / 4; sides.position.y = top / 2; sides.receiveShadow = true; g.add(sides);
@@ -811,6 +813,17 @@ vec3 terrainAlbedo(vec2 p, float L){
     const mountH = Math.max(7, geo.d * 1.25);
     launchMount(props, geo, top, mountH);
     const padTop = top + mountH;
+    {
+      const sc = canvasTex(256, 256, (c, w) => {
+        const r = rand(3);
+        const gr = c.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2);
+        gr.addColorStop(0, 'rgba(15,12,10,0.85)'); gr.addColorStop(0.45, 'rgba(25,22,18,0.5)'); gr.addColorStop(1, 'rgba(30,26,20,0)');
+        c.fillStyle = gr; c.fillRect(0, 0, w, w);
+        for (let i = 0; i < 120; i++) { const a = r() * 6.3, d = r() * w * 0.45; c.fillStyle = `rgba(10,8,6,${r() * 0.25})`; c.beginPath(); c.ellipse(w / 2 + Math.cos(a) * d, w / 2 + Math.sin(a) * d, 3 + r() * 14, 1 + r() * 4, a, 0, 6.3); c.fill(); }
+      });
+      const dec = new T.Mesh(new T.PlaneGeometry(geo.d * 9 + 30, geo.d * 9 + 30), stdMat({ map: sc, transparent: true, depthWrite: false, roughness: 1, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+      dec.rotation.x = -Math.PI / 2; dec.position.set(geo.d, top + 0.02, 0); dec.receiveShadow = true; props.add(dec);
+    }
 
     // tower
     const towW = Math.max(8, geo.d * 1.05);
@@ -879,9 +892,8 @@ vec3 terrainAlbedo(vec2 p, float L){
       const hx = -330, hz = -150, L = 120, W = 54, Hh = 24;
       const hall = box(props, L, Hh, W, em.clad, hx, Hh / 2, hz);
       const uv = hall.geometry.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 10, uv.getY(i) * 2);
-      const roof = new T.Mesh(new T.CylinderGeometry(W / 2, W / 2, L, 24, 1, false, -Math.PI / 2, Math.PI), em.roof);
-      roof.rotation.z = Math.PI / 2; roof.scale.set(1, 1, 0.28); roof.position.set(hx, Hh, hz);
-      roof.rotation.order = 'ZXY'; roof.castShadow = true; props.add(roof);
+      const roof = new T.Mesh(new T.CylinderGeometry(W / 2, W / 2, L, 24, 1, false, 0, Math.PI), em.roof);
+      roof.rotation.z = Math.PI / 2; roof.scale.set(0.3, 1, 1); roof.position.set(hx, Hh, hz); roof.castShadow = true; props.add(roof);
       box(props, 0.4, Hh * 0.85, W * 0.8, em.steelDark, hx + L / 2 + 0.2, Hh * 0.425, hz, false); // big door
       box(props, 40, 9, 18, em.white, hx - 20, 4.5, hz + W / 2 + 14);
       box(props, 40.4, 1.2, 0.3, em.glass, hx - 20, 6, hz + W / 2 + 23.1, false);

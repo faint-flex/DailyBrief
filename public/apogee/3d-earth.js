@@ -122,7 +122,7 @@
   ${GLSL_SNOISE}
   float elevation(vec3 g) {
     vec3 w = vec3(fbm(g * 1.4 + 3.0, 4), fbm(g * 1.4 + 11.0, 4), fbm(g * 1.4 + 23.0, 4));
-    float e = fbm(g * 1.15 + w * 0.9, 7) + 0.10;
+    float e = fbm(g * 1.15 + w * 0.9, 7) + 0.04;
     e += 0.18 * ridged(g * 3.0 + w, 5) - 0.09;
     // keep the launch site on a north-south coast: land to the west, ocean to the east
     vec3 d = g - uSite; float r2 = dot(d, d);
@@ -344,7 +344,7 @@
         vec3 sh = normalize(n + (uSun - n * mu) * (${CLOUD_H.toFixed(1)} / PR) / max(mu, 0.2));
         float cs = texture2D(uTexB, geoUV(cloudDir(uGeo * sh))).r;
         sunL *= 1.0 - 0.55 * cs;
-        vec3 sky = uSunI * vec3(0.010, 0.020, 0.040) * smoothstep(-0.15, 0.3, mu);
+        vec3 sky = uSunI * vec3(0.010, 0.020, 0.040) * smoothstep(-0.15, 0.3, mu) + vec3(0.002, 0.003, 0.005);
         vec3 col = alb * (sunL * pow(max(mu, 0.0), 0.6) * 1.3 + sky) / 3.14159;
         // ocean sun glint (wide, wind-roughened)
         vec3 v = -rd; vec3 hv = normalize(uSun + v);
@@ -415,7 +415,7 @@
 
     // --- atmosphere shell (rays that miss the ground: blue limb, and the sky once the ground sky has faded) ---
     const atmoMat = new T.ShaderMaterial({
-      defines, uniforms, vertexShader: VS, side: T.BackSide, transparent: true, depthWrite: false, blending: T.AdditiveBlending,
+      defines: { NSTEP: small ? 10 : 14 }, uniforms, vertexShader: VS, side: T.BackSide, transparent: true, depthWrite: false, blending: T.AdditiveBlending,
       fragmentShader: `
       uniform vec3 uCam; uniform float uSkyW;
       varying vec3 vP;
@@ -428,6 +428,9 @@
         if (gt.x > 0.0 && gt.x < 1e8) t1 = gt.x;
         vec3 tr;
         vec3 ins = scatter(uCam, rd, t0, t1, false, tr);
+        // faint night airglow so the limb stays visible on the night side
+        float odR = -log(max(tr.b, 1e-4)) / BR.b;
+        ins += vec3(0.05, 0.10, 0.16) * 0.004 * min(odR, 120.0) * smoothstep(0.1, -0.3, dot(normalize(uCam + rd * 0.5 * (t0 + t1)), uSun));
         gl_FragColor = vec4(ins * uSkyW, 1.0);
         ${FS_TAIL}
       }`,

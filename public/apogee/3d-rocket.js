@@ -54,14 +54,14 @@
     M.rk_white = new T.MeshStandardMaterial({ color: 0xeeeeea, roughness: 0.55, metalness: 0 });
     M.rk_heat = new T.MeshStandardMaterial({ color: 0x1d1b1a, roughness: 0.9, metalness: 0.1 });
     // grid fin lattice (diagonal waffle), alpha-tested
-    const c = canvas(128, 128), g = c.getContext('2d');
-    g.fillStyle = '#000'; g.fillRect(0, 0, 128, 128);
-    g.strokeStyle = '#fff'; g.lineWidth = 5;
-    for (let k = -128; k <= 256; k += 21) {
-      g.beginPath(); g.moveTo(k, 0); g.lineTo(k + 128, 128); g.stroke();
-      g.beginPath(); g.moveTo(k, 128); g.lineTo(k + 128, 0); g.stroke();
+    const c = canvas(256, 256), g = c.getContext('2d');
+    g.fillStyle = '#000'; g.fillRect(0, 0, 256, 256);
+    g.strokeStyle = '#fff'; g.lineWidth = 9;
+    for (let k = -256; k <= 512; k += 34) {
+      g.beginPath(); g.moveTo(k, 0); g.lineTo(k + 256, 256); g.stroke();
+      g.beginPath(); g.moveTo(k, 256); g.lineTo(k + 256, 0); g.stroke();
     }
-    g.lineWidth = 10; g.strokeRect(0, 0, 128, 128);
+    g.lineWidth = 18; g.strokeRect(0, 0, 256, 256);
     const at = new T.CanvasTexture(c);
     M.rk_lattice = new T.MeshStandardMaterial({ color: 0x5f636a, roughness: 0.42, metalness: 0.9, side: T.DoubleSide, alphaMap: at, alphaTest: 0.5 });
     // base heat shield blanket
@@ -316,7 +316,7 @@
     },
     Methane: {
       core: [0.9, 0.92, 1.0], mid: [0.48, 0.5, 1.0], edge: [1.0, 0.45, 0.16], dia: [1.0, 0.86, 1.0],
-      jetB: 0.45, outB: 0.18, diaK: 1.0, len: 0.85, jetFrac: 0.62, spread: 2.8, turb: 0.45,
+      jetB: 0.45, outB: 0.24, diaK: 1.0, len: 0.85, jetFrac: 0.62, spread: 2.8, turb: 0.45,
       light: 0xffd6c0, lightK: 0.6, glow: 0xe6dcff, halo: [0.85, 0.82, 1.0], haloK: 0.9,
     },
   };
@@ -364,13 +364,13 @@
     '    float dia = smoothstep(1.0 - w*0.8, 1.0 - w*0.8 + 0.12, face) * fadeD;',
     '    float disk = exp(-pow((ph - 0.04)*16.0, 2.0)) * smoothstep(0.35, 0.9, face) * fadeD * 0.7;',
     '    float body = pow(max(0.0, 1.0 - t), mix(1.9, 1.3, uExpand)) * pow(face, 1.4) * mix(0.85 + 0.3*n, 1.0, 0.4);',
-    '    col = mix(uMid, uCore, clamp(face*1.3*(1.0 - t*0.7), 0.0, 1.0)) * body * mix(1.0, 1.6, uExpand);',
+    '    col = mix(uMid, uCore, clamp(face*1.3*(1.0 - t*0.7), 0.0, 1.0)) * body * mix(1.0, 0.7, uExpand);',
     '    col += uDia * (dia + disk) * uDiaK;',
     '    col *= uBright * startK;',
     '  } else {',
     '    float fall = pow(max(0.0, 1.0 - t), mix(1.15, 1.5, uExpand));',
-    '    float f = pow(face, mix(1.1, 2.4, uExpand));',
-    '    float I = fall * f * turb * mix(1.0, 2.2, uExpand);',
+    '    float f = pow(face, mix(1.1, 0.7, uExpand));',
+    '    float I = fall * f * turb * mix(1.0, 1.5, uExpand);',
     '    col = mix(uEdge, uMid, smoothstep(0.12, 0.85, face));',
     '    col = mix(col, uCore, (1.0 - t) * face * 0.35 * (1.0 - uExpand));',
     '    col *= I * uBright * startK;',
@@ -618,12 +618,11 @@
       if (o.crew) {
         // trunk + capsule always visible; the "fairing" is the hinged nose cap that flight.js can jettison
         const cr = r * 0.97;
-        const tH = nh * 0.26, shH = nh * 0.035, cH = nh * 0.42;
+        const tH = nh * 0.24, shH = nh * 0.035, cH = nh * 0.5;
         const trunkC = canvas(512, 128), tg = trunkC.getContext('2d');
         tg.fillStyle = '#e9e9e5'; tg.fillRect(0, 0, 512, 128);
         tg.fillStyle = '#1a2440'; tg.fillRect(256, 10, 256, 108);
         tg.strokeStyle = 'rgba(180,190,210,.4)'; for (let x = 256; x < 512; x += 8) { tg.beginPath(); tg.moveTo(x, 10); tg.lineTo(x, 118); tg.stroke(); }
-        tg.fillStyle = accent; tg.fillRect(0, 118, 512, 10);
         const trunk = new T.Mesh(new T.CylinderGeometry(cr, r, tH, SEG, 1, true), stdMat({ map: tex(trunkC, true), roughness: 0.5, metalness: 0.1 }));
         trunk.position.y = tH / 2; trunk.castShadow = true; payload.add(trunk);
         const shield = new T.Mesh(new T.CylinderGeometry(cr * 1.01, cr * 1.01, shH, SEG), m.rk_heat);
@@ -631,17 +630,17 @@
         const capC = canvas(512, 256), cg = capC.getContext('2d');
         cg.fillStyle = '#f1f0ec'; cg.fillRect(0, 0, 512, 256);
         blotch(cg, 512, 256, 12, 20, 0.05);
-        for (let k = 0; k < 4; k++) { // windows
-          cg.fillStyle = '#0d1018'; cg.beginPath(); cg.ellipse(64 + k * 128, 150, 14, 18, 0, 0, TAU); cg.fill();
-          cg.strokeStyle = '#555'; cg.lineWidth = 3; cg.stroke();
+        for (let k = 0; k < 4; k++) { // a row of small portholes
+          cg.fillStyle = '#0d1018'; cg.beginPath(); cg.ellipse(214 + k * 28, 155, 8, 6, 0, 0, TAU); cg.fill();
+          cg.strokeStyle = '#6a6d74'; cg.lineWidth = 2; cg.stroke();
         }
         cg.fillStyle = 'rgba(30,32,38,.85)'; // thruster pod cutouts
-        for (let k = 0; k < 4; k++) cg.fillRect(k * 128, 200, 30, 26);
-        cg.fillStyle = '#1b1f29'; cg.font = '900 22px -apple-system, Arial, sans-serif'; cg.textAlign = 'center';
-        cg.fillText('A P O G E E', 256, 105);
+        for (let k = 0; k < 4; k++) cg.fillRect(k * 128 + 40, 184, 24, 8);
+        cg.fillStyle = 'rgba(40,44,52,.5)'; cg.fillRect(0, 60, 512, 2); // hatch / panel line
+        cg.strokeStyle = 'rgba(40,44,52,.5)'; cg.strokeRect(330, 140, 50, 30);
         const capProf = [[cr, 0], [cr * 0.98, cH * 0.05], [cr * 0.62, cH * 0.82], [cr * 0.55, cH * 0.92], [cr * 0.42, cH]];
         const capsule = new T.Mesh(lathe(capProf, SEG), stdMat({ map: tex(capC, true), roughness: 0.45, metalness: 0.05 }));
-        capsule.position.y = tH + shH; capsule.castShadow = true; payload.add(capsule);
+        capsule.position.y = tH + shH; capsule.rotation.y = Math.PI; capsule.castShadow = true; payload.add(capsule);
         const port = new T.Mesh(new T.CylinderGeometry(cr * 0.28, cr * 0.32, nh * 0.03, 20), m.rk_metal);
         port.position.y = tH + shH + cH + nh * 0.015; payload.add(port);
         // nose cap halves
@@ -752,7 +751,7 @@
     const F = st.F;
     const ex = st.vac ? Math.max(plume, 0.85) : Math.max(0, Math.min(1, plume));
     const flick = 1 + 0.035 * Math.sin(time * 37 + st.seed) + 0.025 * Math.sin(time * 91 + st.seed * 3) + (Math.random() - 0.5) * 0.04;
-    const len = (st.r * 7 + 12) * F.len * (0.35 + 0.65 * power) * (1 + ex * 1.8) * flick;
+    const len = (st.r * 8.5 + 13) * F.len * (0.35 + 0.65 * power) * (1 + ex * 1.8) * flick;
     const w = st.footprint * (st.engines > 1 ? 1.08 : 1.0) * (1 + ex * 0.3);
     st.og.scale.set(w, len, w);
     st.ig.scale.set(1, len * F.jetFrac * (1 - ex * 0.25) * (0.8 + 0.2 * flick), 1);
@@ -764,7 +763,7 @@
     hm.uSize.value = (st.r * 2.6 + 2) * (1 + ex * 0.8);
     hm.uScale.value = (A.R && A.R.pointScale) || 800;
     hm.uMin.value = 9 * ((A.R && A.R.renderer && A.R.renderer.getPixelRatio()) || 1);
-    hm.uI.value = power * F.haloK * (1 - ex * 0.35) * flick;
+    hm.uI.value = power * F.haloK * (1 - ex * 0.6) * flick;
     st.light.intensity = 1.8e4 * Math.sqrt(st.engines) * F.lightK * power * flick * (1 - ex * 0.6);
   }
 
