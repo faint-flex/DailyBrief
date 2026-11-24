@@ -621,7 +621,7 @@
       sHTML += '</div>';
       if (!own && price != null && ss.open) sHTML += `<button class="btn primary sm" data-cp="buy" data-x="${x}" data-y="${y}" ${st.cash < price ? 'disabled' : ''}>Buy plot · ${money(price)}</button>`;
     } else if (ui.mode === 'buy') sHTML = `<div class="grow">🏷️ <b>Buy land:</b> tap any plot with a 🏷 sign post to buy it. Plots next to a road cost 20% more. Each plot you own at a site makes the next one 3% pricier.</div>`;
-    else sHTML = `<div class="grow">🔍 Tap a plot or building to see it. Drag to move the map, pinch or scroll to zoom. Your land has a fence ┄ around it.</div>`;
+    else sHTML = `<div class="grow">🔍 Tap a plot or building to see it. Drag to move the map, pinch or scroll to zoom, right-drag or two-finger twist (or ⟲ ⟳) to rotate. Your land has a fence ┄ around it.</div>`;
     setH(q('.cp-status'), sHTML);
 
     // Palette
