@@ -33,7 +33,7 @@
 
   const TECHS = {
     legs:      { name: 'Landing Legs & Grid Fins', rp: 30,  req: [],               desc: 'Boosters can fly back and land at the pad, then fly again.' },
-    fairing:   { name: 'Fairing Recovery',         rp: 25,  req: [],               desc: 'Fish the nose fairing out of the ocean. Fairings cost 80% less.' },
+    fairing:   { name: 'Fairing Recovery',         rp: 25,  req: [],               desc: 'A ship catches the two fairing halves as they float down under parafoils. Caught halves make your next fairing up to 80% cheaper.' },
     lighttanks:{ name: 'Al-Li Tanks',              rp: 35,  req: [],               desc: 'Lighter tank walls: 20% less tank dry mass.' },
     barge:     { name: 'Ocean Landing Barge',      rp: 50,  req: ['legs'],         desc: 'Land boosters downrange at sea. Much less fuel held back. Buy the barge on the Base tab.' },
     rapid:     { name: 'Rapid Turnaround',         rp: 70,  req: ['legs'],         desc: 'Refurbishing a booster costs 4% (not 10%), takes 3 days, and landings are more reliable.' },
@@ -88,7 +88,8 @@
     return eng.cost * st.count + st.prop * tankCostPerTon(techs) + 0.8 + (i === 0 ? 0 : 0.2);
   }
 
-  function fairingCost(techs) { return has(techs, 'fairing') ? 0.1 : 0.5; }
+  // Fairing recovery (rideshare.js): with the tech, each recovered half in stock (0-2 used) cuts 0.2 off the 0.5 fairing.
+  function fairingCost(techs, stock) { return has(techs, 'fairing') ? 0.5 - 0.2 * Math.max(0, Math.min(2, stock | 0)) : 0.5; }
 
   function designCost(design, techs) {
     return design.stages.reduce((s, st, i) => s + stageCost(st, techs, i), 0) + fairingCost(techs);
