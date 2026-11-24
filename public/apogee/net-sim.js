@@ -604,6 +604,10 @@
     return { ok: true, why: '' };
   }
 
+  // Research also costs science (late-game science sink).
+  for (const u of UPGRADES) u.sci = Math.round((u.cost || 0) * 3);
+  for (const x of DISHES.concat(ROUTERS)) x.sci = Math.round((x.cost || 0) * 5);
+  function paySci(state, n, ok) { if (!ok || !n) return; state.rp = Math.max(0, (state.rp || 0) - n); }
   // ---------- Public API ----------
   function canFound(state) {
     ensure(state);
@@ -664,7 +668,9 @@
         if (net.lab) return fail(`The lab is busy with ${UPG[net.lab.id].name}.`);
         const miss = u.req.filter((q) => !has(net, q));
         if (miss.length) return fail(`Needs ${miss.map((q) => UPG[q].name).join(', ')} first.`);
+        if ((state.rp || 0) < u.sci) return fail(`Needs ${u.sci} science.`);
         const r = pay(u.cost, `Researching ${u.name}: ready in ${u.days} days.`);
+        paySci(state, u.sci, r.ok);
         if (r.ok) net.lab = { id: u.id, done: state.day + u.days, start: state.day };
         return r;
       }
@@ -711,7 +717,9 @@
         const nx = list[net.hw[kind]];
         if (!nx) return fail(`Best ${kind} already designed.`);
         if (net.hwLab) return fail('The hardware lab is busy.');
+        if ((state.rp || 0) < nx.sci) return fail(`Needs ${nx.sci} science.`);
         const r = pay(nx.cost, `Designing ${nx.name}: ready in ${nx.days} days.`);
+        paySci(state, nx.sci, r.ok);
         if (r.ok) net.hwLab = { kind, level: nx.level, done: state.day + nx.days, start: state.day };
         return r;
       }

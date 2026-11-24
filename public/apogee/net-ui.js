@@ -467,10 +467,10 @@
     for (const u of ups) {
       if (done[u.id]) continue;
       const miss = (u.req || []).filter((q) => !done[q]);
-      const can = !lab && !miss.length && st.cash >= num(u.cost);
+      const can = !lab && !miss.length && st.cash >= num(u.cost) && (st.rp || 0) >= num(u.sci);
       const inLab = lab && lab.id === u.id;
       html += `<div class="tech net-tech"><div class="ic">${u.icon || '🔬'}</div><div class="grow"><b class="small">${esc(u.name)}</b><div class="small dim">${esc(u.desc || '')}</div>${miss.length ? `<div class="small bad">🔒 Needs ${esc(miss.map((q) => (ups.find((x) => x.id === q) || { name: q }).name).join(', '))}</div>` : ''}</div>
-        ${inLab ? '<span class="pill acc">⚙️ In lab</span>' : `<button class="btn sm ${can ? 'primary' : ''}" data-n="research" data-id="${esc(u.id)}" ${can ? '' : 'disabled'}>${G.money(num(u.cost))} · ${num(u.days)} d</button>`}</div>`;
+        ${inLab ? '<span class="pill acc">⚙️ In lab</span>' : `<button class="btn sm ${can ? 'primary' : ''}" data-n="research" data-id="${esc(u.id)}" ${can ? '' : 'disabled'}>${G.money(num(u.cost))}${u.sci ? ` · ${num(u.sci)} 🔬` : ''} · ${num(u.days)} d</button>`}</div>`;
     }
     const dl = ups.filter((u) => done[u.id]);
     if (dl.length) html += `<div class="small good" style="margin-top:6px">✓ Done: ${dl.map((u) => esc(u.name)).join(', ')}</div>`;
@@ -487,9 +487,9 @@
     const hwBtn = (kind, nx) => {
       if (!nx) return '<div class="small good" style="margin-top:6px">✓ Best design available</div>';
       if (lab && lab.kind === kind) return `<div class="small acc" style="margin-top:6px">⚙️ Designing ${esc(lab.name)} · ${lab.daysLeft} days left</div>`;
-      const can = !lab && st.cash >= num(nx.cost);
+      const can = !lab && st.cash >= num(nx.cost) && (st.rp || 0) >= num(nx.sci);
       return `<div class="net-hw-next small"><span class="acc">⬆ Next: <b>${esc(nx.name)}</b></span><div class="dim">${esc(nx.desc || '')}</div></div>
-        <div class="btns"><button class="btn sm ${can ? 'primary' : ''}" data-n="hw" data-id="${kind}" ${can ? '' : 'disabled'}>⬆ Design it · ${G.money(num(nx.cost))} · ${num(nx.days)} d</button></div>${lab ? '<div class="small dim">○ Hardware lab busy</div>' : ''}`;
+        <div class="btns"><button class="btn sm ${can ? 'primary' : ''}" data-n="hw" data-id="${kind}" ${can ? '' : 'disabled'}>⬆ Design it · ${G.money(num(nx.cost))}${nx.sci ? ` · ${num(nx.sci)} 🔬` : ''} · ${num(nx.days)} d</button></div>${lab ? '<div class="small dim">○ Hardware lab busy</div>' : ''}`;
     };
     const d = hw.dish || {}, r = hw.router || {};
     const kit = hw.kitCost || {};
