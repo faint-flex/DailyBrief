@@ -22,6 +22,8 @@
       <button data-tab="hangar"><span>🛠️</span>Hangar <kbd>3</kbd></button>
       <button data-tab="research"><span>🔬</span>Research <kbd>4</kbd></button>
       <button data-tab="base"><span>🏗️</span>Base <kbd>5</kbd></button>
+      <button data-tab="network"><span>🛰️</span>Network <kbd>6</kbd></button>
+      <button data-tab="ventures"><span>🚗</span>Ventures <kbd>7</kbd></button>
     </nav>
     <div class="stats">
       <div class="stat"><small>Day</small><b id="s-day">1</b></div>
@@ -42,6 +44,8 @@
     <section class="tab" id="tab-hangar"></section>
     <section class="tab" id="tab-research"></section>
     <section class="tab" id="tab-base"></section>
+    <section class="tab" id="tab-network"></section>
+    <section class="tab" id="tab-ventures"></section>
   </main>
 
 
@@ -66,6 +70,7 @@
   <div class="toast" id="toast" hidden></div>
 
   <script src="/apogee/sim.js"></script>
+  <script src="/apogee/net-sim.js"></script>
   <script src="/apogee/draw.js"></script>
   <script src="/apogee/vendor/three.min.js"></script>
   <script src="/apogee/vendor/sky.js"></script>
@@ -75,6 +80,12 @@
   <script src="/apogee/3d-earth.js"></script>
   <script src="/apogee/3d-fx.js"></script>
   <script src="/apogee/flight.js"></script>
+  <script src="/apogee/net-globe.js"></script>
+  <script src="/apogee/net-ui.js"></script>
+  <script src="/apogee/ventures.js"></script>
+  <script src="/apogee/ventures-ui.js"></script>
+  <script src="/apogee/campus.js"></script>
+  <script src="/apogee/campus-view.js"></script>
   <script src="/apogee/game.js"></script>
 </body>
 </html>
