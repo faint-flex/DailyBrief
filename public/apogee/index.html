@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0f1a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Apogee">
+  <link rel="manifest" href="/apogee/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/apogee/icon.svg">
+  <link rel="icon" href="/apogee/icon.svg" type="image/svg+xml">
+  <title>Apogee</title>
+  <link rel="stylesheet" href="/apogee/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><img src="/apogee/icon.svg" alt=""><span>APOGEE</span></div>
+    <nav class="tabs" id="tabs">
+      <button data-tab="ops"><span>🚀</span>Launch <kbd>1</kbd></button>
+      <button data-tab="contracts"><span>📋</span>Contracts <kbd>2</kbd></button>
+      <button data-tab="hangar"><span>🛠️</span>Hangar <kbd>3</kbd></button>
+      <button data-tab="research"><span>🔬</span>Research <kbd>4</kbd></button>
+      <button data-tab="base"><span>🏗️</span>Base <kbd>5</kbd></button>
+    </nav>
+    <div class="stats">
+      <div class="stat"><small>Day</small><b id="s-day">1</b></div>
+      <div class="stat"><small>Cash</small><b id="s-cash">$0M</b></div>
+      <div class="stat"><small>Rep</small><b id="s-rep">0</b></div>
+      <div class="stat"><small>Science</small><b id="s-rp">0</b></div>
+    </div>
+    <div class="speed" id="speed">
+      <button data-speed="0" aria-label="Pause (P)" title="Pause (P)">❚❚</button>
+      <button data-speed="1" aria-label="Normal speed">▶</button>
+      <button data-speed="5" aria-label="Fast">▶▶</button>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="tab" id="tab-ops"></section>
+    <section class="tab" id="tab-contracts"></section>
+    <section class="tab" id="tab-hangar"></section>
+    <section class="tab" id="tab-research"></section>
+    <section class="tab" id="tab-base"></section>
+  </main>
+
+
+  <div class="sheet-wrap" id="sheet-wrap" hidden>
+    <div class="sheet" id="sheet"></div>
+  </div>
+
+  <div class="flight" id="flight" hidden>
+    <canvas id="flight-canvas"></canvas>
+    <div class="hud" id="hud"></div>
+    <div class="banner" id="banner"></div>
+    <div class="pilot" id="pilot" hidden>
+      <button id="p-left" aria-label="Tilt left">◀</button>
+      <button id="p-burn">BURN</button>
+      <button id="p-right" aria-label="Tilt right">▶</button>
+      <div class="keys">Keyboard: hold <b>Space</b> or <b>↑</b> to burn, <b>←</b> <b>→</b> to steer</div>
+    </div>
+    <button class="skip" id="flight-skip">Skip ▸▸</button>
+    <div class="result" id="result" hidden></div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="/apogee/sim.js"></script>
+  <script src="/apogee/draw.js"></script>
+  <script src="/apogee/flight.js"></script>
+  <script src="/apogee/game.js"></script>
+</body>
+</html>
