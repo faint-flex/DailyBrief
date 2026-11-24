@@ -12,6 +12,7 @@
   const isOwn = (c) => isHalo(c) || isDc(c);
   const VENT = () => window.APOGEE_VENTURES || null;
   const VENTUI = () => window.APOGEE_VENTURES_UI || null;
+  const CREW = () => window.APOGEE_CREW || null; // crew.js: astronauts, capsule, Tranquil Station
   const $ = (id) => document.getElementById(id);
   const SAVE_KEY = 'apogee2-save-v1';
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -187,6 +188,15 @@
         if (ts.length) toast(ts[ts.length - 1]);
       } catch (e) { console.warn('Halo tick failed', e); }
     }
+    // Crew: training, days in orbit, splashdowns, station crew offers.
+    const CR = CREW();
+    if (CR && CR.tick) {
+      try {
+        const r = CR.tick(state) || {};
+        for (const ev of r.events || []) log(ev);
+        if (r.toasts && r.toasts.length) toast(r.toasts[r.toasts.length - 1]);
+      } catch (e) { console.warn('Crew tick failed', e); }
+    }
     const V = VENT();
     if (V && V.tick) {
       try {
@@ -275,12 +285,14 @@
   // ---------- Ops tab ----------
   function renderOps() {
     const el = $('tab-ops');
+    const CR = CREW(); // Crew sub-view of the Launch tab
+    if (CR && CR.view === 'crew') { try { CR.render(el, GAME); return; } catch (e) { console.warn('Crew render failed', e); } }
     const r = ready();
     const b = building();
     const show = r[0] ? r[0].design : (b[0] ? b[0].design : state.designs[0]);
     const heroTitle = r[0] ? `${esc(r[0].serial)} is on the pad` : b[0] ? `${esc(b[0].serial)} is being built` : 'No rocket on the pad';
     const heroSub = r[0] ? esc(r[0].design.name) + (r[0].booster ? ` · flown booster (${r[0].booster.flights} flight${r[0].booster.flights > 1 ? 's' : ''})` : '') : b[0] ? `${b[0].days} days to go` : 'Build one in the Hangar';
-    let html = `<div class="hero"><canvas id="hero-canvas"></canvas><div class="over"><h3>${heroTitle}</h3><div class="small dim">${heroSub}</div></div></div>`;
+    let html = (CR ? CR.subnav() : '') + `<div class="hero"><canvas id="hero-canvas"></canvas><div class="over"><h3>${heroTitle}</h3><div class="small dim">${heroSub}</div></div></div>`;
     if (state.won) html += `<div class="card done"><h3>🏆 Mars city founded!</h3><p class="small">You did it on day ${state.day}. Keep flying, or start a new company on the Base tab.</p></div>`;
 
     html += `<div class="cols"><div><h2>Ready to fly</h2>`;
@@ -300,7 +312,7 @@
     if (state.boosters.length) {
       html += `<h2>Landed boosters</h2><div class="card small">${state.boosters.map((x) => `<span class="pill acc">${esc(x.id)} · ${x.flights} flight${x.flights > 1 ? 's' : ''}</span>`).join(' ')}<p class="dim">Build the same design in the Hangar to reuse one.</p></div>`;
     }
-    html += `</div><div>${haloOpsCard()}<h2>Goals</h2><div class="card">`;
+    html += `</div><div>${haloOpsCard()}${CR ? CR.opsCard(state) : ''}<h2>Goals</h2><div class="card">`;
     for (const m of MILESTONES) {
       const done = state.milestones[m.id];
       const extra = m.id === 'marsCity' ? ` (${state.marsCity}/5)` : '';
@@ -415,7 +427,7 @@
       html += `<div class="card tap" data-act="contract" data-id="${c.id}">
         <div style="display:flex;gap:10px;align-items:flex-start"><div class="grow">
           <h3>${esc(c.label)}</h3><div class="small dim">${esc(c.client)}</div>
-          <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><span class="pill blue">${t.short}</span><span class="pill">${c.crew ? '4 crew · 12 t' : tons(c.mass)}</span><span class="pill ${days < 15 ? 'bad' : ''}">${days} days left</span>
+          <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><span class="pill blue">${t.short}</span><span class="pill">${c.crew ? '4 crew · 12 t' : tons(c.mass)}</span><span class="pill ${days < 15 ? 'bad' : ''}">${days} days left</span>${c.crew && CREW() ? CREW().contractPill(state, c) : ''}
           ${fit ? `<span class="pill good">✓ ${esc(fit.v.serial)} can fly it</span>` : needsCapsule ? '<span class="pill bad">Needs Crew Capsule</span>' : (() => {
             const bd = bestDesignFor(c);
             if (bd && bd.cap >= c.mass) return `<span class="pill">◐ Build a ${esc(bd.d.name)} to fly it</span>`;
@@ -634,6 +646,9 @@
     const lodds = S.landingOdds(s.recovery, state.landings, state.techs);
     const tankCost = m.tankers ? m.tankers * tankerUnit(v.design, s.recovery, s.upperReuse) : 0;
     const ratio = Math.min(1.4, m.have / m.need);
+    // Crew flights: show crew + capsule, add the abort-system note, block launch until a crew is ready.
+    const crewChk = c && c.crew && CREW() ? CREW().check(state, c) : { ok: true, html: '', abort: '' };
+    html += crewChk.html;
     html += `<h2>Flight check</h2><div class="card">
       <div style="display:flex;justify-content:space-between"><span class="small">Delta-v ${m.refilled ? '(after refilling)' : ''}</span><b class="${m.ok ? 'good' : 'bad'}">${Math.round(m.have).toLocaleString()} / ${m.need.toLocaleString()} m/s</b></div>
       <div class="bar ${m.ok ? 'good' : 'bad'}"><i style="width:${Math.min(100, ratio / 1.4 * 100)}%"></i><span class="mark" style="left:${100 / 1.4}%"></span></div>
@@ -642,10 +657,11 @@
       ${m.tankers ? `<div><small>Tanker flights</small><b>${m.tankers} · ${money(tankCost)}</b></div>` : ''}
       ${c && !isOwn(c) ? `<div><small>Contract pays</small><b class="money">${money(c.reward)}</b></div><div><small>This rocket cost</small><b>${money(v.cost || S.designCost(v.design, state.techs))}</b></div>` : ''}
       ${s.recovery !== 'expend' ? `<div><small>Booster saved if it lands</small><b class="good">≈ ${money(S.stageCost(v.design.stages[0], state.techs, 0) * (1 - S.refurbFrac(state.techs, s.recovery)))}</b></div>` : ''}</div>
+      ${crewChk.abort}
       ${!m.canLift ? '<p class="small bad">Too heavy to leave the pad. Add engines or remove fuel.</p>' : !m.ok ? `<p class="small bad">Not enough delta-v${s.recovery !== 'expend' ? '. Try expending the booster, or' : '. Try'} a bigger rocket.${S.TARGETS[target].deep && !state.techs.refill ? ' Orbital Refilling research helps for Moon and Mars.' : ''}</p>` : ''}
       </div>`;
     const canPay = state.cash >= tankCost;
-    html += `<button class="btn primary big" data-act="launch" ${m.ok && canPay ? '' : 'disabled'}>🚀 Launch ${esc(v.serial)}</button>`;
+    html += `<button class="btn primary big" data-act="launch" ${m.ok && canPay && crewChk.ok ? '' : 'disabled'}>🚀 Launch ${esc(v.serial)}</button>`;
     if (!canPay) html += `<p class="small bad">Not enough cash for the tanker flights.</p>`;
     return html;
   }
@@ -670,6 +686,8 @@
     const autoLand = Math.random() < S.landingOdds(s.recovery, state.landings, state.techs);
     state.vehicles = state.vehicles.filter((x) => x !== v);
     const ctx = { c, v, recovery: s.recovery, landing: s.landing, upperReuse: s.upperReuse, tankers: m.tankers, tankCost, fail, target };
+    if (c && c.crew && CREW()) ctx.crewIds = CREW().board(state, c); // crew boards the capsule
+    const crewTxt = c && c.crew && CREW() ? CREW().flightText(state, c) : null;
     closeSheet();
     flying = true;
     // If the page is closed mid-flight, the next load finishes this flight with the pre-rolled outcome.
@@ -683,6 +701,7 @@
       failText: fail ? `Engine failure on stage ${fail.stage + 1}` : '',
       orbitText: isHalo(c) ? 'HALO BATCH DEPLOYED ✓' : isDc(c) ? 'COMPUTE MODULES DEPLOYED ✓' : !c ? 'ORBIT ✓' : t.deep ? 'ON ITS WAY ✓' : 'PAYLOAD DEPLOYED ✓',
       orbitSub: isHalo(c) ? `${c.count} sats joining the Halo network` : isDc(c) ? `${c.count} modules joining your orbital data center` : c ? (m.refilled ? `Refilled by ${m.tankers} tanker flight${m.tankers > 1 ? 's' : ''}, heading for ${t.name}` : `${t.name}`) : 'Test flight complete',
+      ...(crewTxt || {}), // crew: orbit/abort banners
     });
     afterFlight(ctx, res);
   }
@@ -759,14 +778,17 @@
         lines.push(['Upper stage came home', `+${money(up)}`]);
       }
     } else {
-      state.rep = Math.max(0, state.rep - 6);
+      const repHit = c && c.crew ? 3 : 6; // crew flights: the launch abort system saves the crew
+      state.rep = Math.max(0, state.rep - repHit);
       state.rp += 3;
       lines.push(['Result', '<span class="bad">Vehicle lost</span>']);
-      lines.push(['Reputation', '−6']);
+      lines.push(['Reputation', `−${repHit}`]);
       lines.push(['Science (lessons learned)', '+3']);
       log(`<b>${esc(v.serial)}</b> was lost: ${esc(fail ? `engine failure on stage ${fail.stage + 1}` : 'failure')}.${isHalo(c) ? ` ${c.count} Halo sats were lost with it.` : isDc(c) ? ` ${c.count} compute modules were lost with it.` : c ? ' The customer will wait for another try.' : ''}`);
       if (isOwn(c)) haloLines(false);
     }
+    // Crew: dock/abort, station supplies from cargo runs.
+    if (c && CREW()) { try { CREW().onFlight(state, ctx, ok, lines); } catch (e) { console.warn('Crew afterFlight failed', e); } }
     // Booster
     if (recovery !== 'expend') {
       if (res.stage1Ok !== false && (ok || (fail && fail.stage > 0))) {
@@ -827,6 +849,7 @@
     html += '<div id="ed-mini" class="ed-mini" aria-live="polite"></div>';
     html += `<div class="editor"><div class="preview"><canvas id="ed-canvas"></canvas></div><div>`;
     html += `<input type="text" id="ed-name" maxlength="24" value="${esc(d.name)}" aria-label="Rocket name">`;
+    if (state.techs.capsule) html += `<div class="seg" style="margin:8px 0"><button data-act="ed-nose" data-id="0" class="${sheet.capsule ? '' : 'on'}">Fairing</button><button data-act="ed-nose" data-id="1" class="${sheet.capsule ? 'on' : ''}">👩‍🚀 Crew capsule</button></div>`; // preview only
     html += `<div class="seg" style="margin:8px 0">${COLORS.map((c) => `<button data-act="ed-color" data-id="${c}" class="${d.color === c ? 'on' : ''}" style="color:${c}" aria-label="Stripe color">■</button>`).join('')}</div>`;
     d.stages.forEach((st, i) => {
       const eng = S.ENGINES[st.engine];
@@ -909,7 +932,7 @@
     const mini = $('ed-mini');
     if (mini) mini.innerHTML = `<span>TWR <b class="${p.twr >= 1.2 ? 'good' : 'bad'}">${p.twr >= 1.2 ? '' : '⚠ '}${p.twr.toFixed(2)}</b></span><span>LEO <b>${leo > 0 ? tons(leo) : '—'}</b>${reuse ? ` · reuse <b>${lr > 0 ? tons(lr) : '—'}</b>` : ''}</span><span>GTO <b>${gto > 0 ? tons(gto) : '—'}</b></span><span>Cost <b>${money(S.designCost(d, state.techs))}</b></span>`;
     $('ed-save').disabled = S.validate(d, state.techs).length > 0 || p.twr < 1.05;
-    D.drawPreview($('ed-canvas'), d, state.techs);
+    D.drawPreview($('ed-canvas'), d, state.techs, { capsule: !!sheet.capsule });
   }
 
   // ---------- Events ----------
@@ -939,6 +962,7 @@
       case 'edit': openEditor(id); break;
       case 'new-design': openEditor(null); break;
       case 'ed-color': sheet.draft.color = id; renderSheet(); break;
+      case 'ed-nose': sheet.capsule = id === '1'; renderSheet(); break; // crew capsule preview
       case 'ed-eng': sheet.draft.stages[+el.dataset.i].engine = id; renderSheet(); break;
       case 'ed-cnt': {
         const st = sheet.draft.stages[+el.dataset.i];

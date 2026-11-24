@@ -321,6 +321,11 @@
       const sz = geo.d * 8 + 30;
       if (fx && fx.has('explode')) fx.explode(p, sz, where === 'ground' ? padTop : p.y - altAt(t) * 1000); else fl.add(scene, p, sz * 1.5);
       if (where === 'space' && fx && fx.has('explode')) fl.add(scene, p, sz);
+      // Crew: the launch abort system pulls the capsule clear before the rocket is lost.
+      if (plan.crew && rk.payload && rk.payload.userData.crew) {
+        scene.attach(rk.payload); rk.payload.visible = true;
+        payloadFree = { obj: rk.payload, v: axisOf(visAngle(t)).multiplyScalar(30 + geo.d * 3), t: 0 };
+      }
       rk.root.visible = false;
       for (const st of rk.stages) A.setPlume(st, 0, 0, t);
     }
