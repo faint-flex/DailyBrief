@@ -320,8 +320,11 @@
     const greyish = (base, j) => { const k = base + rr(-j, j); return k; };
 
     // ---------- exhaust ----------
-    function exhaust(pos, dir, power, alt, radius, dt, groundY) {
+    // Smoke look per fuel (engines & boosters feature): [grey, alpha, size]. Methane keeps the old look.
+    const SMOKE = { Kerosene: [0.66, 1.15, 1.05], Hydrogen: [0.97, 0.45, 0.9], Hypergolic: [0.9, 0.6, 0.9], Solid: [0.9, 1.35, 1.15] };
+    function exhaust(pos, dir, power, alt, radius, dt, groundY, opts) {
       if (!(power > 0.01) || !(dt > 0)) return;
+      const key = (opts && opts.key) || 'exh', sm = (opts && SMOKE[opts.fuel]) || null; // own emitter per side booster
       radius = radius || 1.8; altKm = alt || 0; lastDir.copy(dir);
       const rho = Math.exp(-Math.max(0, altKm) / 7.5);           // air density factor
       const h = Math.max(0, altKm * 1000);
@@ -332,29 +335,29 @@
       if (vis > 0) {
         const thin = 1 - rho;
         const cap = lowEnd ? 5 : 12;
-        const e = emitter('exh'); const moved = e.has && frame - e.frame <= 2 ? e.last.distanceTo(pos) : 0;
+        const e = emitter(key); const moved = e.has && frame - e.frame <= 2 ? e.last.distanceTo(pos) : 0;
         // puffs must overlap along the path: widen them if the per-frame budget can't cover the distance moved
         const s0 = Math.max(radius * (3.0 + 9 * thin), moved / cap / 0.25);
         const s1 = Math.max(radius * (15 + 40 * thin) * (lowEnd ? 1.15 : 1), s0 * 1.6);
         const life = (lowEnd ? 7 : 11) * (0.25 + 0.75 * Math.pow(rho, 0.6)) * rr(0.8, 1.2);
         const spacing = s0 * 0.25;
-        const al = (0.6 * Math.pow(rho, 0.35) + 0.08) * vis * (0.4 + 0.6 * power);
-        along('exh', pos, dt, 45 * Q * power, spacing, cap, (p, ao) => {
+        const al = (0.6 * Math.pow(rho, 0.35) + 0.08) * vis * (0.4 + 0.6 * power) * (sm ? sm[1] : 1);
+        along(key, pos, dt, 45 * Q * power, spacing, cap, (p, ao) => {
           perpBasis(dir, _u, _w);
           const ang = rr(0, 6.283), sp = rr(2, 8) * (1 + 6 * thin);
           const out = rr(25, 70) * power * (1 + 3 * thin);
-          const g = greyish(0.86, 0.05);
+          const g = greyish(sm ? sm[0] : 0.86, 0.05);
           smoke.add({
             x: p.x + dir.x * radius * 2, y: p.y + dir.y * radius * 2, z: p.z + dir.z * radius * 2,
             vx: dir.x * out + (_u.x * Math.cos(ang) + _w.x * Math.sin(ang)) * sp,
             vy: dir.y * out + (_u.y * Math.cos(ang) + _w.y * Math.sin(ang)) * sp,
             vz: dir.z * out + (_u.z * Math.cos(ang) + _w.z * Math.sin(ang)) * sp,
-            s: s0 * rr(0.8, 1.2), s1: s1 * rr(0.7, 1.3), gr: rr(0.25, 0.45) * (1 + 2 * thin), life, age: ao,
+            s: s0 * rr(0.8, 1.2), s1: s1 * rr(0.7, 1.3) * (sm ? sm[2] : 1), gr: rr(0.25, 0.45) * (1 + 2 * thin), life, age: ao,
             a: al * rr(0.75, 1), r: g * 1.01, g: g, b: g * 0.97, drag: 0.5 + 0.6 * rho, gy: 0.4 * rho,
             rv: rr(-0.15, 0.15), glow: 1.4, gdec: 3.5, floor: gY, fin: 0.06, pw: 1.4,
           });
         });
-      } else along('exh', pos, dt, 0, 1e9, 0, () => {});
+      } else along(key, pos, dt, 0, 1e9, 0, () => {});
       // --- faint exhaust glow high up (and a hot core right at the nozzle everywhere) ---
       const glowK = clamp((altKm - 15) / 25, 0, 1);
       if (glowK > 0) {

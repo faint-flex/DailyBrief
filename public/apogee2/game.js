@@ -20,6 +20,7 @@
   const RS = () => window.APOGEE_RIDESHARE || null;
   const isRide = (c) => !!(c && c.kind === 'rideshare');
   const fairSave = () => { const R = RS(); try { return R ? R.fairingDiscount(state) : 0; } catch (e) { return 0; } };
+  const EN = () => window.APOGEE_ENGINES || null; // engines & side boosters (optional module)
   const $ = (id) => document.getElementById(id);
   const SAVE_KEY = 'apogee2-save-v1';
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -300,7 +301,7 @@
     return m.includes('catch') ? 'catch' : m.includes('barge') ? 'barge' : m[0] || null;
   }
   function stagesLabel(d) {
-    return d.stages.map((s) => `${s.count}× ${S.ENGINES[s.engine].name}`).join(' / ');
+    return d.stages.map((s) => `${s.count}× ${S.ENGINES[s.engine].name}`).join(' / ') + (EN() ? EN().srbLabel(d) : '');
   }
   function sameBooster(a, b) { return a.engine === b.engine && a.count === b.count && a.prop === b.prop; }
   function boostersFor(design) { return state.boosters.filter((b) => sameBooster(b.stage, design.stages[0])); }
@@ -543,7 +544,7 @@
     let html = `<h2>Research</h2><div class="card row"><div class="grow"><b>${Math.floor(state.rp)} science</b><div class="small dim">+${(state.engineers * S.FACILITY.rpPerEngineerDay).toFixed(2)} a day from ${state.engineers} engineers, plus every launch. Hire more on the Base tab.</div></div></div>`;
     // playtest #26: group by branch and point at a recommended next item.
     const ids = Object.keys(S.TECHS);
-    const BRANCHES = [['♻️ Reuse', ['legs', 'fairing', 'barge', 'rapid', 'tower', 'shipreuse']], ['🔥 Engines', ['lighttanks', 'comet', 'steel', 'nova']], ['🪐 Deep space & crew', ['capsule', 'refill', 'habitat']]];
+    const BRANCHES = [['♻️ Reuse', ['legs', 'fairing', 'barge', 'rapid', 'tower', 'shipreuse']], ['🔥 Engines', ['lighttanks', 'spark', 'srb', 'forge', 'srbheavy', 'frost', 'comet', 'aerospike', 'steel', 'nova']], ['🪐 Deep space & crew', ['capsule', 'refill', 'habitat']]];
     const known = new Set(BRANCHES.flatMap((x) => x[1]));
     const extra = ids.filter((id) => !known.has(id));
     if (extra.length) BRANCHES.push(['🧪 More', extra]);
@@ -552,7 +553,7 @@
     const rec = PATH.find((id) => avail.includes(id)) || avail.sort((a, b) => S.TECHS[a].rp - S.TECHS[b].rp)[0] || null;
     if (rec) {
       const t = S.TECHS[rec];
-      html += `<div class="card rec-next"><div class="tech"><div class="ic">${TECH_ICONS[rec] || '🔬'}</div><div class="grow"><div class="small acc">⭐ Recommended next</div><b>${t.name}</b><div class="small dim">${t.desc}</div>
+      html += `<div class="card rec-next"><div class="tech"><div class="ic">${TECH_ICONS[rec] || t.icon || '🔬'}</div><div class="grow"><div class="small acc">⭐ Recommended next</div><b>${t.name}</b><div class="small dim">${t.desc}</div>
         ${state.rp < t.rp ? `<div class="small dim">${Math.ceil(t.rp - state.rp)} more science needed</div>` : ''}</div>
         <button class="btn sm ${state.rp >= t.rp ? 'primary' : ''}" data-act="research" data-id="${rec}" ${state.rp >= t.rp ? '' : 'disabled'}>${t.rp} 🔬</button></div></div>`;
     }
@@ -566,7 +567,7 @@
         const done = state.techs[id];
         const reqOk = t.req.every((r) => state.techs[r]);
         const can = !done && reqOk && state.rp >= t.rp;
-        html += `<div class="card ${done ? 'done' : reqOk ? '' : 'locked'}"><div class="tech"><div class="ic">${TECH_ICONS[id] || '🔬'}</div><div class="grow">
+        html += `<div class="card ${done ? 'done' : reqOk ? '' : 'locked'}"><div class="tech"><div class="ic">${TECH_ICONS[id] || t.icon || '🔬'}</div><div class="grow">
           <b>${t.name}</b>${id === rec ? ' <span class="pill acc">⭐ Recommended</span>' : ''}<div class="small dim">${t.desc}</div>
           ${!reqOk ? `<div class="small bad">🔒 Needs: ${t.req.filter((r) => !state.techs[r]).map((r) => S.TECHS[r] ? S.TECHS[r].name : r).join(', ')}</div>` : ''}</div>
           ${done ? '<span class="pill good">✓ Done</span>' : `<button class="btn sm ${can ? 'primary' : ''}" data-act="research" data-id="${id}" ${can ? '' : 'disabled'}>${t.rp} 🔬</button>`}</div></div>`;
@@ -693,7 +694,7 @@
       if (i === 0) cost += recovery === 'expend' ? c : c * S.refurbFrac(state.techs, recovery);
       else cost += upperReuse && i === n - 1 ? c * 0.1 : c;
     });
-    return cost;
+    return cost + S.srbCost(design); // side boosters are never reused
   }
   function launchSheet() {
     const s = sheet;
@@ -776,7 +777,7 @@
     const odds = S.launchOdds(design, state.heritage, state.designFlights[v.designId] || 0, OPS() ? OPS().launchMod(state, v) : undefined);
     let fail = null;
     if (Math.random() > odds) {
-      const weights = design.stages.map((st) => st.count + 1);
+      const weights = design.stages.map((st, i) => st.count + 1 + (i === 0 && S.srbOf(design) ? S.srbOf(design).count : 0)); // side boosters fail with stage 1
       let pick = Math.random() * weights.reduce((a, b) => a + b, 0), i = 0;
       while (pick > weights[i]) { pick -= weights[i]; i++; }
       fail = { stage: Math.min(i, design.stages.length - 1), t: 0.15 + Math.random() * 0.75 };
@@ -973,11 +974,13 @@
       const eng = S.ENGINES[st.engine];
       html += `<div class="stage"><div class="st-head"><b>Stage ${i + 1}${i === 0 ? ' · booster' : ''}</b>${i > 0 && i === d.stages.length - 1 ? `<button class="btn sm danger" data-act="ed-rm">Remove</button>` : ''}</div>
         <div class="seg">${engineChoices(i).map((k) => `<button data-act="ed-eng" data-i="${i}" data-id="${k}" class="${st.engine === k ? 'on' : ''}">${S.ENGINES[k].name}</button>`).join('')}</div>
-        <div class="small dim" style="margin-top:6px">${eng.fuel} · ${i === 0 && !eng.vac ? eng.thrustSL : eng.thrustVac} kN · Isp ${i === 0 && !eng.vac ? eng.ispSL + '–' + eng.ispVac : eng.ispVac} s · ${money(eng.cost)} each</div>
+        <div class="small dim" style="margin-top:6px">${EN() ? EN().fuelTag(eng.fuel) : eng.fuel} · ${i === 0 && !eng.vac ? eng.thrustSL : eng.thrustVac} kN · Isp ${i === 0 && !eng.vac ? eng.ispSL + '–' + eng.ispVac : eng.ispVac} s · ${money(eng.cost)} each</div>
+        ${EN() && EN().engineNote(st.engine) ? `<div class="small dim">${EN().engineNote(st.engine)}</div>` : ''}
         <div class="field"><label>Engines</label><div class="stepper"><button data-act="ed-cnt" data-i="${i}" data-id="-1">−</button><span>${st.count}</span><button data-act="ed-cnt" data-i="${i}" data-id="1">+</button></div></div>
         <div class="field"><label>Propellant</label><input type="range" data-ed-prop="${i}" min="0" max="1000" step="1" value="${propToPos(st.prop, lim.maxProp)}" aria-label="Stage ${i + 1} propellant">
           <input type="number" class="num" data-ed-num="${i}" min="${PROP_MIN}" max="${lim.maxProp}" step="0.5" value="${st.prop}" aria-label="Stage ${i + 1} propellant in tons"><span class="dim small">t</span></div>
         <div class="nudge">${[-10, -1, -0.5, 0.5, 1, 10].map((n) => `<button class="btn sm" data-act="ed-nudge" data-i="${i}" data-id="${n}">${n > 0 ? '+' : '−'}${Math.abs(n)}</button>`).join('')}</div></div>`;
+      if (i === 0 && EN()) html += EN().srbEditorHtml(d, state.techs, money); // side boosters
     });
     if (d.stages.length < lim.maxStages) html += `<button class="btn sm" data-act="ed-add">+ Add a stage on top</button>`;
     html += `<div id="ed-stats"></div>`;
@@ -1135,6 +1138,7 @@
         renderSheet(); break;
       }
       case 'ed-rm': sheet.draft.stages.pop(); renderSheet(); break;
+      case 'ed-srb-n': case 'ed-srb-t': if (EN() && EN().editorAct(act, id, sheet.draft, state.techs)) renderSheet(); break; // side boosters
       case 'ed-nudge': {
         const i = +el.dataset.i;
         const st = sheet.draft.stages[i];

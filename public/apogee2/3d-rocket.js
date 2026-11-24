@@ -319,6 +319,24 @@
       jetB: 0.45, outB: 0.24, diaK: 1.0, len: 0.85, jetFrac: 0.62, spread: 2.8, turb: 0.45,
       light: 0xffd6c0, lightK: 0.6, glow: 0xe6dcff, halo: [0.85, 0.82, 1.0], haloK: 0.9,
     },
+    // Engines & boosters feature. Hydrogen: a faint, near-invisible bluish flame with bright shock diamonds.
+    Hydrogen: {
+      core: [0.62, 0.7, 1.0], mid: [0.3, 0.4, 0.95], edge: [0.25, 0.32, 0.85], dia: [0.85, 0.9, 1.0],
+      jetB: 0.28, outB: 0.07, diaK: 0.9, len: 0.8, jetFrac: 0.66, spread: 2.6, turb: 0.25,
+      light: 0xb8c8ff, lightK: 0.2, glow: 0xa8bcff, halo: [0.55, 0.65, 1.0], haloK: 0.3,
+    },
+    // Storable (hypergolic) fuel of the small Spark engine: a soft, see-through orange-pink flame.
+    Hypergolic: {
+      core: [1.0, 0.8, 0.66], mid: [0.95, 0.45, 0.32], edge: [0.8, 0.28, 0.2], dia: [1.0, 0.8, 0.7],
+      jetB: 0.4, outB: 0.2, diaK: 0.5, len: 0.8, jetFrac: 0.55, spread: 3.0, turb: 0.5,
+      light: 0xffb090, lightK: 0.4, glow: 0xffc0a0, halo: [1.0, 0.6, 0.45], haloK: 0.6,
+    },
+    // Solid side boosters: a blinding white-yellow flame.
+    Solid: {
+      core: [1.0, 0.97, 0.85], mid: [1.0, 0.72, 0.32], edge: [1.0, 0.42, 0.1], dia: [1.0, 0.92, 0.72],
+      jetB: 1.0, outB: 0.7, diaK: 0.15, len: 1.35, jetFrac: 0.55, spread: 3.0, turb: 1.2,
+      light: 0xffc878, lightK: 1.3, glow: 0xfff0c8, halo: [1.0, 0.82, 0.55], haloK: 1.6,
+    },
   };
 
   const FLAME_VS = [
@@ -528,12 +546,19 @@
       });
       const bells = new T.InstancedMesh(lathe(prof.pts, sm ? 16 : 28), bellMat, n);
       const mtx = new T.Matrix4(), q = new T.Quaternion(), sc1 = new T.Vector3(1, 1, 1), pv = new T.Vector3();
+      const scB = eng.spike ? new T.Vector3(1, 0.35, 1) : sc1; // aerospike: a short ring of chambers around a plug
       ep.pts.forEach(([ex, ez], k) => {
         q.setFromAxisAngle(UP, (k * 2.39) % TAU);
-        bells.setMatrixAt(k, mtx.compose(pv.set(ex, 0, ez), q, sc1));
+        bells.setMatrixAt(k, mtx.compose(pv.set(ex, 0, ez), q, scB));
       });
       bells.castShadow = true;
       g.add(bells);
+      if (eng.spike) {
+        const plugG = new T.ConeGeometry(prof.re * 0.9, bh * 0.95, 20); plugG.rotateX(Math.PI); plugG.translate(0, -bh * 0.475, 0);
+        const plugs = new T.InstancedMesh(plugG, m.rk_ti, n);
+        ep.pts.forEach(([ex, ez], k) => plugs.setMatrixAt(k, mtx.makeTranslation(ex, 0, ez)));
+        plugs.castShadow = true; g.add(plugs);
+      }
       if (!sm && n <= 9) {
         // turbopump + (kerosene) gas generator exhaust duct beside each chamber
         const pump = new T.InstancedMesh(new T.CylinderGeometry(prof.rt * 0.8, prof.rt * 0.8, prof.c * 0.7, 10), m.rk_metal, n);
@@ -619,6 +644,9 @@
       }
 
       // landing legs: carbon beams hinged at the base, telescoping pusher struts
+      // solid side boosters strapped to stage 1 (engines & boosters feature)
+      if (booster && geo.srb && o.srb !== false) stObj.srbs = buildSrbs(g, geo.srb, r, m, sm, seed0);
+
       if (booster && o.legs) {
         stObj.legs = [];
         const len = r * 2.7 + 2.5;
@@ -785,6 +813,73 @@
       root.add(payload);
     }
     return { root, stages, fairing, payload, geo, r, top: y };
+  }
+
+  // ---------- solid side boosters ----------
+  // Each one is a little stage object that setPlume() understands. flight.js separates them.
+  function srbTexture(sm) {
+    const W = sm ? 128 : 256, H = sm ? 512 : 1024;
+    const c = canvas(W, H), g = c.getContext('2d');
+    g.fillStyle = '#f1f0ec'; g.fillRect(0, 0, W, H);
+    blotch(g, W, H, 515, 8, 0.06);
+    g.fillStyle = '#9da2aa'; g.fillRect(W * 0.5, 0, W * 0.25, H); // a grey side stripe
+    g.fillStyle = 'rgba(70,74,82,.75)';
+    for (let k = 1; k < 4; k++) g.fillRect(0, H * k / 4, W, Math.max(2, H * 0.008)); // segment joints
+    g.fillStyle = '#8a8f98'; g.fillRect(0, H * 0.94, W, H * 0.06); // aft skirt
+    return tex(c, true);
+  }
+  function buildSrbs(parent, sg, r, m, sm, seed0) {
+    const out = [];
+    const sr = sg.d / 2, R = r + sr * 0.98;
+    const bodyMat = stdMat({ map: srbTexture(sm), roughness: 0.55, metalness: 0.05, envMapIntensity: 0.7 });
+    const noseMat = stdMat({ color: 0xf1f0ec, roughness: 0.5, metalness: 0.05 });
+    const SEGS = sm ? 18 : 28;
+    const F = FUEL.Solid;
+    sg.angles.forEach((a, k) => {
+      const g = new T.Group();
+      g.position.set(Math.cos(a) * R, 0, Math.sin(a) * R);
+      const body = new T.Mesh(new T.CylinderGeometry(sr, sr, sg.h, SEGS, 1, true), bodyMat);
+      body.position.y = sg.h / 2; body.castShadow = true; g.add(body);
+      const nose = [];
+      for (let j = 0; j <= 10; j++) { const t = j / 10; nose.push([sr * Math.sqrt(Math.max(0, 1 - t * t)), t * sg.nose]); }
+      const cone = new T.Mesh(lathe(nose, SEGS), noseMat); cone.position.y = sg.h; cone.castShadow = true; g.add(cone);
+      const base = new T.Mesh(new T.CircleGeometry(sr, SEGS / 2), m.rk_heat); base.rotation.x = Math.PI / 2; base.position.y = 0.02; g.add(base);
+      // attach struts to the core, near the top and the bottom
+      for (const yy of [sg.h * 0.12, sg.h * 0.86]) {
+        const s = new T.Mesh(new T.BoxGeometry(Math.max(0.2, R - r - sr + 0.4), sr * 0.18, sr * 0.18), m.rk_dark);
+        s.position.set(-Math.cos(0) * (sr + (R - r - sr) / 2), yy, 0); g.add(s);
+      }
+      g.rotation.y = -a; // struts point back at the core
+      // nozzle
+      const prof = bellProfile(sr * 1.25, false, false);
+      const bellMat = stdMat({ color: 0x3a3c42, roughness: 0.7, metalness: 0.5, side: T.DoubleSide, emissive: new T.Color(1.0, 0.4, 0.12), emissiveIntensity: 0 });
+      const bell = new T.Mesh(lathe(prof.pts, sm ? 12 : 20), bellMat); bell.castShadow = true; g.add(bell);
+      const bh = prof.bh;
+      const glowMat = new T.MeshBasicMaterial({ color: F.glow, transparent: true, opacity: 0, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide });
+      const glow = new T.Mesh(new T.CircleGeometry(prof.re * 0.97, 16).rotateX(Math.PI / 2), glowMat); glow.position.y = -bh + prof.hb * 0.04; g.add(glow);
+      // plume (same parts as a stage's, one engine)
+      const plume = new T.Group(); plume.position.y = -bh;
+      const outerMat = flameMaterial(false, F, (seed0 % 100) * 0.29 + k * 7);
+      const coreMat = flameMaterial(true, F, (seed0 % 100) * 0.41 + k * 5);
+      const og = new T.Group(), ig = new T.Group();
+      const outerGeo = new T.CylinderGeometry(1, 1, 1, sm ? 16 : 28, sm ? 16 : 28, true); outerGeo.translate(0, -0.5, 0);
+      const outer = new T.Mesh(outerGeo, outerMat); outer.frustumCulled = false; og.add(outer);
+      const jetGeo = new T.CylinderGeometry(prof.re * 0.88, prof.re * 0.88, 1, sm ? 12 : 16, sm ? 16 : 28, true); jetGeo.translate(0, -0.5, 0);
+      const jet = new T.Mesh(jetGeo, coreMat); jet.frustumCulled = false; ig.add(jet);
+      plume.add(og); plume.add(ig);
+      const hgeo = new T.BufferGeometry(); hgeo.setAttribute('position', new T.Float32BufferAttribute([0, -sr * 0.4, 0], 3));
+      const haloMat = haloMaterial(F);
+      const halo = new T.Points(hgeo, haloMat); halo.frustumCulled = false; plume.add(halo);
+      // one real light for the whole set keeps the light count (and shader cost) low
+      const light = k === 0 ? new T.PointLight(F.light, 0, 0, 2) : { intensity: 0 };
+      if (k === 0) { light.position.y = -sr * 2; plume.add(light); }
+      plume.visible = false;
+      g.add(plume);
+      parent.add(g);
+      out.push({ group: g, h: sg.h, r: sr, bh, plume, og, ig, light, glowMat, outerMat, coreMat, haloMat, bellMat, vac: false, fuel: 'Solid', F,
+        engines: k === 0 ? sg.count : 1, exitR: prof.re, footprint: prof.re * 1.1, heat: 0, _t: null, seed: (seed0 % 89) + k * 13, srb: true });
+    });
+    return out;
   }
 
   // ---------- animation ----------
