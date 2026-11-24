@@ -64,10 +64,20 @@
     const o = ensure(st);
     for (const k of Object.keys(o.wx)) if (+k < st.day - 1) delete o.wx[k];
   }
-  function today(st) { const k = wxOn(st, st.day); return Object.assign({ kind: k }, WEATHER[k]); }
+  // Lightning masts on a pad (padkit.js) turn a storm from a hard NO-GO into a risky launch.
+  function guard(st, w) {
+    if (w.kind !== 'storm') return w;
+    let p = 0;
+    try { const P = window.APOGEE_PADKIT; p = P && P.padLightningProtection ? P.padLightningProtection(st) : 0; } catch (e) { p = 0; }
+    if (p < 0.5) return w;
+    const launch = Math.round((0.85 + Math.min(1, (p - 0.6) / 0.15) * 0.07) * 100) / 100;
+    return Object.assign({}, w, { launch, land: -0.2, go: 'risky', masts: true,
+      long: 'Thunderstorm (lightning masts up)', desc: `Lightning masts protect your pad, so you can launch, but it's risky (launch odds ×${launch}, landings −20%).` });
+  }
+  function today(st) { const k = wxOn(st, st.day); return guard(st, Object.assign({ kind: k }, WEATHER[k])); }
   function forecast(st, n) {
     const out = [];
-    for (let i = 0; i < (n || 3); i++) { const k = wxOn(st, st.day + i); out.push(Object.assign({ kind: k, day: st.day + i }, WEATHER[k])); }
+    for (let i = 0; i < (n || 3); i++) { const k = wxOn(st, st.day + i); out.push(guard(st, Object.assign({ kind: k, day: st.day + i }, WEATHER[k]))); }
     return out;
   }
 
