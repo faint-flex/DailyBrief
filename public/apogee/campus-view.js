@@ -8,7 +8,7 @@
   const TW = 64, TH = 32;
   const GROUND = { S: '#1f6090', L: '#2b72a0', B: '#e2cf98', c: '#97a463', g: '#6ea95a', t: '#5f9b50', d: '#d9b072', r: '#a3826a', w: '#5f8c70', R: '#4a4f5a', C: '#5a6172' };
   const BCOL = { pad: '#b8bcc5', factory: '#d5dae4', office: '#88a6d2', housing: '#dba97c', lab: '#e9edf4', test: '#9aa1aa', mc: '#7d8ca9', tank: '#eceff3',
-    lz: '#bcc0c8', port: '#a9afb9', tower: '#c7cbd2', solar: '#3a4f78', visitor: '#8fd3ca', satfab: '#f2f5f9', ground: '#e1e5ec' };
+    lz: '#bcc0c8', port: '#a9afb9', tower: '#c7cbd2', solar: '#3a4f78', visitor: '#8fd3ca', satfab: '#f2f5f9', fab: '#e8ecf2', ground: '#e1e5ec' };
 
   function hex(c) { const n = parseInt(c.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
   function shade(c, f) {
@@ -320,6 +320,16 @@
           ctx.fillStyle = '#d9a43b'; ctx.fillRect(c[0] - 4 * z, c[1] - 4 * z, 8 * z, 8 * z);
           break;
         }
+        case 'fab': {
+          r = box(b.x, b.y, b.w, b.h, 18 + b.lvl * 4, col, 0.08);
+          const k = r.Hh * 0.7;
+          poly([up(r.d, k), up(r.c, k), up(r.c, k + 4 * z), up(r.d, k + 4 * z)], '#6b4fd8');
+          poly([up(r.c, k), up(r.b, k), up(r.b, k + 4 * z), up(r.c, k + 4 * z)], '#53399f');
+          for (let i = 0; i < 1 + b.lvl; i++) {
+            cyl(b.x + 0.6 + i * 0.7, b.y + 0.5, 0.12, 12, '#cfd5de', r.Hh / z);
+          }
+          break;
+        }
         case 'ground': {
           r = box(b.x, b.y, 1, 1, 3, '#8f939b', 0.18);
           const c = P(b.x + 0.5, b.y + 0.5), hh = 12 + b.lvl * 3;
@@ -342,7 +352,7 @@
       if (alpha >= 1 && r && r.c) pips(b, r);
     }
     function HGT(b) {
-      return { pad: 50, factory: 28, office: 40, housing: 14, lab: 22, test: 52, mc: 18, tank: 22, lz: 6, port: 30, tower: 78, solar: 8, visitor: 16, satfab: 26, ground: 22 }[b.type] || 20;
+      return { pad: 50, factory: 28, office: 40, housing: 14, lab: 22, test: 52, mc: 18, tank: 22, lz: 6, port: 30, tower: 78, solar: 8, visitor: 16, satfab: 26, fab: 30, ground: 22 }[b.type] || 20;
     }
     function scaffold(b, full, t) {
       const z = cam.z, [a, bb, c, d] = corners(b.x, b.y, b.w, b.h, 0.05), Hh = full * z, col = '#f2c14b';
@@ -1034,7 +1044,7 @@
   }
 
   // ---------- building models (local frame: long axis along x, front = +z) ----------
-  const HGT = { pad: 70, factory: 34, office: 40, housing: 16, lab: 18, test: 50, mc: 16, tank: 26, lz: 4, port: 22, tower: 125, solar: 4, visitor: 16, satfab: 24, ground: 14 };
+  const HGT = { pad: 70, factory: 34, office: 40, housing: 16, lab: 18, test: 50, mc: 16, tank: 26, lz: 4, port: 22, tower: 125, solar: 4, visitor: 16, satfab: 24, fab: 28, ground: 14 };
   const MODELS = {
     factory(B, L, D, lv, M, X) {
       B.box(M.conc, L - 2, 0.25, D - 2, 0, 0, 0);
@@ -1238,6 +1248,18 @@
       if (lv < 3) { B.box(M.panel, 24, H + 8, hd * 0.9, bx, 0, hz); B.box(M.roofDark, 24.6, 0.6, hd * 0.9 + 0.6, bx, H + 8, hz); B.box(M.doorW, 14, 14, 0.5, bx, 0, hz + hd * 0.45 + 0.25); }
       B.box(M.steelDark, 22, 0.5, 6, hx + hl * 0.2, 5, hz + hd / 2 + 3); B.box(M.black, 20, 4.5, 0.3, hx + hl * 0.2, 0, hz + hd / 2 + 0.1);
       X.trucks.push([hx + hl * 0.2 - 6, hz + hd / 2 + 11, Math.PI / 2], [hx + hl * 0.2 + 6, hz + hd / 2 + 11, Math.PI / 2]);
+      for (let i = 0; i < 8; i++) X.parks.push([-L / 2 + 6 + i * 3.2, D / 2 - 6, Math.PI / 2]);
+    },
+    fab(B, L, D, lv, M, X) {
+      B.box(M.conc, L - 2, 0.25, D - 2, 0, 0, 0);
+      const H = 16 + 4 * lv, hl = L - 20, hd = D * 0.55, hz = -D / 2 + 4 + hd / 2;
+      B.box(M.panel, hl, H, hd, 0, 0, hz);
+      B.box(M.blue, hl + 0.4, 1.6, hd + 0.4, 0, H * 0.72, hz);
+      B.box(M.roofDark, hl + 0.6, 0.6, hd + 0.6, 0, H, hz);
+      for (let i = 0; i < Math.round(hl / 10); i++) B.box(M.steel, 5, 2.4, 5, -hl / 2 + 5 + i * 10, H + 0.6, hz);
+      for (let i = 0; i < 1 + lv; i++) B.cyl(M.steel, 1.1, H + 14, hl / 2 - 4 - i * 5, 0, hz + hd / 2 - 3, 12);
+      for (let i = 0; i < 2 + lv; i++) B.cyl(M.whiteRoof, 2.2, 7, -hl / 2 + 4 + i * 6, 0, hz + hd / 2 + 6, 16);
+      X.trucks.push([hl / 2 - 6, hz + hd / 2 + 12, Math.PI / 2]);
       for (let i = 0; i < 8; i++) X.parks.push([-L / 2 + 6 + i * 3.2, D / 2 - 6, Math.PI / 2]);
     },
     ground(B, L, D, lv, M, X) {

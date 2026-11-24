@@ -78,6 +78,26 @@
     const C = CAMPUS();
     if (C && C.ensure) { try { C.ensure(st); } catch (e) { console.warn('Campus ensure failed', e); } }
   }
+  // Global chip shortages: hit satellites, cars and compute modules. A chip fab on your campus covers part of it.
+  function chipSelf() {
+    const C = CAMPUS();
+    try { return C && C.bonus && state.campus ? Math.min(1, C.bonus(state).chipSelf || 0) : 0; } catch (e) { return 0; }
+  }
+  function chipShortageTick() {
+    const s = state.chipShortage;
+    if (s && s.until === state.day) {
+      log('✅ The global chip shortage is over.');
+      toast('✅ Chip shortage over');
+    }
+    if (s && s.until > state.day) return;
+    const busy = state.net || (state.ventures && (state.ventures.ev || state.ventures.dc));
+    if (!busy || state.day < 120 || Math.random() > 1 / 260) return;
+    const days = 45 + Math.round(Math.random() * 40), sev = Math.round((0.3 + Math.random() * 0.2) * 100) / 100;
+    state.chipShortage = { start: state.day, until: state.day + days, sev };
+    const self = chipSelf(), hit = Math.round(sev * (1 - self) * 100);
+    log(`⚠ <b>Global chip shortage</b> for ${days} days: satellites, cars and compute modules cost up to ${Math.round(sev * 100)}% more and build that much slower.${self ? ` Your chip fab makes ${Math.round(self * 100)}% of your chips, so you only feel ${hit}%.` : ' Build a 💾 Chip fab on the Base tab to protect yourself.'}`);
+    toast(self >= 1 ? '⚠ Chip shortage! Your own fab keeps you running ✓' : `⚠ Chip shortage: −${hit}% output for ${days} days`);
+  }
   function ventEnsure(st) {
     const V = VENT();
     if (V && V.ensure) { try { V.ensure(st); } catch (e) { console.warn('Ventures ensure failed', e); } }
@@ -167,6 +187,7 @@
         if (ts.length) toast(ts[ts.length - 1]);
       } catch (e) { console.warn('Halo tick failed', e); }
     }
+    chipShortageTick();
     const V = VENT();
     if (V && V.tick) {
       try {

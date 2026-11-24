@@ -151,7 +151,7 @@
   function evCapacity(state, e) {
     let cap = PILOT_LINE;
     for (const f of e.factories) if (f.status === 'online' || f.status === 'upgrading') cap += f.level * FACTORY.capPerLevel * (f.status === 'upgrading' ? 0.5 : 1);
-    return cap * modVal(e.mods, 'chips', state.day, 1);
+    return cap * (1 - (1 - modVal(e.mods, 'chips', state.day, 1)) * (1 - chipSelfV(state))) * (1 - chipHit(state));
   }
 
   // ---------------------------------------------------------------- DC maths
@@ -200,6 +200,17 @@
     return { ok: true, why: '', valuation };
   }
   function ownCut(line, profit) { return profit > 0 && line && line.own ? profit * line.own : profit; }
+  function chipSelfV(state) {
+    try { const C = root.APOGEE_CAMPUS; return C && C.bonus ? Math.min(1, C.bonus(state).chipSelf || 0) : 0; } catch (e) { return 0; }
+  }
+  // Global chip shortage (state.chipShortage, rolled in game.js). Your own chip fab (campus) covers part of the hit.
+  function chipHit(state) {
+    const s = state && state.chipShortage;
+    if (!s || !(s.until > state.day)) return 0;
+    let self = 0;
+    try { const C = root.APOGEE_CAMPUS; if (C && C.bonus) self = Math.min(1, C.bonus(state).chipSelf || 0); } catch (e) { /* ignore */ }
+    return s.sev * (1 - self);
+  }
   function pay(state, cost) {
     if (state.cash < cost) return false;
     state.cash = r2(state.cash - cost); return true;
@@ -320,7 +331,7 @@
       case 'buildModules': {
         if (!d) return no('Found Orbital Compute first.');
         const G = bestGen(d); const n = clamp(Math.round(args.n || 1), 1, 50);
-        const cost = G.cost * n;
+        const cost = r2(G.cost * n * (1 + chipHit(state)));
         if (!pay(state, cost)) return no(`Needs $${r2(cost)}M.`);
         d.queue.push({ gen: G.id, n, prog: 0 });
         return yes(`${n} × ${G.name} queued`, cost);
@@ -508,7 +519,7 @@
     if (live.length && rng() < 0.004) {
       const k = rng();
       if (k < 0.3) { e.mods.push({ id: 'credit', v: 1.2, until: day + 60 }); ev('💵 EV tax credit passed: car demand +20% for 60 days.', true); }
-      else if (k < 0.5) { e.mods.push({ id: 'chips', v: 0.7, until: day + 30 }); ev('⚠ Chip shortage: car output −30% for 30 days.', true); }
+      else if (k < 0.5) { e.mods.push({ id: 'credit', v: 1.08, until: day + 30 }); ev('💵 City fleet order: car demand +8% for 30 days.', true); }
       else if (k < 0.75) { e.mods.push({ id: 'rival', v: 0.85, until: day + 90 }); ev('▼ Rival carmaker Ampere launches a cheap EV: demand −15% for 90 days.'); }
       else { e.mods.push({ id: 'viral', v: 1.15, until: day + 45 }); e.brand = clamp(e.brand + 3, 0, 100); ev('▲ A viral road-trip video stars a Voltline car: demand +15%.', true); }
     }
@@ -519,7 +530,7 @@
     d.mods = d.mods.filter((m) => m.until > day);
     tickLab(state, d, DC_RESEARCH, ev, 'Orbital Compute');
     // assembly line
-    let rate = LINE_RATE[d.up.line || 0];
+    let rate = LINE_RATE[d.up.line || 0] * (1 - chipHit(state));
     while (rate > 0 && d.queue.length) {
       const q = d.queue[0];
       const take = Math.min(rate, q.n - q.prog);
@@ -626,7 +637,7 @@
   }
 
   root.APOGEE_VENTURES = {
-    ipoCheck, IPO, VERSION, CAR_TYPES, EV_RESEARCH, FACTORY, STATION_BATCH, PILOT_LINE, MOD_GENS, DC_RESEARCH, DC_UPGRADES, LINE_RATE,
+    chipHit, ipoCheck, IPO, VERSION, CAR_TYPES, EV_RESEARCH, FACTORY, STATION_BATCH, PILOT_LINE, MOD_GENS, DC_RESEARCH, DC_UPGRADES, LINE_RATE,
     EV_FOUND_COST, DC_FOUND_COST, EV_FOUND_REP, DC_FOUND_REP,
     ensure, tick, summary, act, dcContract, onDcResult, modelStats, canFoundEV, canFoundDC, perks, haloOn, netSum,
   };

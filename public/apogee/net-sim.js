@@ -173,14 +173,26 @@
 
   // ---------- Derived numbers ----------
   function bestGen(net) { let g = 'v1'; for (const id of GEN_ORDER) if (!GENS[id].research || has(net, GENS[id].research)) g = id; return g; }
-  function satCost(net, gen) { return GENS[gen].cost * (1 - 0.05 * (net.factory - 1)); }
+  function chipSelfV(state) {
+    try { const C = root.APOGEE_CAMPUS; return C && C.bonus ? Math.min(1, C.bonus(state).chipSelf || 0) : 0; } catch (e) { return 0; }
+  }
+  // Global chip shortage (state.chipShortage, rolled in game.js). Your own chip fab (campus) covers part of the hit.
+  function chipHit(state) {
+    const s = state && state.chipShortage;
+    if (!s || !(s.until > state.day)) return 0;
+    let self = 0;
+    try { const C = root.APOGEE_CAMPUS; if (C && C.bonus) self = Math.min(1, C.bonus(state).chipSelf || 0); } catch (e) { /* ignore */ }
+    return s.sev * (1 - self);
+  }
+  let chipNow = 0;
+  function satCost(net, gen) { return GENS[gen].cost * (1 - 0.05 * (net.factory - 1)) * (1 + chipNow); }
   function dishOf(net) { return DISHES[clamp((net.hw && net.hw.dish) || 1, 1, DISHES.length) - 1]; }
   function routerOf(net) { return ROUTERS[clamp((net.hw && net.hw.router) || 1, 1, ROUTERS.length) - 1]; }
   function dishFactor(net) { return dishOf(net).kitMult; }
   function kitCost(net, tid) { return TIERS[tid].kit * dishFactor(net) + (tid === 'home' || tid === 'business' ? routerOf(net).unit : 0); }
   function swCap(net) { let m = 1; for (const u of SAT_UPGRADES) if (net.satUp && net.satUp[u.id]) m += u.cap; return m; }
   function tierOpen(net, tid) { const T = TIERS[tid]; return (!T.needs || has(net, T.needs)) && (!T.needsDish || dishOf(net).level >= T.needsDish); }
-  function factoryRate(state) { const n = state.net; return FACTORY_RATE[n.factory] + campusBonus(state).satFactory; }
+  function factoryRate(state) { const n = state.net; chipNow = chipHit(state); return (FACTORY_RATE[n.factory] + campusBonus(state).satFactory) * (1 - chipNow); }
   function lasers(net) { return net.cohorts.some((c) => GENS[c.gen].lasers && c.n >= 1); }
   function orbitCount(net) { return net.cohorts.reduce((s, c) => s + c.n, 0); }
   function readyCount(net) { return Object.values(net.ready).reduce((s, v) => s + (v || 0), 0); }
