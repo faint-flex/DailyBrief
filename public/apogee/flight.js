@@ -265,6 +265,8 @@
     const aimX = failMode === 'miss' ? (padHalf + 14) * (b.x > 0 ? 1 : -1) : 0;
     let t = 0, outcome = null, outT = 0, reason = '';
     let ppm = 0.3, camX = 0;
+    const CATCH_HOVER = 10; // metres between the caught booster's engines and the launch mount
+    let catchArms = null;
     const st1H = geo.stages[0].h;
     let pilotShown = false;
     if (hands) {
@@ -367,7 +369,7 @@
         if (b.burning && !outcome) {
           const bx = sx(b.x), by = sy(b.y);
           for (let k = 0; k < 3; k++) puff(bx - Math.sin(b.th) * 4, by + 4, -Math.sin(b.th) * 200 + (Math.random() - 0.5) * 50, 200 + Math.random() * 80, 4 + Math.random() * 3, 0.5, 'rgba(255,190,100,A)');
-          if (b.y < 60) for (let k = 0; k < 3; k++) puff(bx + (Math.random() - 0.5) * 30, groundY - 4, (Math.random() - 0.5) * 260, -Math.random() * 30, 6, 1.2, 'rgba(230,230,235,A)');
+          if (b.y < 60) for (let k = 0; k < 3; k++) puff(bx + (Math.random() - 0.5) * 30, groundY + (mode === 'catch' ? CATCH_HOVER * ppm : 0) - 4, (Math.random() - 0.5) * 260, -Math.random() * 30, 6, 1.2, 'rgba(230,230,235,A)');
         }
         stepParts(dt, 0, 0);
 
@@ -397,19 +399,26 @@
           }
           drawTarget(sx(padX), groundY, padHalf * ppm);
         } else {
-          ctx.fillStyle = '#1a2238'; ctx.fillRect(0, groundY, W, H);
-          ctx.fillStyle = '#232d48'; ctx.fillRect(0, groundY, W, 3);
+          // On a tower catch the booster is held up high by the arms, so the real ground sits lower.
+          const floorY = mode === 'catch' ? groundY + CATCH_HOVER * ppm : groundY;
+          ctx.fillStyle = '#1a2238'; ctx.fillRect(0, floorY, W, H);
+          ctx.fillStyle = '#232d48'; ctx.fillRect(0, floorY, W, 3);
           if (mode === 'catch') {
-            // tower with arms at "ground" level; tower continues below
-            const tx = sx(-padHalf - 6);
-            const tw = Math.max(6, 9 * ppm);
-            ctx.fillStyle = '#2a3147';
-            ctx.fillRect(tx - tw, groundY - 40 * ppm, tw, H);
-            ctx.fillStyle = '#ff7a1a';
-            ctx.fillRect(tx, groundY - 2, (padHalf * 2 + 10) * ppm * 0.5 + 2, Math.max(3, 2 * ppm));
-            ctx.fillRect(tx, groundY + Math.max(4, 2 * ppm), (padHalf * 2 + 10) * ppm * 0.5 + 2, Math.max(3, 2 * ppm));
-            ctx.fillStyle = 'rgba(255,122,26,.18)';
-            ctx.fillRect(sx(-padHalf), groundY - 3, padHalf * 2 * ppm, 6);
+            const armY = groundY - (st1H - 3) * vis;
+            const tw = Math.max(8, 9 * ppm);
+            const tx = sx(-padHalf - 4) - tw;
+            // lattice tower from the ground to above the arms
+            const top = armY - 14 * ppm;
+            ctx.fillStyle = '#2a3147'; ctx.fillRect(tx, top, tw, floorY - top);
+            ctx.strokeStyle = '#3a4566'; ctx.lineWidth = 1;
+            for (let yy = top; yy < floorY; yy += Math.max(6, tw)) { ctx.beginPath(); ctx.moveTo(tx, yy); ctx.lineTo(tx + tw, yy + Math.max(6, tw)); ctx.stroke(); }
+            // launch mount under the catch point
+            ctx.fillStyle = '#3a4258';
+            ctx.fillRect(sx(-padHalf), floorY - 4 * ppm, padHalf * 2 * ppm, 4 * ppm);
+            catchArms = { x0: tx + tw, armY, w: Math.max(3, 1.6 * ppm) };
+            // target band at arm height
+            ctx.fillStyle = 'rgba(255,122,26,.15)';
+            ctx.fillRect(sx(-padHalf), armY - 6, padHalf * 2 * ppm, 12);
           } else {
             ctx.fillStyle = '#4a5268';
             ctx.beginPath(); ctx.ellipse(sx(0), groundY + 1, (padHalf + 5) * ppm, Math.max(2, 3 * ppm), 0, 0, Math.PI * 2); ctx.fill();
@@ -429,6 +438,15 @@
             from: 0, to: 0, noNose: true, x: sx(b.x), y: sy(b.y) - 1.4 * vis, scale: vis, angle: b.th,
             flame: b.burning ? 0.9 : 0, fins: true, legs: mode === 'catch' ? null : b.y < 220,
           });
+        }
+        if (mode === 'catch' && catchArms) {
+          // two arms ("chopsticks") that swing shut around the booster once it is caught
+          const closed = outcome === 'landed' ? Math.min(1, (t - outT) * 2) : 0;
+          const reach = sx(padHalf + 3) - catchArms.x0;
+          const len = reach * (1 - 0.35 * closed);
+          ctx.fillStyle = '#ff7a1a';
+          for (const dy of [-catchArms.w * 1.8, catchArms.w * 0.8]) ctx.fillRect(catchArms.x0, catchArms.armY + dy, len, catchArms.w);
+          catchArms = null;
         }
         if (outcome === 'crash' && t - outT < 0.05) explode(sx(b.x), sy(b.y) - 10, 140);
 
