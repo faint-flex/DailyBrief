@@ -610,7 +610,9 @@
         <div class="seg">${engineChoices(i).map((k) => `<button data-act="ed-eng" data-i="${i}" data-id="${k}" class="${st.engine === k ? 'on' : ''}">${S.ENGINES[k].name}</button>`).join('')}</div>
         <div class="small dim" style="margin-top:6px">${eng.fuel} · ${i === 0 && !eng.vac ? eng.thrustSL : eng.thrustVac} kN · Isp ${i === 0 && !eng.vac ? eng.ispSL + '–' + eng.ispVac : eng.ispVac} s · ${money(eng.cost)} each</div>
         <div class="field"><label>Engines</label><div class="stepper"><button data-act="ed-cnt" data-i="${i}" data-id="-1">−</button><span>${st.count}</span><button data-act="ed-cnt" data-i="${i}" data-id="1">+</button></div></div>
-        <div class="field"><label>Propellant</label><input type="range" data-ed-prop="${i}" min="5" max="${lim.maxProp}" step="${lim.maxProp > 1000 ? 10 : 5}" value="${st.prop}"><span class="val" id="ed-prop-${i}">${st.prop} t</span></div></div>`;
+        <div class="field"><label>Propellant</label><input type="range" data-ed-prop="${i}" min="0" max="1000" step="1" value="${propToPos(st.prop, lim.maxProp)}" aria-label="Stage ${i + 1} propellant">
+          <input type="number" class="num" data-ed-num="${i}" min="${PROP_MIN}" max="${lim.maxProp}" step="0.5" value="${st.prop}" aria-label="Stage ${i + 1} propellant in tons"><span class="dim small">t</span></div>
+        <div class="nudge">${[-10, -1, -0.5, 0.5, 1, 10].map((n) => `<button class="btn sm" data-act="ed-nudge" data-i="${i}" data-id="${n}">${n > 0 ? '+' : '−'}${Math.abs(n)}</button>`).join('')}</div></div>`;
     });
     if (d.stages.length < lim.maxStages) html += `<button class="btn sm" data-act="ed-add">+ Add a stage on top</button>`;
     html += `<div id="ed-stats"></div>`;
@@ -621,15 +623,40 @@
   function editorAfter() {
     const name = $('ed-name');
     name.addEventListener('input', () => { sheet.draft.name = name.value; });
+    const max = S.limits(state.techs).maxProp;
     for (const r of document.querySelectorAll('[data-ed-prop]')) {
       r.addEventListener('input', () => {
         const i = +r.dataset.edProp;
-        sheet.draft.stages[i].prop = +r.value;
-        $('ed-prop-' + i).textContent = r.value + ' t';
+        const v = posToProp(+r.value, max);
+        sheet.draft.stages[i].prop = v;
+        document.querySelector(`[data-ed-num="${i}"]`).value = v;
         editorStats();
       });
     }
+    for (const n of document.querySelectorAll('[data-ed-num]')) {
+      const apply = (final) => {
+        const i = +n.dataset.edNum;
+        let v = parseFloat(n.value);
+        if (!isFinite(v)) { if (final) n.value = sheet.draft.stages[i].prop; return; }
+        v = clampProp(v, max);
+        sheet.draft.stages[i].prop = v;
+        document.querySelector(`[data-ed-prop="${i}"]`).value = propToPos(v, max);
+        if (final) n.value = v;
+        editorStats();
+      };
+      n.addEventListener('input', () => apply(false));
+      n.addEventListener('change', () => apply(true));
+    }
     editorStats();
+  }
+  // Propellant slider is logarithmic so small upper stages and huge boosters both get fine control.
+  const PROP_MIN = 1;
+  function clampProp(v, max) { return Math.max(PROP_MIN, Math.min(max, Math.round(v * 2) / 2)); }
+  function propToPos(v, max) { return Math.round(1000 * Math.log(Math.max(PROP_MIN, v) / PROP_MIN) / Math.log(max / PROP_MIN)); }
+  function posToProp(p, max) {
+    const raw = PROP_MIN * Math.pow(max / PROP_MIN, p / 1000);
+    const step = raw < 20 ? 0.5 : raw < 200 ? 1 : 5;
+    return clampProp(Math.round(raw / step) * step, max);
   }
   function editorStats() {
     const d = sheet.draft;
@@ -692,10 +719,18 @@
       case 'ed-add': {
         const top = sheet.draft.stages[sheet.draft.stages.length - 1];
         const vac = Object.keys(S.ENGINES).filter((k) => S.ENGINES[k].vac && (!S.ENGINES[k].tech || state.techs[S.ENGINES[k].tech]));
-        sheet.draft.stages.push({ engine: vac[vac.length - 1] || 'emberv', count: 1, prop: Math.max(5, Math.round(top.prop / 4 / 5) * 5) });
+        sheet.draft.stages.push({ engine: vac[vac.length - 1] || 'emberv', count: 1, prop: Math.max(PROP_MIN, Math.round(top.prop / 4)) });
         renderSheet(); break;
       }
       case 'ed-rm': sheet.draft.stages.pop(); renderSheet(); break;
+      case 'ed-nudge': {
+        const i = +el.dataset.i;
+        const st = sheet.draft.stages[i];
+        st.prop = clampProp(st.prop + +id, lim.maxProp);
+        document.querySelector(`[data-ed-num="${i}"]`).value = st.prop;
+        document.querySelector(`[data-ed-prop="${i}"]`).value = propToPos(st.prop, lim.maxProp);
+        editorStats(); break;
+      }
       case 'ed-save': {
         const d = sheet.draft;
         d.name = (d.name || '').trim() || 'Rocket';
