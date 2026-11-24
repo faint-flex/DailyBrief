@@ -1,0 +1,47 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Rocket test</title>
+<style>html,body{margin:0;height:100%;background:#000}canvas{width:100vw;height:100vh;display:block}#i{position:fixed;left:8px;top:8px;color:#fff;font:12px monospace;text-shadow:0 0 3px #000}</style></head><body>
+<canvas id="c"></canvas><div id="i"></div>
+<script src="../sim.js"></script><script src="../draw.js"></script>
+<script src="../vendor/three.min.js"></script><script src="../vendor/sky.js"></script><script src="../world3d.js"></script><script src="../3d-rocket.js"></script><script src="../3d-env.js"></script><script src="../3d-earth.js"></script><script src="../3d-fx.js"></script>
+<script>
+// Params: d=small|f9|kero|big  view=close|far|base|top|mid|under  fire=0..1  plume=0..1  alt=km  legs=0..1  fins=0..1
+//         soot=1 crew=1 from=N (start stage) stage=N (stage to fire) open=1 (fairing off, wings out) pad=0 (no launch site) t=seconds yaw=deg
+const A=window.APOGEE_3D, S=window.APOGEE_SIM, T=window.THREE;
+const q=new URLSearchParams(location.search); const num=(k,d)=>q.has(k)?+q.get(k):d;
+const alt=num('alt',0);
+const DES={
+  small:{id:'s',name:'Small',color:'#2fb8ff',stages:[{engine:'ember',count:1,prop:40},{engine:'emberv',count:1,prop:8}]},
+  kero:{id:'k',name:'Kero9',color:'#ff7a1a',stages:[{engine:'ember',count:9,prop:300},{engine:'emberv',count:1,prop:70}]},
+  f9:{id:'d1',name:'Test',color:'#ff7a1a',stages:[{engine:'comet',count:9,prop:400},{engine:'cometv',count:1,prop:100}]},
+  big:{id:'b',name:'Big',color:'#e8c020',stages:[{engine:'nova',count:33,prop:3400},{engine:'novav',count:3,prop:1200}]},
+};
+const design=DES[q.get('d')||'f9']; const techs={comet:1,nova:1,steel:1};
+const sc=new T.Scene();
+A.init(document.getElementById('c')); A.resize();
+const geo=window.APOGEE_DRAW.geometry(design,techs);
+let padTop=0;
+if(q.get('pad')!=='0'&&alt<5){ const site=A.launchSite(sc,geo); padTop=site.padTop||0; }
+A.lights(sc,new T.Vector3(0,0,0));
+const from=num('from',0);
+const rk=A.buildRocket(design,techs,{from,fins:from===0,legs:from===0,soot:q.get('soot')==='1',crew:q.get('crew')==='1'});
+rk.root.position.y=padTop+(num('lift',0)); sc.add(rk.root);
+if(rk.stages[0].legs) A.setLegs(rk.stages[0],num('legs',0));
+if(A.setFins&&rk.stages[0].fins) A.setFins(rk.stages[0],num('fins',1));
+if(q.get('open')==='1'&&rk.fairing){ rk.fairing[0].position.x+=geo.d*1.2; rk.fairing[0].rotation.z=-0.5; rk.fairing[1].position.x-=geo.d*1.2; rk.fairing[1].rotation.z=0.5; rk.payload.visible=true; rk.payload.userData.wings.scale.x=1; }
+let H=0; rk.stages.forEach(s=>H+=s.h); H+=geo.nose;
+const view=q.get('view')||'close'; const cam=A.R.camera; const base=rk.root.position.y;
+const yaw=num('yaw',20)*Math.PI/180;
+function put(dist,y,ly){cam.position.set(Math.sin(yaw)*dist,y,Math.cos(yaw)*dist);cam.lookAt(0,ly,0);}
+if(view==='close') put(H*1.9,base+H*0.45,base+H*0.5);
+else if(view==='far') put(H*12,base+H*1.5,base+H*0.8);
+else if(view==='base') put(geo.d*3.2,base+geo.d*0.2,base+geo.d*0.2);
+else if(view==='top') put(geo.d*3.2,base+H-geo.nose*0.6,base+H-geo.nose*0.6);
+else if(view==='mid') put(geo.d*4,base+rk.stages[0].h,base+rk.stages[0].h-geo.d);
+else if(view==='flame') put(H*1.6,base-H*0.3,base-H*0.25);
+else if(view==='under'){cam.position.set(geo.d*2,base-H*1.2,geo.d*6);cam.lookAt(0,base,0);}
+const fire=num('fire',0), plume=num('plume',alt>0?Math.min(1,alt/60):0), fst=num('stage',0);
+let t=num('t',0); const info=document.getElementById('i');
+function f(){t+=1/60; rk.stages.forEach((s,i)=>A.setPlume(s,i===fst?fire:0,plume,t)); A.render(sc,{alt}); window.frames_=(window.frames_||0)+1;
+ info.textContent=design.name+' d='+geo.d.toFixed(1)+' H='+H.toFixed(0)+' steel='+geo.steel+' calls='+A.R.renderer.info.render.calls+' tris='+A.R.renderer.info.render.triangles; requestAnimationFrame(f);} f();
+</script></body></html>
