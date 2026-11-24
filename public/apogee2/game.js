@@ -247,14 +247,28 @@
   }
 
   let acc = 0, last = performance.now();
+  const DAY_SEC = 3; // real seconds per game day at ▶ (▶▶ is 5× faster)
+  // Weather watch: tell the player when launch weather changes, and drop out of fast speed so a good day isn't skipped.
+  let wxLast = null;
+  function wxWatch() {
+    const O = OPS(); if (!O || !O.today) return;
+    let w; try { w = O.today(state); } catch (e) { return; }
+    const go = w.go || 'go';
+    if (wxLast !== null && go !== wxLast) {
+      const msg = go === 'go' ? `${w.icon || '☀️'} ✓ Launch weather is GO today` : go === 'risky' ? `${w.icon || '⚠️'} ⚠ Risky launch weather today: ${w.long}` : `${w.icon || '⛈️'} ✕ No launches today: ${w.long}`;
+      toast(msg);
+      if (go === 'go' && state.speed > 1) { state.speed = 1; save(); header(); }
+    }
+    wxLast = go;
+  }
   function clock(now) {
     const dt = Math.min(0.5, (now - last) / 1000);
     last = now;
     if (!flying && !(sheet && (sheet.kind === 'intro' || sheet.kind === 'editor' || sheet.kind === 'launch')) && state.speed > 0 && !state.won) {
-      acc += dt * state.speed;
+      acc += dt * state.speed / DAY_SEC; // slower days so weather choices land (LyFe: days too fast)
       let changed = false;
       while (acc >= 1) { acc -= 1; dayTick(); changed = true; }
-      if (changed) refresh();
+      if (changed) { wxWatch(); refresh(); }
     }
     requestAnimationFrame(clock);
   }
