@@ -13,6 +13,8 @@
   const VENT = () => window.APOGEE_VENTURES || null;
   const VENTUI = () => window.APOGEE_VENTURES_UI || null;
   const OPS = () => window.APOGEE_OPS || null; // launch ops: weather, static fires, investigations (launchops.js)
+  // Launch windows + deep-space transit (windows.js, optional).
+  const WND = () => window.APOGEE_WINDOWS || null;
   const $ = (id) => document.getElementById(id);
   const SAVE_KEY = 'apogee2-save-v1';
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -70,7 +72,7 @@
   function load() {
     try {
       const raw = localStorage.getItem(SAVE_KEY);
-      if (raw) { const s = JSON.parse(raw); if (s && s.v === 1) { netEnsure(s); campusEnsure(s); ventEnsure(s); return s; } }
+      if (raw) { const s = JSON.parse(raw); if (s && s.v === 1) { netEnsure(s); campusEnsure(s); ventEnsure(s); if (WND()) WND().ensure(s); /* windows */ return s; } }
     } catch (e) { /* ignore */ }
     return newGame();
   }
@@ -171,14 +173,17 @@
         toast(`🚀 ${esc(v.serial)} is ready to fly`);
       }
     }
+    // Windows: deep-space craft arriving today get paid (or crash).
+    if (WND()) { try { WND().tick(state, { log, toast, award, money }); } catch (e) { console.warn('Windows tick failed', e); } }
     const before = state.contracts.length;
     state.contracts = state.contracts.filter((c) => c.expires > state.day);
     if (state.contracts.length < before) log('A contract offer expired.');
     const cap = 7;
     const open = state.contracts.filter((c) => !isOwn(c)).length;
     if (open < cap && Math.random() < (open < 3 ? 0.35 : 0.14)) {
-      const c = S.makeContract(Math.random, state);
-      state.contracts.push(c);
+      // Windows: Mars offers expire when a Mars window closes; ones too far from a window are re-rolled.
+      const c = WND() ? WND().offer(() => S.makeContract(Math.random, state), state) : S.makeContract(Math.random, state);
+      if (c) state.contracts.push(c);
     }
     const N = NET();
     if (N && N.tick) {
@@ -322,7 +327,7 @@
           <button class="btn sm" data-act="scrap-booster" data-id="${esc(x.id)}">Scrap · +${money(scrapValue(x))}</button></div>`;
       }).join('')}<p class="dim">Build a design that fits in the Hangar to reuse one.</p></div>`;
     }
-    html += `</div><div>${OPS() ? OPS().opsWeatherHtml(state) : ''}${haloOpsCard()}<h2>Goals</h2><div class="card">`;
+    html += `</div><div>${OPS() ? OPS().opsWeatherHtml(state) : ''}${haloOpsCard()}${WND() ? WND().opsCard(state) : '' /* windows: transits + calendar */}<h2>Goals</h2><div class="card">`;
     for (const m of MILESTONES) {
       const done = state.milestones[m.id];
       const extra = m.id === 'marsCity' ? ` (${state.marsCity}/5)` : '';
@@ -427,6 +432,7 @@
     const el = $('tab-contracts');
     const list = state.contracts.filter((c) => !isOwn(c)).sort((a, b) => b.reward - a.reward);
     let html = `<h2>Open contracts</h2><p class="small dim" style="margin:-4px 2px 10px">New offers arrive every few days. Higher reputation unlocks bigger jobs.</p>`;
+    if (WND()) html += WND().contractsCard(state); // windows: Mars/Moon calendar
     if (!list.length) html += `<div class="empty">No offers right now. Check back in a few days.</div>`;
     html += '<div class="grid">';
     for (const c of list) {
@@ -437,7 +443,7 @@
       html += `<div class="card tap" data-act="contract" data-id="${c.id}">
         <div style="display:flex;gap:10px;align-items:flex-start"><div class="grow">
           <h3>${esc(c.label)}</h3><div class="small dim">${esc(c.client)}</div>
-          <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><span class="pill blue">${t.short}</span><span class="pill">${c.crew ? '4 crew · 12 t' : tons(c.mass)}</span><span class="pill ${days < 15 ? 'bad' : ''}">${days} days left</span>
+          <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><span class="pill blue">${t.short}</span><span class="pill">${c.crew ? '4 crew · 12 t' : tons(c.mass)}</span><span class="pill ${days < 15 ? 'bad' : ''}">${days} days left</span>${WND() ? WND().contractPill(c, state) : ''}
           ${fit ? `<span class="pill good">✓ ${esc(fit.v.serial)} can fly it</span>` : needsCapsule ? '<span class="pill bad">Needs Crew Capsule</span>' : (() => {
             const bd = bestDesignFor(c);
             if (bd && bd.cap >= c.mass) return `<span class="pill">◐ Build a ${esc(bd.d.name)} to fly it</span>`;
@@ -679,6 +685,7 @@
       html += `<h2>Upper stage</h2><div class="seg"><button data-act="l-up" data-id="0" class="${!s.upperReuse ? 'on' : ''}">Expend</button><button data-act="l-up" data-id="1" class="${s.upperReuse ? 'on' : ''}">Bring it home (refund 90%)</button></div>`;
     }
     const m = S.mission(v.design, payload, target, s.recovery, state.techs, { upperReuse: s.upperReuse });
+    const wnd = c && !isOwn(c) && WND() ? WND().apply(m, target, state) : null; // windows: Moon penalty / Mars block
     // Launch ops: weather, static fire and investigations adjust the odds.
     const odds = S.launchOdds(v.design, state.heritage, state.designFlights[v.designId] || 0, OPS() ? OPS().launchMod(state, v) : undefined);
     const lodds = S.landingOdds(s.recovery, state.landings, state.techs, OPS() ? OPS().landMod(state, s.recovery) : undefined);
@@ -695,9 +702,11 @@
       ${s.recovery !== 'expend' ? `<div><small>Booster saved if it lands</small><b class="good">≈ ${money(S.stageCost(v.design.stages[0], state.techs, 0) * (1 - S.refurbFrac(state.techs, s.recovery)))}</b></div>` : ''}</div>
       ${!m.canLift ? '<p class="small bad">Too heavy to leave the pad. Add engines or remove fuel.</p>' : !m.ok ? `<p class="small bad">Not enough delta-v${s.recovery !== 'expend' ? '. Try expending the booster, or' : '. Try'} a bigger rocket.${S.TARGETS[target].deep && !state.techs.refill ? ' Orbital Refilling research helps for Moon and Mars.' : ''}</p>` : ''}
       </div>`;
+    if (wnd) html += WND().launchHtml(wnd, state, target); // windows: status, trip time, arrival odds
     const canPay = state.cash >= tankCost;
-    const opsBtns = OPS() ? OPS().launchButtons(state, v, s, m.ok && canPay, c) : null; // launch ops: no-go / risk it / scrub
-    html += opsBtns || `<button class="btn primary big" data-act="launch" ${m.ok && canPay ? '' : 'disabled'}>🚀 Launch ${esc(v.serial)}</button>`;
+    const goOk = m.ok && canPay && !(wnd && wnd.blocked);
+    const opsBtns = OPS() ? OPS().launchButtons(state, v, s, goOk, c) : null; // launch ops: no-go / risk it / scrub
+    html += opsBtns || `<button class="btn primary big" data-act="launch" ${goOk ? '' : 'disabled'}>🚀 Launch ${esc(v.serial)}</button>`;
     if (!canPay) html += `<p class="small bad">Not enough cash for the tanker flights.</p>`;
     return html;
   }
@@ -707,7 +716,8 @@
     const { c, v, payload, target } = launchCtx(s);
     if (!v) return;
     const m = S.mission(v.design, payload, target, s.recovery, state.techs, { upperReuse: s.upperReuse });
-    if (!m.ok) return;
+    const wnd = c && !isOwn(c) && WND() ? WND().apply(m, target, state) : null; // windows
+    if (!m.ok || (wnd && wnd.blocked)) return;
     if (OPS() && OPS().gate(state, v).block) return; // launch ops: storm no-go
     const tankCost = m.tankers ? m.tankers * tankerUnit(v.design, s.recovery, s.upperReuse) : 0;
     state.cash -= tankCost;
@@ -724,6 +734,7 @@
     state.vehicles = state.vehicles.filter((x) => x !== v);
     const ctx = { c, v, recovery: s.recovery, landing: s.landing, upperReuse: s.upperReuse, tankers: m.tankers, tankCost, fail, target };
     if (OPS()) ctx.ops = { wx: OPS().today(state).kind, sf: !!v.sfDone }; // launch ops: for the result screen
+    if (WND() && WND().takesTime(c)) ctx.transitDays = WND().transitDays(target); // windows: trip length
     closeSheet();
     flying = true;
     // If the page is closed mid-flight, the next load finishes this flight with the pre-rolled outcome.
@@ -737,7 +748,7 @@
       title: isHalo(c) ? `Halo batch · ${c.count} sats` : isDc(c) ? `Compute modules · ${c.count}` : c ? `${c.label} · ${c.client}` : 'Test flight',
       failText: fail ? `Engine failure on stage ${fail.stage + 1}` : '',
       orbitText: isHalo(c) ? 'HALO BATCH DEPLOYED ✓' : isDc(c) ? 'COMPUTE MODULES DEPLOYED ✓' : !c ? 'ORBIT ✓' : t.deep ? 'ON ITS WAY ✓' : 'PAYLOAD DEPLOYED ✓',
-      orbitSub: isHalo(c) ? `${c.count} sats joining the Halo network` : isDc(c) ? `${c.count} modules joining your orbital data center` : c ? (m.refilled ? `Refilled by ${m.tankers} tanker flight${m.tankers > 1 ? 's' : ''}, heading for ${t.name}` : `${t.name}`) : 'Test flight complete',
+      orbitSub: isHalo(c) ? `${c.count} sats joining the Halo network` : isDc(c) ? `${c.count} modules joining your orbital data center` : c ? (ctx.transitDays ? (m.refilled ? `Refilled by ${m.tankers} tanker${m.tankers > 1 ? 's' : ''} · ` : '') + WND().orbitSub(target, ctx.transitDays) /* windows */ : m.refilled ? `Refilled by ${m.tankers} tanker flight${m.tankers > 1 ? 's' : ''}, heading for ${t.name}` : `${t.name}`) : 'Test flight complete',
     });
     afterFlight(ctx, res);
   }
@@ -782,6 +793,9 @@
         haloLines(true);
         lines.push(['Science', '+4']);
         log(`<b>${esc(v.serial)}</b> deployed <b>${c.count} ${isDc(c) ? 'compute modules' : 'Halo sats'}</b> to low orbit.`);
+      } else if (c && WND() && WND().takesTime(c)) {
+        // Windows: Moon/Mars craft fly for days; payment, milestones and Mars city count come on arrival.
+        WND().depart(state, ctx, lines, { log });
       } else if (c) {
         state.cash += c.reward; state.stats.earned += c.reward;
         state.rep += c.rep;
@@ -852,7 +866,7 @@
     if (OPS()) { try { for (const ev of OPS().afterFlight(state, ctx, res, lines) || []) log(ev); } catch (e) { console.warn('Launch ops afterFlight failed', e); } }
     save();
     const box = $('result');
-    box.innerHTML = `<h3>${ok ? (isHalo(c) ? '✅ Halo batch in orbit' : isDc(c) ? '✅ Compute modules in orbit' : c ? '✅ Mission success' : '✅ Test flight success') : '💥 Mission failed'}</h3>
+    box.innerHTML = `<h3>${ok ? (ctx.transit ? `🛰️ On its way · arrives day ${ctx.transit.arrive}` /* windows */ : isHalo(c) ? '✅ Halo batch in orbit' : isDc(c) ? '✅ Compute modules in orbit' : c ? '✅ Mission success' : '✅ Test flight success') : '💥 Mission failed'}</h3>
       ${lines.map(([k, val]) => `<div class="line"><span>${k}</span><b>${val}</b></div>`).join('')}
       <button class="btn primary big" style="margin-top:14px" data-act="flight-done">Continue</button>`;
     box.hidden = false;
