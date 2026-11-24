@@ -316,7 +316,7 @@
       + kpi('Usable compute', `${num(d.usablePF)} PF`, `raw ${num(d.rawPF)} PF`)
       + kpi('Uptime', pct(d.uptime), d.uptime >= 0.97 ? '✓ healthy' : '⚠ degraded')
       + kpi('Power/cooling', pct(d.eff), `☀ L${d.up.power} · ❄ L${d.up.cooling}`)
-      + kpi('Spot price', `$${Math.round(d.spotPrice * 1000)}k`, `per PF-day · index ${d.spotIndex.toFixed(2)}`)
+      + kpi('Spot price', `$${(d.spotPrice * 1000).toFixed(d.spotPrice < 0.01 ? 2 : 1)}k`, `per PF-day · index ${d.spotIndex.toFixed(2)}`)
       + kpi('Profit / day', signed(G, d.profitDay), `rev ${fm(G, d.revenueDay)}`)
       + kpi('Profit 30 days', signed(G, d.profitMonth), `${d.deals.length} deal${d.deals.length === 1 ? '' : 's'} · ${num(d.committed)} PF sold`);
   }
@@ -329,6 +329,7 @@
     const fit = lift != null ? Math.floor(lift / perMass) : d.readyCount;
     const maxN = Math.max(0, Math.min(d.readyCount, fit));
     if (!launchN || launchN > maxN) launchN = maxN;
+    const earn = d.spotPrice * Gn.units * d.eff * d.uptime;
     const q = d.queue.map((x) => `<div class="vn-li"><span>🧩</span><span class="vn-grow">${x.n} × ${V.MOD_GENS[x.gen].name}${prog(x.prog / x.n, `${Math.floor(x.prog)}/${x.n} built`)}</span></div>`).join('');
     return `<div class="vn-row"><b class="vn-grow">🧩 ${Gn.name}</b>${st('idle', '▣', `${Gn.units} PF · ${Gn.mass} t`)}</div>
       <div class="vn-small">Rack of accelerators with its own solar array and radiator wings. ${G.money(Gn.cost)} each, line builds ${d.lineRate}/day, lasts ~${Gn.life} days.</div>
@@ -339,6 +340,7 @@
       <div class="vn-row" style="margin-top:8px">
         ${btn('launchN', { d: -1 }, '−', { disabled: launchN <= 1 })}<b style="min-width:110px;text-align:center">${launchN} module${launchN === 1 ? '' : 's'}</b>${btn('launchN', { d: 1 }, '+', { disabled: launchN >= maxN })}
         ${btn('launchDc', { n: launchN }, launchN ? `🚀 Launch ${launchN} to LEO` : '🚀 Nothing ready to launch', { go: true, disabled: !launchN })}</div>
+      ${earn < 0.01 ? `<div class="vn-small" style="margin-top:6px">⚠ Spot market saturated: a new module earns ~${fm(G, earn)}/day but costs $10k/day to run. Sign deals or upgrade instead.</div>` : `<div class="vn-small" style="margin-top:6px">✓ A new module earns ~${fm(G, earn)}/day on the spot market (runs $10k/day).</div>`}
       ${!maxN && d.readyCount ? `<div class="vn-small">⚠ No ready rocket can lift a module. Build a bigger rocket.</div>` : ''}`;
   }
   function dcUpgrades(d, G, S) {
@@ -366,12 +368,16 @@
   }
   function dcFleet(d) {
     if (!d.cohorts.length) return '<div class="vn-small">No modules in orbit yet. Build some and launch them.</div>';
-    const V = VT();
-    return '<div class="vn-list">' + d.cohorts.map((c) => {
-      const f = c.age / c.life;
-      const s = f > 0.9 ? st('bad', '⤵', 'Deorbit soon') : c.health < 1 ? st('warn', '▼', `Aging ${pct(c.health)}`) : st('ok', '✓', 'Healthy');
-      return `<div class="vn-li"><span>🛰️</span><span class="vn-grow">${c.n} × ${V.MOD_GENS[c.gen].name} · age ${c.age}/${c.life}d</span>${s}</div>`;
-    }).join('') + '</div>';
+    const V = VT(); const by = {};
+    for (const c of d.cohorts) {
+      const g = by[c.gen] || (by[c.gen] = { n: 0, oldest: 0, life: c.life, aging: 0, soon: 0, launches: 0 });
+      g.n += c.n; g.launches += 1; g.oldest = Math.max(g.oldest, c.age);
+      if (c.age / c.life > 0.9) g.soon += c.n; else if (c.health < 1) g.aging += c.n;
+    }
+    return '<div class="vn-list">' + Object.entries(by).map(([gen, g]) => {
+      const s = g.soon ? st('bad', '⤵', `${g.soon} deorbit soon`) : g.aging ? st('warn', '▼', `${g.aging} aging`) : st('ok', '✓', 'Healthy');
+      return `<div class="vn-li"><span>🛰️</span><span class="vn-grow"><b>${g.n} × ${V.MOD_GENS[gen].name}</b><br><span class="vn-small">${g.launches} launch${g.launches > 1 ? 'es' : ''} · oldest ${g.oldest}/${g.life} days</span></span>${s}</div>`;
+    }).join('') + '</div><div class="vn-small" style="margin-top:6px">Modules slow down after 70% of their life and deorbit at the end. Launch new ones to replace them.</div>';
   }
 
   // ---------- charts
