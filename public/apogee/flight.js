@@ -205,7 +205,7 @@
     const TPAD = 3.6;
     const a0 = Math.max(10, (2 * (Lr + 16)) / (TPAD * TPAD));
     const onboardFrom = n > 1 ? starts[1] - SEP - 0.6 : Infinity;
-    const chaseFrom = n > 1 ? starts[1] + 2.2 : COUNT + TPAD + 5;
+    const chaseFrom = n > 1 ? starts[1] + 0.9 : COUNT + TPAD + 5;
     const maxqFrom = COUNT + TPAD + 0.3, maxqTo = COUNT + TPAD + 2.1;
 
     // ---- 3D setup ----
@@ -414,7 +414,7 @@
         const cp = rk.root.localToWorld(V((Math.random() - 0.5) * vib, up + 2.2, r + 1.25));
         const look = rk.root.localToWorld(V(0, up - 70, r + 0.2));
         const upv = V(0, 0, 1);
-        setCam(cp, look, 70, 0.1, upv);
+        setCam(cp, look, W < H ? 88 : 70, 0.1, upv);
         rAlt = altKm;
       } else {
         lbl = done ? 'CHASE CAM · PAYLOAD' : 'CHASE CAM · UPPER STAGE';
@@ -564,7 +564,7 @@
         if (mode === 'barge') {
           model = A.bargeModel();
           scene.add(model.group);
-          sea = A.ocean(400000); sea.position.y = 0; scene.add(sea);
+          if (!model.group.userData.sea) { sea = A.ocean(400000); sea.position.y = 0; scene.add(sea); }
           surfaceY = model.deckY != null ? model.deckY : 6;
           touchY = surfaceY + foot; flameY = surfaceY;
         } else if (mode === 'catch') {
@@ -606,7 +606,7 @@
       const need = Math.max(st1H * 2.4, top - bottom) / 1.02;
       const dFit = Math.max(need / tanH, (Wc / 2) / (tanH * asp)) * 1.08;
       const dMax = st1H / (0.13 * 2 * tanH); // keep the booster at least ~13% of screen height
-      const d = Math.min(dFit, dMax);
+      const d = top - bottom > 450 ? Math.min(dFit, dMax) : dFit; // low down, always show the target
       const hv = d * tanH, hw = hv * asp;
       const cy = Math.max(bottom + hv * 0.4, top - hv * 0.62);
       let cx = (xMin + xMax) / 2;
@@ -618,37 +618,45 @@
       const pos = V(camS.cx + camS.d * Math.sin(yaw), camS.cy + camS.d * 0.1, camS.d * Math.cos(yaw));
       setCam(pos, V(camS.cx, camS.cy, 0), fov, Math.max(0.5, camS.d * 0.02));
     }
+    // Aim between two points so both are in frame (vertical fov in degrees).
+    function frame2(cp, p1, p2, minFov, maxFov, margin) {
+      const a1 = p1.clone().sub(cp).normalize(), a2 = p2.clone().sub(cp).normalize();
+      const sep = Math.acos(clamp(a1.dot(a2), -1, 1)) * DEG;
+      const look = cp.clone().add(a1.add(a2).normalize());
+      setCam(cp, look, clamp(sep * 1.2 + margin, minFov, maxFov), 0.5);
+    }
     function wideCam(base) {
       const pad = V(padX, surfaceY, 0);
-      const bc = base.clone().add(V(0, st1H * 0.5, 0));
-      const dist0 = 620;
-      const cp = V(padX + dist0 * Math.sin(0.6), surfaceY + (mode === 'barge' ? 9 : 14), dist0 * Math.cos(0.6));
-      const look = pad.clone().lerp(bc, 0.58);
-      const a1 = pad.clone().sub(cp).normalize(), a2 = bc.clone().sub(cp).normalize();
-      const sep = Math.acos(clamp(a1.dot(a2), -1, 1)) * DEG;
-      const fov = clamp(sep * 1.35 + 2 * Math.atan(st1H / cp.distanceTo(bc)) * DEG * 1.5, 6, 75);
-      setCam(cp, look, fov, 1);
+      const top = base.clone().add(V(Math.sin(b.th) * st1H, Math.cos(b.th) * st1H, 0));
+      const dist0 = 1000;
+      const cp = V(padX + dist0 * Math.sin(0.6), surfaceY + (mode === 'barge' ? 12 : 22), dist0 * Math.cos(0.6));
+      frame2(cp, pad, top, 5, 80, 4);
     }
     function closeCam(base) {
-      const push = 1 - Math.min(0.18, shotT * 0.035);
+      const push = 1 - Math.min(0.15, shotT * 0.03);
+      const top = base.clone().add(V(Math.sin(b.th) * st1H, Math.cos(b.th) * st1H, 0));
       if (mode === 'catch') {
         const dd = (st1H * 1.5 + 30) * push;
         const cp = V(dd * 0.55, 6 + st1H * 0.2, dd);
-        const look = V(base.x - 3, base.y + st1H * 0.5, 0);
-        setCam(cp, look, 46, 0.5);
+        frame2(cp, V(base.x, surfaceY, 0), top.add(V(0, 6, 0)), 40, 80, 8);
       } else {
         const dd = (st1H * 1.7 + 24) * push;
         const cp = V(padX - dd * 0.45, surfaceY + 4.5, dd * 0.9);
-        const look = V(base.x, base.y + st1H * 0.38, 0);
-        setCam(cp, look, 42, 0.5);
+        frame2(cp, V(base.x, surfaceY, 0), top.add(V(0, 4, 0)), 36, 80, 8);
       }
     }
 
     function draw(fdt) {
       if (!vis) { octx.clearRect(0, 0, W, H); drawBar(); return; }
       const base = V(b.x, touchY + Math.max(0, b.y), 0);
-      bk.root.position.copy(base);
-      bk.root.rotation.set(0, 0, -b.th);
+      const deck = mode === 'barge' && model && model.group.userData.deck;
+      if (deck && outcome === 'landed') {
+        // ride the bobbing deck once down
+        if (bk.root.parent !== deck) { bk.root.position.copy(base); bk.root.rotation.set(0, 0, -b.th); model.group.updateMatrixWorld(true); deck.attach(bk.root); }
+      } else {
+        bk.root.position.copy(base);
+        bk.root.rotation.set(0, 0, -b.th);
+      }
       bk.root.updateMatrixWorld(true);
       const ax = V(Math.sin(b.th), Math.cos(b.th), 0);
       // legs
