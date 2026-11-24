@@ -420,7 +420,7 @@
         <div class="kv"><div><small>To LEO</small><b>${tons(leoX)}</b></div>${reuse ? `<div><small>LEO, reusable</small><b>${tons(leoR)}</b></div>` : ''}<div><small>To GTO</small><b>${tons(gto)}</b></div><div><small>Cost</small><b>${money(cost)}</b></div><div><small>Build</small><b>${days} days</b></div></div>
         ${errs.length ? `<p class="small bad">${errs.map(esc).join('<br>')}</p>` : ''}
         <div class="btns"><button class="btn primary sm" data-act="build" data-id="${d.id}" ${errs.length || state.cash < cost ? 'disabled' : ''}>Build new · ${money(cost)}</button>
-        ${fb.length ? `<button class="btn go sm" data-act="build-reuse" data-id="${d.id}">Reuse ${esc(fb[0].id)} · ${money(reuseCost(d, fb[0]))}</button>` : ''}</div></div>`;
+        ${fb.length ? `<button class="btn go sm" data-act="build-reuse" data-id="${d.id}" ${state.cash < reuseCost(d, fb[0]) ? 'disabled' : ''}>Reuse ${esc(fb[0].id)} · ${money(reuseCost(d, fb[0]))}</button>` : ''}</div></div>`;
     }
     html += `</div><button class="btn big" data-act="new-design" style="max-width:340px">+ New rocket design</button>`;
     html += `<p class="small dim" style="margin-top:12px">Tip: a booster that lands keeps its slot here. Build the same design again and you only pay to refurbish it.</p>`;
@@ -443,9 +443,9 @@
       if (!booster) return;
       cost = reuseCost(d, booster);
       days = Math.max(booster.days, Math.round(days * 0.45));
-      state.boosters = state.boosters.filter((x) => x !== booster);
     }
     if (state.cash < cost) { toast('Not enough cash.'); return; }
+    if (booster) state.boosters = state.boosters.filter((x) => x !== booster);
     state.cash -= cost;
     const prefix = d.name.replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase() || 'RK';
     const serial = `${prefix}-${++state.serial}`;
@@ -642,6 +642,8 @@
     const ctx = { c, v, recovery: s.recovery, landing: s.landing, upperReuse: s.upperReuse, tankers: m.tankers, tankCost, fail, target };
     closeSheet();
     flying = true;
+    // If the page is closed mid-flight, the next load finishes this flight with the pre-rolled outcome.
+    state.inFlight = { ctx, res: { dead: !!fail, stage1Ok: !fail || fail.stage > 0, landed: s.recovery !== 'expend' && autoLand && (!fail || fail.stage > 0) } };
     save();
     const t = S.TARGETS[target];
     const res = await F.run({
@@ -665,6 +667,7 @@
   }
 
   function afterFlight(ctx, res) {
+    delete state.inFlight;
     const { c, v, recovery, fail } = ctx;
     const design = v.design;
     const ok = !res.dead;
@@ -984,7 +987,12 @@
     window.addEventListener('resize', () => { if (tab === 'ops') renderOps(); if (tab === 'network') renderNetwork(); if (sheet && sheet.kind === 'editor') editorStats(); });
     refresh();
     if (state.intro) openSheet({ kind: 'intro' });
-    requestAnimationFrame(clock);
+    if (state.inFlight && state.inFlight.ctx) {
+    const f = state.inFlight;
+    log('Your last flight finished while the game was closed.');
+    try { afterFlight(f.ctx, f.res); } catch (e) { console.warn('resume flight', e); delete state.inFlight; save(); }
+  }
+  requestAnimationFrame(clock);
   }
   init();
 })();

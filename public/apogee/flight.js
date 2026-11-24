@@ -949,9 +949,10 @@
   // Same timing as the 2D version: one step per frame, at most 0.05 s (slow devices run in slow motion).
   function loop(prev) {
     raf = requestAnimationFrame((now) => {
-      const fdt = Math.min(0.05, Math.max(0, (now - prev) / 1000));
+      const real = Math.min(0.25, Math.max(0, (now - prev) / 1000));
+      const fdt = Math.min(0.05, real);
       if (skipReq && phase.skip) { skipReq = false; phase.skip(); }
-      if (!phase.finished) phase.step(fdt);
+      for (let rem = real; rem > 1e-4 && !phase.finished; rem -= 0.05) phase.step(Math.min(0.05, rem));
       if (phase.finished) { const r = phase.result; next(r); return; }
       stepFade(fdt);
       try { phase.draw(fdt); } catch (e) { if (!loop.warned) { loop.warned = true; console.warn('flight draw:', e); } }

@@ -1044,7 +1044,7 @@
   }
 
   // ---------- building models (local frame: long axis along x, front = +z) ----------
-  const HGT = { pad: 70, factory: 34, office: 40, housing: 16, lab: 18, test: 50, mc: 16, tank: 26, lz: 4, port: 22, tower: 125, solar: 4, visitor: 16, satfab: 24, fab: 28, ground: 14 };
+  const HGT = { road: 2, pad: 70, factory: 34, office: 40, housing: 16, lab: 18, test: 50, mc: 16, tank: 26, lz: 4, port: 22, tower: 125, solar: 4, visitor: 16, satfab: 24, fab: 28, ground: 14 };
   const MODELS = {
     factory(B, L, D, lv, M, X) {
       B.box(M.conc, L - 2, 0.25, D - 2, 0, 0, 0);
@@ -1112,6 +1112,7 @@
       if (lv >= 3) B.box(M.cladGrey, 16, 9, 10, 26, 0, 6);
       for (const [px, pz] of [[34, 34], [-36, 0]]) { B.cyl(M.steel, 0.3, 16, px, 0, pz, 6); B.box(M.steelDark, 2.4, 1.2, 1, px, 16, pz); }
     },
+    road(B, L, D, lv, M, X) { B.box(M.asph || M.concDark, L - 1, 0.25, D - 1, 0, 0, 0); },
     lz(B, L, D, lv, M, X) {
       B.box(M.concDark, L - 4, 0.2, D - 4, 0, 0, 0);
       B.add(M.lzMark, new T.CylinderGeometry(33, 33.5, 0.5, 64), 0, 0.25, 0);
@@ -1443,12 +1444,13 @@ float vnoise(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.
     function ext(x, y) {
       const ox = x < 0 || x >= w, oy = y < 0 || y >= h;
       const cx = clamp(x, 0, w - 1), cy = clamp(y, 0, h - 1);
-      const ch = site.map[cy][cx];
-      if (!ox && !oy) return ch;
+      if (!ox && !oy) return site.map[cy][cx];
+      // Beyond the edge, only public roads carry on (player roads stay inside the site).
+      const M0 = site.map0 || site.map, ch = M0[cy][cx];
       if (ch === 'R') {
         if (ox && oy) return fill;
-        if (ox) return site.map[cy][cx === 0 ? Math.min(1, w - 1) : Math.max(0, w - 2)] === 'R' ? 'R' : fill;
-        return site.map[cy === 0 ? Math.min(1, h - 1) : Math.max(0, h - 2)][cx] === 'R' ? 'R' : fill;
+        if (ox) return M0[cy][cx === 0 ? Math.min(1, w - 1) : Math.max(0, w - 2)] === 'R' ? 'R' : fill;
+        return M0[cy === 0 ? Math.min(1, h - 1) : Math.max(0, h - 2)][cx] === 'R' ? 'R' : fill;
       }
       if (ch === 'C') return Math.max(-x - 1, x - w, -y - 1, y - h) > 4 ? 'N' : 'C';
       if (ch === 'S' || ch === 'L' || ch === 'B') return ch;

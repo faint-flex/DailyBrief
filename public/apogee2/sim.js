@@ -26,8 +26,8 @@
 
   const RECOVERY = {
     expend: { name: 'Expend booster',       reserve: 0,    legs: false, tech: null },
-    rtls:   { name: 'Land back at the pad', reserve: 0.16, legs: true,  tech: 'legs' },
-    barge:  { name: 'Land on the ocean barge', reserve: 0.09, legs: true, tech: 'barge', needs: 'barge' },
+    rtls:   { name: 'Land back at the pad', reserve: 0.12, legs: true,  tech: 'legs' },
+    barge:  { name: 'Land on the ocean barge', reserve: 0.07, legs: true, tech: 'barge', needs: 'barge' },
     catch:  { name: 'Catch with the tower', reserve: 0.13, legs: false, tech: 'tower', needs: 'tower' },
   };
 
@@ -154,7 +154,7 @@
     const liftoff = above;
     const twr = detail.length ? detail[0].twr : 0;
     let loss = 0;
-    if (twr < 1.3) loss += (1.3 - twr) * 2500;
+    if (twr < 1.2) loss += (1.2 - twr) * 2500;
     const upperTwr = n > 1 ? detail[n - 1].twr : twr;
     if (n > 1 && upperTwr < 0.5) loss += (0.5 - upperTwr) * 1500;
     return { dv: dv - loss, rawDv: dv, loss, twr, liftoff, detail, canLift: twr >= 1.05 };
@@ -259,15 +259,15 @@
 
   const CONTRACT_KINDS = [
     { kind: 'smallsat',  label: 'Small satellite',      target: 'LEO', min: 0.2, max: 2.5,  rep: 0,  a: 4,   b: 3.6, client: 'LEO' },
-    { kind: 'eo',        label: 'Earth imaging satellite', target: 'SSO', min: 0.8, max: 5,  rep: 8,  a: 6,   b: 5.0, client: 'SSO' },
-    { kind: 'batch',     label: 'Internet satellite batch', target: 'LEO', min: 8, max: 18, rep: 20, a: 12,  b: 3.4, client: 'LEO' },
-    { kind: 'comsat',    label: 'TV / comms satellite', target: 'GTO', min: 2.5, max: 7,   rep: 18, a: 14,  b: 10,  client: 'GTO' },
-    { kind: 'cargo',     label: 'Station cargo run',    target: 'LEO', min: 5, max: 14,    rep: 30, a: 30,  b: 5,   client: 'STATION' },
-    { kind: 'crew',      label: 'Crew to orbit',        target: 'LEO', min: 12, max: 12,   rep: 40, a: 160, b: 0,   client: 'CREW', tech: 'capsule' },
-    { kind: 'llo',       label: 'Lunar orbiter',        target: 'LLO', min: 1.5, max: 6,   rep: 45, a: 50,  b: 26,  client: 'LLO' },
-    { kind: 'mto',       label: 'Mars probe',           target: 'MTO', min: 1, max: 5,     rep: 55, a: 70,  b: 36,  client: 'MTO' },
-    { kind: 'lunar',     label: 'Moon lander',          target: 'LUN', min: 4, max: 25,    rep: 65, a: 110, b: 18,  client: 'LUN' },
-    { kind: 'marscity',  label: 'Mars city cargo',      target: 'MARS', min: 60, max: 120, rep: 80, a: 300, b: 6,   client: 'MARS', tech: 'habitat' },
+    { kind: 'eo',        label: 'Earth imaging satellite', target: 'SSO', min: 0.8, max: 5,  rep: 8,  a: 6,   b: 3.0, client: 'SSO' },
+    { kind: 'batch',     label: 'Internet satellite batch', target: 'LEO', min: 8, max: 18, rep: 20, a: 7,   b: 1.1, client: 'LEO' },
+    { kind: 'comsat',    label: 'TV / comms satellite', target: 'GTO', min: 2.5, max: 7,   rep: 18, a: 8,   b: 5,  client: 'GTO' },
+    { kind: 'cargo',     label: 'Station cargo run',    target: 'LEO', min: 5, max: 14,    rep: 30, a: 12,  b: 1.2,   client: 'STATION' },
+    { kind: 'crew',      label: 'Crew to orbit',        target: 'LEO', min: 12, max: 12,   rep: 40, a: 45,  b: 0,   client: 'CREW', tech: 'capsule' },
+    { kind: 'llo',       label: 'Lunar orbiter',        target: 'LLO', min: 1.5, max: 6,   rep: 45, a: 16,  b: 6.5,  client: 'LLO' },
+    { kind: 'mto',       label: 'Mars probe',           target: 'MTO', min: 1, max: 5,     rep: 55, a: 22,  b: 8,  client: 'MTO' },
+    { kind: 'lunar',     label: 'Moon lander',          target: 'LUN', min: 4, max: 25,    rep: 65, a: 32,  b: 3,  client: 'LUN' },
+    { kind: 'marscity',  label: 'Mars city cargo',      target: 'MARS', min: 60, max: 120, rep: 80, a: 160, b: 3,   client: 'MARS', tech: 'habitat' },
   ];
 
   function makeContract(rng, state) {

@@ -617,14 +617,16 @@
   }
 
   // Research also costs science (late-game science sink).
-  for (const u of UPGRADES) u.sci = Math.round((u.cost || 0) * 3);
-  for (const x of DISHES.concat(ROUTERS)) x.sci = Math.round((x.cost || 0) * 5);
+  // Apogee 2.0: Halo research costs money only, so science stays for the rocket tree.
+  for (const u of UPGRADES) u.sci = 0;
+  for (const x of DISHES.concat(ROUTERS)) x.sci = 0;
   function paySci(state, n, ok) { if (!ok || !n) return; state.rp = Math.max(0, (state.rp || 0) - n); }
   // ---------- Public API ----------
   function canFound(state) {
     ensure(state);
     if (state.net) return { ok: false, why: 'Halo is already running.' };
     if (!state.milestones || !state.milestones.firstOrbit) return { ok: false, why: 'Reach orbit first, then you can start Halo.' };
+    if ((state.rep || 0) < 20) return { ok: false, why: `Needs 20 reputation (you have ${Math.floor(state.rep || 0)}). Fly a few contracts first.` };
     if (state.cash < FOUND_COST) return { ok: false, why: `Founding Halo costs ${fmtM(FOUND_COST)}.` };
     return { ok: true, why: '' };
   }

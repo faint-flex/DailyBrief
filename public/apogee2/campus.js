@@ -536,7 +536,7 @@
     if (rn.all.size) {
       const keys = [...rn.all.keys()].sort((a, b) => a - b);
       const map = site.map.map((row, y) => row.split('').map((c, x) => (rn.all.has(y * site.w + x) ? 'R' : c)).join(''));
-      vsite = Object.assign({}, site, { id: site.id + '~' + keys.join('.'), base: site.id, map });
+      vsite = Object.assign({}, site, { id: site.id + '~' + keys.join('.'), base: site.id, map, map0: site.map });
     }
     let preview = null;
     if (ui.mode === 'build' && ui.type && ui.pv && ss.open) preview = { type: ui.type, ...check(st, sid, ui.type, ui.pv.x, ui.pv.y, ui.rot) };

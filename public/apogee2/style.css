@@ -116,6 +116,8 @@ p { margin: 6px 0; }
 .seg button.on { border-color: var(--accent); background: rgba(255, 122, 26, .14); color: var(--accent2); }
 .seg button:disabled { opacity: .4; }
 
+.ed-mini { position: sticky; top: -16px; z-index: 5; display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0 -4px 8px; padding: 8px 6px; background: var(--bg); border-bottom: 1px solid var(--line); font-size: 13px; }
+.ed-mini b { font-variant-numeric: tabular-nums; }
 .editor { display: grid; grid-template-columns: 1fr; gap: 10px; }
 .editor .preview { background: linear-gradient(#0e1630, #1c2846); border-radius: 14px; border: 1px solid var(--line); }
 .editor .preview canvas { width: 100%; height: 260px; display: block; }
@@ -195,7 +197,7 @@ table.cap th { color: var(--dim); font-weight: 600; font-size: 11px; }
   .sheet-wrap { align-items: flex-end; padding: 0; }
   .sheet { border-radius: 18px 18px 0 0; padding: 16px 14px calc(18px + var(--safe-b)); max-height: 92vh; }
   .editor { grid-template-columns: 1fr; }
-  .editor .preview canvas { min-height: 0; height: 220px; }
+  .editor .preview canvas { min-height: 0; height: 150px; }
   .nudge { margin-left: 0; }
   .field label { width: 72px; }
   .toast { bottom: calc(86px + var(--safe-b)); }
