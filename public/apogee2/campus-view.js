@@ -1876,11 +1876,30 @@ diffuseColor.rgb *= alb;
     } catch (e) { /* no reflections */ }
     // lights
     const sun = new T.DirectionalLight(0xffc088, 4.6);
+    sun.userData.dn = true; // day/night dims it
     sun.castShadow = renderer.shadowMap.enabled;
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.5; sun.shadow.radius = 3;
     scene.add(sun, sun.target);
-    scene.add(new T.HemisphereLight(0x9db6e0, 0x5a4a38, 0.35));
+    const hemi = new T.HemisphereLight(0x9db6e0, 0x5a4a38, 0.35);
+    scene.add(hemi);
+    // Day/night (daynight.js): dim the sun to blue moonlight and lower the exposure at night.
+    // Only at ▶ or paused; on fast speeds the base stays in daylight so it doesn't flash.
+    const DNL = { n: 0, sun0: sun.color.clone(), moon: new T.Color(0x7a90d0) };
+    function dnTarget() {
+      const DN = window.APOGEE_DAYNIGHT, g = window.APOGEE_GAME, gs = g && g.state;
+      return DN && gs && gs.speed <= 1 ? DN.nightOf(DN.hourOf(gs)) : 0;
+    }
+    function dnApply(step) {
+      const tgt = dnTarget(), d = tgt - DNL.n;
+      if (Math.abs(d) < 0.002) return false;
+      DNL.n += Math.sign(d) * Math.min(Math.abs(d), step);
+      const n = DNL.n;
+      sun.intensity = 4.6 * (1 - 0.88 * n); sun.color.copy(DNL.sun0).lerp(DNL.moon, n);
+      hemi.intensity = 0.35 * (1 - 0.4 * n);
+      renderer.toneMappingExposure = 0.66 * (1 - 0.45 * n);
+      return Math.abs(tgt - DNL.n) >= 0.002;
+    }
 
     // ground (terrain shader) + ocean
     const geoU = { value: new T.Vector4(TS, 1, 1, PADT) };
@@ -2395,6 +2414,7 @@ diffuseColor.rgb *= alb;
       clampCam(); applyCam();
       if (signYaw != null && Math.abs(signYaw - cam.yaw) > 0.2 && L.signs.children.length) updateSigns();
       for (const f of anims) f(t);
+      if (dnApply(0.06) && !animT) animT = setTimeout(() => { animT = 0; invalidate(); }, 90); // day/night fade
       oceanU.uTime.value = t;
       renderer.render(scene, camera);
       V3.frames++;
@@ -2510,7 +2530,7 @@ diffuseColor.rgb *= alb;
     document.addEventListener('visibilitychange', onVis);
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(resize) : null;
     if (ro) ro.observe(wrap); else window.addEventListener('resize', resize);
-    pollT = setInterval(() => { if (visible() && !raf && sync()) invalidate(); }, 1200);
+    pollT = setInterval(() => { if (visible() && !raf && (sync() || Math.abs(dnTarget() - DNL.n) >= 0.002)) invalidate(); }, 1200);
     resize();
     invalidate();
 

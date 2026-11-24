@@ -44,8 +44,9 @@
   }
 
   function roll(prev) {
-    // Weather tends to stick around for a day or two.
-    if (prev && Math.random() < 0.3) return prev === 'storm' && Math.random() < 0.5 ? 'windy' : prev;
+    // Weather comes in spells: it usually sticks around for a few days (storms pass sooner).
+    if (prev && Math.random() < (prev === 'storm' ? 0.4 : 0.68)) return prev;
+    if (prev === 'storm' && Math.random() < 0.5) return 'windy';
     const r = Math.random();
     return r < 0.56 ? 'clear' : r < 0.76 ? 'windy' : r < 0.9 ? 'upper' : 'storm';
   }
@@ -276,7 +277,7 @@
     cssDone = true;
     const s = document.createElement('style');
     s.textContent = `
-.ops-wx { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.ops-wx { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(74px, 1fr); gap: 8px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
 .ops-wx > div { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 8px; text-align: center; min-width: 0; }
 .ops-wx > div.now { border-color: var(--accent); }
 .ops-wx .ic { font-size: 22px; line-height: 1.2; }
@@ -298,7 +299,7 @@
   function forecastHtml(st) {
     css();
     const names = ['Today', 'Tomorrow'];
-    return `<div class="ops-wx">${forecast(st, 3).map((w, i) => {
+    return `<div class="ops-wx" aria-label="7-day launch weather forecast">${forecast(st, 7).map((w, i) => {
       const g = GO[w.go];
       return `<div class="${i === 0 ? 'now' : ''}" title="${esc(w.desc)}"><small>${names[i] || 'Day ' + w.day}</small><div class="ic" aria-hidden="true">${w.icon}</div><b>${esc(w.name)}</b><span class="pill ${g.cls}">${g.mark} ${g.text}</span></div>`;
     }).join('')}</div>`;

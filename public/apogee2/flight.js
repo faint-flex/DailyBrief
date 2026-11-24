@@ -21,6 +21,7 @@
   let fade = 0;
   let wx = null, wxEl = null; // launch ops: launch-site weather (plan.weather) and its haze overlay
   const keys = { left: false, right: false, burn: false };
+  let legTap = 0; // landing legs: each press of the LEGS button / L / ↓ toggles them
   let phase = null;
   let skipReq = false;
 
@@ -618,15 +619,21 @@
     const CATCH_HOVER = 10; // metres between the caught booster's engines and the launch mount
     const st1H = geo.stages[0].h;
     let pilotShown = false;
+    // Landing legs (LyFe): in Steer and Fly-it-yourself landings you deploy the legs yourself.
+    const needLegs = hands && mode !== 'catch';
+    let legsOut = !needLegs, legP = legsOut ? 1 : 0, legTap0 = legTap, earlyLegs = false;
+    if ($('p-legs')) { $('p-legs').hidden = !needLegs; $('p-legs').classList.remove('held'); $('p-legs').textContent = 'LEGS ▼'; }
+    $('pilot').classList.toggle('has-legs', needLegs);
     if (hands) {
       $('pilot').hidden = false; pilotShown = true;
       $('p-burn').hidden = steer;
       const keysEl = document.querySelector('#pilot .keys');
-      if (keysEl) keysEl.innerHTML = steer ? `Keyboard: <b>←</b> <b>→</b> to ${moveBoat ? 'move the barge' : 'steer'}` : 'Keyboard: hold <b>Space</b> or <b>↑</b> to burn, <b>←</b> <b>→</b> to steer';
+      if (keysEl) keysEl.innerHTML = (steer ? `Keyboard: <b>←</b> <b>→</b> to ${moveBoat ? 'move the barge' : 'steer'}` : 'Keyboard: hold <b>Space</b> or <b>↑</b> to burn, <b>←</b> <b>→</b> to steer') + (needLegs ? ', <b>L</b> or <b>↓</b> for legs' : '');
       $('flight-skip').hidden = true;
-      if (manual) banner('YOU HAVE CONTROL', 'Hold Space (or ↑) to burn, ← → to steer. Touch down slower than 8 m/s on the target.');
-      else if (moveBoat) banner('MOVE THE BARGE', 'The booster handles the burn. Use ← → to slide the barge under it.');
-      else banner('STEER IT IN', 'The booster handles the burn. Use ← → to steer it onto the target.');
+      const legTxt = needLegs ? ' Put the legs down (LEGS or L) before touchdown.' : '';
+      if (manual) banner('YOU HAVE CONTROL', 'Hold Space (or ↑) to burn, ← → to steer. Touch down slower than 8 m/s on the target.' + legTxt);
+      else if (moveBoat) banner('MOVE THE BARGE', 'The booster handles the burn. Use ← → to slide the barge under it.' + legTxt);
+      else banner('STEER IT IN', 'The booster handles the burn. Use ← → to steer it onto the target.' + legTxt);
     } else {
       banner('BOOSTER RETURN', { rtls: 'Heading back to the landing pad', barge: 'Aiming for the ocean barge', catch: 'Lining up with the tower arms' }[mode]);
     }
@@ -769,8 +776,8 @@
       const ax = V(Math.sin(b.th), Math.cos(b.th), 0);
       // legs
       if (st.legs) {
-        const want = b.y < 220 || outcome === 'landed' ? 1 : 0;
-        legK = clamp01(legK + Math.sign(want - legK) * fdt / 1.5);
+        const want = needLegs ? (legsOut ? 1 : 0) : (b.y < 220 || outcome === 'landed' ? 1 : 0);
+        legK = needLegs ? legP : clamp01(legK + Math.sign(want - legK) * fdt / 1.5);
         A.setLegs(st, smooth(0, 1, legK));
       }
       // engine and particles
@@ -912,6 +919,12 @@
       step(dt) {
         t += dt;
         if (!outcome) {
+          if (needLegs && legTap !== legTap0) { // legs toggle
+            legTap0 = legTap; legsOut = !legsOut; buzz(15);
+            if ($('p-legs')) { $('p-legs').textContent = legsOut ? 'LEGS ✓' : 'LEGS ▼'; $('p-legs').classList.toggle('held', legsOut); }
+          }
+          legP = clamp01(legP + (legsOut ? 1 : -1) * dt / 1.5); // legs take 1.5 s to swing out
+          if (needLegs && legsOut && b.y > 900) { b.fuel -= dt * 0.5; if (!earlyLegs) { earlyLegs = t; banner('LEGS OUT EARLY', 'Extra drag up high costs landing fuel.', true); } }
           const c = control();
           b.th += c.turn * 0.9 * dt;
           b.th = Math.max(-0.6, Math.min(0.6, b.th));
@@ -946,10 +959,11 @@
             b.y = 0;
             const onPad = Math.abs(b.x - padX) <= padHalf;
             const soft = Math.abs(b.vy) <= 8 && Math.abs(b.vx - (moveBoat ? padV : 0)) <= 5 && Math.abs(b.th) <= 0.26;
-            if (onPad && soft) { outcome = 'landed'; b.vy = 0; b.vx = 0; pin = manual && Math.abs(b.x - padX) <= padHalf * 0.35; }
+            const legsOk = !needLegs || legP >= 0.95;
+            if (onPad && soft && legsOk) { outcome = 'landed'; b.vy = 0; b.vx = 0; pin = manual && Math.abs(b.x - padX) <= padHalf * 0.35; }
             else {
               outcome = 'crash';
-              reason = !onPad ? (mode === 'barge' ? 'Missed the barge' : mode === 'catch' ? 'Missed the tower arms' : 'Missed the pad')
+              reason = onPad && soft && !legsOk ? (legsOut ? 'The legs were still swinging out: put them down sooner' : 'Landed without the legs down and tipped over') : !onPad ? (mode === 'barge' ? 'Missed the barge' : mode === 'catch' ? 'Missed the tower arms' : 'Missed the pad')
                 : Math.abs(b.vy) > 8 ? `Hit at ${Math.round(Math.abs(b.vy))} m/s` : Math.abs(b.th) > 0.26 ? 'Came in tilted and tipped over' : 'Too much sideways speed';
               buzz([60, 40, 120]);
             }
@@ -965,8 +979,9 @@
           ['H/S', `${b.vx.toFixed(1)} m/s`],
           ['FUEL', `${Math.max(0, b.fuel / 15 * 100).toFixed(0)}%`],
           ['TARGET', `${(b.x - padX).toFixed(0)} m`],
-        ]);
+        ].concat(needLegs ? [['LEGS', legP >= 0.95 ? '<span style="color:#3ddc97">▼ DOWN ✓</span>' : legsOut ? '▼ moving…' : `<span style="color:${b.y < 700 ? '#ff8d99' : '#e9ecf4'}">▲ UP${b.y < 700 ? ' · press L' : ''}</span>`]] : []));
         if (hands && !outcome && t > 3.5 && t < 4) banner('');
+        if (earlyLegs && !outcome && t - earlyLegs > 2.5 && t - earlyLegs < 3) banner('');
         if (!hands && !outcome && t > 3) banner('');
         if (outcome && t - outT > 3) {
           this.finished = true;
@@ -1080,6 +1095,8 @@
       el.addEventListener('contextmenu', (e) => e.preventDefault());
     };
     hold('p-left', 'left'); hold('p-right', 'right'); hold('p-burn', 'burn');
+    if ($('p-legs')) $('p-legs').addEventListener('pointerdown', (e) => { e.preventDefault(); legTap++; }); // landing legs toggle
+    window.addEventListener('keydown', (e) => { if (!e.repeat && (e.key === 'l' || e.key === 'L' || e.key === 'ArrowDown') && !$('flight').hidden) { legTap++; e.preventDefault(); } });
     const map = { ArrowLeft: 'left', a: 'left', ArrowRight: 'right', d: 'right', ' ': 'burn', ArrowUp: 'burn', w: 'burn' };
     window.addEventListener('keydown', (e) => { if (map[e.key] && !$('flight').hidden) { keys[map[e.key]] = true; e.preventDefault(); } });
     window.addEventListener('keyup', (e) => { if (map[e.key]) keys[map[e.key]] = false; });

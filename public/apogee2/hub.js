@@ -1,14 +1,16 @@
 // Apogee 2.0: the Base map as the main hub (step 1).
 // - Tapping a building shows buttons that open its panel (hangar -> rockets, pad -> launch, lab -> research...).
 // - A shortcut bar on the Base map opens the same panels.
-// - Panels open in a drawer over the map (right side on PC, bottom sheet on phone), so you never leave the Base.
-//   Halo and Voltline still switch to their own tab (they have their own full-screen views).
-// game.js asks drawer()/sync() in refresh() and calls decorate() after the Base renders.
+// - Every panel opens over the map (a side drawer on PC, a full page on phone), so you never leave the Base.
+//   The old tab bars are hidden; the shortcut bar is the menu. Keys 1-7 still work.
+// - game.js refresh(): any code that switches to another tab is turned into "open that panel over the Base"
+//   (take()), so every button in the game lands in the drawer. It renders the drawer via drawer()/sync().
 // Exposes window.APOGEE_HUB.
 (function () {
   'use strict';
   const G = () => window.APOGEE_GAME;
-  const DRAWER_TABS = ['ops', 'contracts', 'hangar', 'research'];
+  const DRAWER_TABS = ['ops', 'contracts', 'hangar', 'research', 'network', 'ventures'];
+  const WIDE = ['network', 'ventures']; // big dashboards get a wider drawer on PC
   const PANELS = {
     ops: { icon: '🚀', name: 'Launch', sub: 'Rockets, weather and the launch pad' },
     contracts: { icon: '📋', name: 'Contracts', sub: 'Jobs to fly' },
@@ -32,26 +34,47 @@
     wrap = document.createElement('aside');
     wrap.id = 'hub-drawer'; wrap.className = 'hub-drawer'; wrap.hidden = true;
     wrap.setAttribute('aria-label', 'Panel');
-    wrap.innerHTML = '<div class="hub-dbar"><button class="btn sm" data-hub-close aria-label="Back to the Base map">✕ Back to Base</button><b class="hub-dtitle"></b></div><div class="hub-dslot"></div>';
+    wrap.innerHTML = '<div class="hub-dbar"><button class="btn sm" data-hub-close aria-label="Back to the Base map">✕ Base</button><nav class="hub-dtabs" aria-label="Panels"></nav></div><div class="hub-dslot"></div>';
     document.body.appendChild(wrap);
     return wrap;
   }
 
   function sectionOf(t) { return document.getElementById('tab-' + t); }
 
-  function openPanel(t) {
-    const g = G(); if (!g) return;
-    if (!DRAWER_TABS.includes(t)) { close(true); g.goTab(t); return; } // Halo / Voltline: own full tab
+  // Is hub mode on? (needs the Base map)
+  function on() {
+    const g = G(), s = g && g.state;
+    const ok = !!(s && s.campus && window.APOGEE_CAMPUS);
+    document.body.classList.toggle('hub-mode', ok);
+    if (ok) setTop();
+    return ok;
+  }
+  function setTop() {
+    const top = document.querySelector('.top');
+    const h = top ? Math.round(top.getBoundingClientRect().height) : 64;
+    if (h !== setTop.h) { setTop.h = h; document.documentElement.style.setProperty('--hub-top', h + 'px'); }
+  }
+
+  // Put tab t's section into the drawer (no refresh; game.js refresh() calls this, then renders it).
+  function take(t) {
+    if (!DRAWER_TABS.includes(t)) return false;
+    if (open === t) return true;
     close(true);
     const w = ensureWrap(), sec = sectionOf(t);
-    if (!sec) return;
+    if (!sec) return false;
     open = t;
-    w.querySelector('.hub-dtitle').textContent = `${PANELS[t].icon} ${PANELS[t].name}`;
+    // Panel switcher inside the drawer (the selected one is marked with ✓ and an underline, not just colour)
+    w.querySelector('.hub-dtabs').innerHTML = DRAWER_TABS.map((k) => `<button class="hub-dt ${k === t ? 'on' : ''}" data-hub="${k}" ${k === t ? 'aria-current="page"' : ''} title="${esc(PANELS[k].name)}"><span aria-hidden="true">${PANELS[k].icon}</span><i>${PANELS[k].name}</i></button>`).join('');
     w.querySelector('.hub-dslot').appendChild(sec);
+    w.classList.toggle('wide', WIDE.includes(t));
     w.hidden = false;
     document.body.classList.add('hub-on');
-    if (g.goTab) g.goTab('base'); // stay on the Base; refresh() renders the drawer too
     w.querySelector('.hub-dslot').scrollTop = 0;
+    return true;
+  }
+  function openPanel(t) {
+    const g = G(); if (!g) return;
+    g.goTab(t); // refresh() turns this into the drawer
   }
 
   // quiet = don't refresh (used when the game itself is switching tabs)
@@ -71,6 +94,7 @@
   // Shortcut bar on top of the Base map.
   function decorate(el) {
     if (!el) return;
+    on();
     let bar = el.querySelector('.hub-bar');
     if (!bar) {
       bar = document.createElement('div'); bar.className = 'hub-bar';
@@ -99,9 +123,10 @@
     if (t.hasAttribute('data-hub-close')) { close(); return; }
     const p = t.getAttribute('data-hub');
     const s = G() && G().state; if (s && !s.hubTip) s.hubTip = 1;
-    if (open === p) close(); else openPanel(p);
+    if (open === p) { if (!t.classList.contains('hub-dt')) close(); } else openPanel(p);
   }, true);
   window.addEventListener('keydown', (e) => {
+    if (e.key === '5' && open && !(e.target && e.target.tagName === 'INPUT')) { close(); return; } // 5 = Base
     if (e.key !== 'Escape' || !open) return;
     const sw = document.getElementById('sheet-wrap');
     if (sw && !sw.hidden) return; // a sheet is open: let it close first
@@ -110,5 +135,6 @@
     close();
   });
 
-  window.APOGEE_HUB = { open: openPanel, close, drawer, sync, decorate, buildingButtons, PANELS };
+  window.addEventListener('resize', () => { if (document.body.classList.contains('hub-mode')) setTop(); });
+  window.APOGEE_HUB = { open: openPanel, close, drawer, sync, decorate, buildingButtons, on, take, PANELS };
 })();

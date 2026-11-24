@@ -247,7 +247,7 @@
   }
 
   let acc = -1, last = performance.now();
-  const DAY_SEC = 3; // real seconds per game day at ▶ (▶▶ is 5× faster)
+  const DAY_SEC = 20; // real seconds per game day at ▶ (▶▶ is 5×, ▶▶▶ is 20× faster). LyFe: slow enough for weather to matter
   // Weather watch: tell the player when launch weather changes, and drop out of fast speed so a good day isn't skipped.
   let wxLast = null;
   function wxWatch() {
@@ -289,6 +289,9 @@
   }
 
   function refresh() {
+    // Base hub (hub.js): every panel opens over the Base map, whichever button asked for it.
+    const HB0 = window.APOGEE_HUB;
+    if (HB0 && tab !== 'base' && HB0.on() && HB0.take(tab)) tab = 'base';
     header();
     if (tab === 'ops') renderOps();
     else if (tab === 'contracts') renderContracts();
@@ -299,8 +302,8 @@
     else if (tab === 'ventures') renderVentures();
     // Base hub (hub.js): a panel opened from the Base renders in a drawer over the map.
     const HB = window.APOGEE_HUB;
-    if (HB) { const hd = tab === 'base' ? HB.drawer() : null; if (hd) { HB.sync(); ({ ops: renderOps, contracts: renderContracts, hangar: renderHangar, research: renderResearch })[hd](); } else if (HB.drawer()) HB.close(true); }
-    if (tab !== 'network') { const U = NETUI(); if (U && U.hide) U.hide(); }
+    if (HB) { const hd = tab === 'base' ? HB.drawer() : null; if (hd) { HB.sync(); ({ ops: renderOps, contracts: renderContracts, hangar: renderHangar, research: renderResearch, network: renderNetwork, ventures: renderVentures })[hd](); } else if (HB.drawer()) HB.close(true); }
+    if (tab !== 'network' && !(HB && HB.drawer() === 'network')) { const U = NETUI(); if (U && U.hide) U.hide(); }
     if (tab !== 'base') { const C = CAMPUS(); if (C && C.dispose) { try { C.dispose(); } catch (e) { /* ignore */ } } }
     if (sheet && sheet.live) renderSheet();
   }
@@ -427,7 +430,7 @@
     get state() { return state; },
     save, refresh, log, toast, money, esc, openLaunchFor,
     pct, tons, fmtInt,
-    goTab(t) { tab = t; window.scrollTo(0, 0); refresh(); },
+    goTab(t) { if (t === 'base' && window.APOGEE_HUB) window.APOGEE_HUB.close(true); tab = t; window.scrollTo(0, 0); refresh(); }, // Base hub: 'base' closes any open panel
     dayTick() { dayTick(); refresh(); },
     bestLift(target) {
       // Best payload any ready rocket can carry to target (reusable if possible, else expended).
@@ -442,7 +445,7 @@
       return reuse.mass >= 1 ? Object.assign(reuse, { expendMass: best.mass }) : best;
     },
     readyCount() { return ready().length; },
-    get tab() { return tab; },
+    get tab() { return (tab === 'base' && window.APOGEE_HUB && window.APOGEE_HUB.drawer()) || tab; }, // Base hub: the open panel counts as the tab
   };
   window.APOGEE_GAME = GAME;
 
@@ -746,7 +749,7 @@
     if (locked.length) html += `<p class="small dim">🔒 ${locked.map((k) => lockHints[k]).join('<br>🔒 ')}</p>`;
     if (s.recovery !== 'expend') {
       const opts = [['auto', 'Autopilot'], ['steer', s.recovery === 'barge' ? '🚢 Move the barge' : '🎯 Steer it'], ['manual', '🎮 Full manual']];
-      const hint = { auto: 'Lands by itself, using the odds below.', steer: s.recovery === 'barge' ? 'The booster burns by itself. You slide the barge under it with ← →.' : 'The booster burns by itself. You steer it onto the target with ← →.', manual: 'You do everything: burn and steer.' }[s.landing];
+      const hint = { auto: 'Lands by itself, using the odds below.', steer: s.recovery === 'barge' ? 'The booster burns by itself. You slide the barge under it with ← →.' : 'The booster burns by itself. You steer it onto the target with ← →.', manual: 'You do everything: burn and steer.' }[s.landing] + (s.landing !== 'auto' && s.recovery !== 'catch' ? ' Put the landing legs down (LEGS or L) before touchdown.' : ''); // landing legs
       html += `<h2>Landing</h2><div class="seg">${opts.map(([k, l]) => `<button data-act="l-land" data-id="${k}" class="${s.landing === k ? 'on' : ''}">${l}</button>`).join('')}</div><p class="small dim">${hint}</p>`;
     }
     if (state.techs.shipreuse && v.design.stages.length > 1) {
