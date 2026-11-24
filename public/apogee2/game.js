@@ -246,7 +246,7 @@
     save();
   }
 
-  let acc = 0, last = performance.now();
+  let acc = -1, last = performance.now();
   const DAY_SEC = 3; // real seconds per game day at ▶ (▶▶ is 5× faster)
   // Weather watch: tell the player when launch weather changes, and drop out of fast speed so a good day isn't skipped.
   let wxLast = null;
@@ -264,11 +264,13 @@
   function clock(now) {
     const dt = Math.min(0.5, (now - last) / 1000);
     last = now;
+    if (acc < 0) acc = (state && state.tod) || 0; // day/night: resume the time of day from the save
     if (!flying && !(sheet && (sheet.kind === 'intro' || sheet.kind === 'editor' || sheet.kind === 'launch')) && state.speed > 0 && !state.won) {
       acc += dt * state.speed / DAY_SEC; // slower days so weather choices land (LyFe: days too fast)
       let changed = false;
       while (acc >= 1) { acc -= 1; dayTick(); changed = true; }
       if (changed) { wxWatch(); refresh(); }
+      state.tod = acc; if (window.APOGEE_DAYNIGHT) window.APOGEE_DAYNIGHT.header(); // day/night clock
     }
     requestAnimationFrame(clock);
   }
@@ -276,6 +278,7 @@
   // ---------- Header ----------
   function header() {
     $('s-day').textContent = state.day;
+    if (window.APOGEE_DAYNIGHT) window.APOGEE_DAYNIGHT.header(); // day/night clock
     $('s-cash').textContent = money(state.cash);
     $('s-cash').className = state.cash < 0 ? 'bad' : '';
     $('s-rep').textContent = Math.round(state.rep);
@@ -755,6 +758,7 @@
     const odds0 = S.launchOdds(v.design, state.heritage, state.designFlights[v.designId] || 0, OPS() ? OPS().launchMod(state, v) : undefined), odds = pk ? pk.adj(odds0) : odds0;
     const lodds = S.landingOdds(s.recovery, state.landings, state.techs, OPS() ? OPS().landMod(state, s.recovery) : undefined);
     if (OPS()) html += OPS().sheetHtml(state, v, s);
+    if (window.APOGEE_DAYNIGHT) html += window.APOGEE_DAYNIGHT.sheetLine(state); // day/night: launch time
     const tankCost = m.tankers ? m.tankers * tankerUnit(v.design, s.recovery, s.upperReuse) : 0;
     const ratio = Math.min(1.4, m.have / m.need);
     // Crew flights: show crew + capsule, add the abort-system note, block launch until a crew is ready.

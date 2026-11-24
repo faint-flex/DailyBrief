@@ -775,6 +775,11 @@
     sky.position.copy(camera.position);
     stars.position.copy(camera.position);
     stars.material.opacity = Math.max(0, Math.min(1, (alt - 25) / 40));
+    // Day/night (daynight.js): night darkens the low sky, shows stars, dims the sun and turns on pad floodlights.
+    const N = (window.APOGEE_DAYNIGHT ? window.APOGEE_DAYNIGHT.flightNight() : 0) * (1 - Math.min(1, alt / 40));
+    sky.material.uniforms.skyFade.value = fade * (1 - 0.94 * N);
+    stars.material.opacity = Math.max(stars.material.opacity, N * 0.95);
+    nightLights(nearScene, N);
     glare.position.copy(camera.position).addScaledVector(sunDir, 700000);
     glare.material.opacity = Math.max(0, Math.min(1, (alt - 30) / 40));
     renderer.toneMappingExposure = 0.6 + (1 - fade) * 0.25;
@@ -790,6 +795,22 @@
     }
     renderer.clearDepth();
     renderer.render(nearScene, camera);
+  }
+
+  // Day/night: scale the scene's sun/sky lights toward dim moonlight and fade in warm floodlights by the pad.
+  function nightLights(scene, N) {
+    let L = scene.userData.dn;
+    if (!L) {
+      L = scene.userData.dn = { lights: [], flood: [], env: scene.environment, n: -1 };
+      scene.traverse((o) => { if (o.isDirectionalLight || o.isHemisphereLight || o.isAmbientLight) L.lights.push([o, o.intensity, o.color.clone()]); });
+      for (const [x, z] of [[-70, 45], [65, 55], [10, -75]]) { const f = new T.PointLight(0xffc27a, 0, 0, 2); f.position.set(x, 55, z); scene.add(f); L.flood.push(f); }
+    }
+    if (Math.abs(L.n - N) < 0.002) return;
+    L.n = N;
+    const moon = new T.Color(0x6a80c0);
+    for (const [o, i0, c0] of L.lights) { o.intensity = i0 * (1 - 0.9 * N); o.color.copy(c0).lerp(moon, N); }
+    for (const f of L.flood) f.intensity = 1.6e4 * N;
+    scene.environment = N > 0.5 ? null : L.env;
   }
 
   function disposeScene(scene) {

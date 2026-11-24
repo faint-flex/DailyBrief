@@ -289,3 +289,6 @@ table.cap th { color: var(--dim); font-weight: 600; font-size: 11px; }
   .editor .preview { position: sticky; top: 52px; align-self: start; }
   .editor .preview canvas { height: min(68vh, 640px); min-height: 360px; }
 }
+
+/* day/night clock under the day number (daynight.js) */
+.stat small.dn-tod { text-transform: none; letter-spacing: 0; white-space: nowrap; font-size: 10px; }
