@@ -1,60 +1,182 @@
-// Launch and booster landing scenes.
+// Launch and booster landing scenes, rendered in 3D (window.APOGEE_3D) with broadcast-style cameras.
+// The game logic (timeline, landing physics, results) is unchanged from the 2D version; only the drawing is new.
+// Physics runs in 2D (x across, y up, metres) and is mapped into the 3D scene.
 (function () {
   'use strict';
   const D = window.APOGEE_DRAW;
+  const T = window.THREE;
   const $ = (id) => document.getElementById(id);
   const G = 9.81;
+  const A3 = () => window.APOGEE_3D;
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const clamp01 = (v) => clamp(v, 0, 1);
+  const smooth = (a, b, v) => { const k = clamp01((v - a) / (b - a)); return k * k * (3 - 2 * k); };
+  const V = (x, y, z) => new T.Vector3(x || 0, y || 0, z || 0);
+  const DEG = 180 / Math.PI;
 
   let raf = 0;
   let resolveRun = null;
-  let ctx, canvas, W, H, dpr;
-  let keys = { left: false, right: false, burn: false };
+  let canvas = null, R = null, gl = false, fallbackCam = null;
+  let ov = null, octx = null, fadeEl = null, W = 1, H = 1, dpr = 1;
+  let fade = 0;
+  const keys = { left: false, right: false, burn: false };
   let phase = null;
-  let parts = [];
   let skipReq = false;
 
-  function size() {
-    dpr = window.devicePixelRatio || 1;
-    W = canvas.clientWidth; H = canvas.clientHeight;
-    canvas.width = W * dpr; canvas.height = H * dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // ---------------- shared helpers ----------------
+  function safe(fn) { try { return fn(); } catch (e) { if (!safe.warned) { safe.warned = true; console.warn('flight:', e); } return undefined; } }
+
+  function cam() {
+    if (R && R.camera) return R.camera;
+    if (!fallbackCam) fallbackCam = new T.PerspectiveCamera(45, 1, 0.5, 3e6);
+    return fallbackCam;
   }
 
+  function setup() {
+    canvas = $('flight-canvas');
+    if (!ov) {
+      ov = document.createElement('canvas');
+      ov.className = 'flight-ov';
+      ov.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none';
+      canvas.insertAdjacentElement('afterend', ov);
+      octx = ov.getContext('2d');
+      fadeEl = document.createElement('div');
+      fadeEl.style.cssText = 'position:absolute;inset:0;background:#000;opacity:0;pointer-events:none';
+      ov.insertAdjacentElement('afterend', fadeEl);
+    }
+    if (!R) {
+      const A = A3();
+      if (A && T) {
+        try { R = A.init(canvas); gl = !!(R && R.renderer); } catch (e) { console.warn('flight: WebGL unavailable', e); R = null; gl = false; }
+      }
+    }
+    size();
+  }
+
+  function size() {
+    if (!canvas) return;
+    W = canvas.clientWidth || window.innerWidth; H = canvas.clientHeight || window.innerHeight;
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    ov.width = Math.round(W * dpr); ov.height = Math.round(H * dpr);
+    octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (gl) safe(() => A3().resize());
+    else { const c = cam(); c.aspect = W / H; c.updateProjectionMatrix(); }
+  }
+
+  // Point the camera. fov in degrees.
+  function setCam(pos, look, fov, near, up) {
+    const c = cam();
+    c.position.copy(pos);
+    if (up) c.up.copy(up); else c.up.set(0, 1, 0);
+    c.lookAt(look);
+    c.fov = fov; c.near = near || 0.5; c.far = 3e6;
+    c.aspect = W / H;
+    c.updateProjectionMatrix();
+    if (R) {
+      const px = R.renderer ? R.renderer.getPixelRatio() : 1;
+      R.pointScale = (H * px) / (2 * Math.tan((fov / DEG) / 2));
+    }
+  }
+
+  function render(scene, alt) {
+    if (!gl || !scene) return;
+    safe(() => A3().render(scene, { alt: alt || 0 }));
+  }
+
+  // Particles (APOGEE_FX3D) are optional: every call is guarded.
+  function makeFx(scene) {
+    const F = window.APOGEE_FX3D;
+    if (!gl || !F || !F.create) return null;
+    const fx = safe(() => F.create(scene));
+    if (!fx) return null;
+    const call = (name, args) => { if (typeof fx[name] === 'function') safe(() => fx[name].apply(fx, args)); };
+    return {
+      exhaust: (...a) => call('exhaust', a), landingBurn: (...a) => call('landingBurn', a), explode: (...a) => call('explode', a),
+      vent: (...a) => call('vent', a), sonic: (...a) => call('sonic', a), step: (...a) => call('step', a),
+      clear: () => call('clear', []), dispose: () => call('dispose', []), has: (name) => typeof fx[name] === 'function',
+    };
+  }
+
+  // Simple fireball used when the particle module is missing or has no explode().
+  function flashes() {
+    const list = [];
+    return {
+      add(scene, pos, sizeM) {
+        if (!gl) return;
+        const A = A3();
+        const tex = safe(() => A.softTex([[0, 'rgba(255,250,235,1)'], [0.25, 'rgba(255,190,90,.9)'], [0.6, 'rgba(200,80,30,.35)'], [1, 'rgba(60,40,30,0)']]));
+        const sp = new T.Sprite(new T.SpriteMaterial({ map: tex || null, color: 0xffffff, blending: T.AdditiveBlending, transparent: true, depthWrite: false }));
+        sp.position.copy(pos); sp.scale.setScalar(sizeM * 0.2);
+        scene.add(sp);
+        const light = new T.PointLight(0xffa050, 6e5, 0, 2); light.position.copy(pos); scene.add(light);
+        list.push({ sp, light, t: 0, size: sizeM, scene });
+      },
+      step(dt) {
+        for (const f of list) {
+          f.t += dt;
+          const k = f.t / 2.2;
+          f.sp.scale.setScalar(f.size * (0.2 + 1.4 * Math.sqrt(Math.min(1, k))));
+          f.sp.material.opacity = Math.max(0, 1 - k);
+          f.light.intensity = 6e5 * Math.max(0, 1 - k * 2);
+          if (k >= 1 && f.sp.parent) { f.scene.remove(f.sp); f.scene.remove(f.light); f.sp.material.dispose(); }
+        }
+      },
+    };
+  }
+
+  function cut() { fade = 1; }
+  function stepFade(dt) {
+    fade = Math.max(0, fade - dt / 0.5);
+    if (fadeEl) fadeEl.style.opacity = (fade * fade * 0.95).toFixed(3);
+  }
+
+  let hudHtml = '', bannerHtml = null;
   function hud(items) {
-    $('hud').innerHTML = items.map(([k, v]) => `<div><small>${k}</small>${v}</div>`).join('');
+    const h = items.map(([k, v]) => `<div><small>${k}</small>${v}</div>`).join('');
+    if (h !== hudHtml) { hudHtml = h; $('hud').innerHTML = h; }
   }
   function banner(text, sub) {
-    $('banner').innerHTML = text ? `${text}${sub ? `<small>${sub}</small>` : ''}` : '';
+    const h = text ? `${text}${sub ? `<small>${sub}</small>` : ''}` : '';
+    if (h !== bannerHtml) { bannerHtml = h; $('banner').innerHTML = h; }
+  }
+  function buzz(p) { if (navigator.vibrate) try { navigator.vibrate(p); } catch (e) { /* ignore */ } }
+
+  // Screen projection for overlays.
+  const _pv = T ? new T.Vector3() : null;
+  function project(v) {
+    _pv.copy(v).project(cam());
+    return { x: (_pv.x + 1) / 2 * W, y: (1 - _pv.y) / 2 * H, ok: _pv.z < 1 && _pv.z > -1 };
   }
 
-  function puff(x, y, vx, vy, size, life, color) {
-    parts.push({ x, y, vx, vy, size, life, max: life, color });
+  function camLabel(text) {
+    if (!text || W < 600) return;
+    octx.save();
+    octx.font = '600 11px -apple-system, Segoe UI, Arial, sans-serif';
+    octx.textBaseline = 'bottom';
+    const x = 14, y = H - 16;
+    const w = octx.measureText(text).width;
+    octx.fillStyle = 'rgba(0,0,0,.45)'; octx.fillRect(x - 6, y - 16, w + 22, 20);
+    octx.fillStyle = '#ff4d4d'; octx.beginPath(); octx.arc(x + 1, y - 6, 3, 0, 7); octx.fill();
+    octx.fillStyle = 'rgba(235,240,250,.9)'; octx.fillText(text, x + 10, y);
+    octx.restore();
   }
-  function stepParts(dt, shiftY, shiftX) {
-    for (const p of parts) {
-      p.x += p.vx * dt + (shiftX || 0); p.y += p.vy * dt + (shiftY || 0);
-      p.vx *= 0.985; p.vy *= 0.985; p.life -= dt; p.size *= 1 + dt * 0.9;
-    }
-    parts = parts.filter((p) => p.life > 0 && p.y < H + 200 && p.y > -300);
-  }
-  function drawParts() {
-    for (const p of parts) {
-      const a = Math.max(0, p.life / p.max);
-      ctx.fillStyle = p.color.replace('A', (a * (p.color.startsWith('rgba(255') ? 0.9 : 0.55)).toFixed(3));
-      ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
-    }
-  }
-  function explode(x, y, n) {
-    for (let i = 0; i < n; i++) {
-      const a = Math.random() * Math.PI * 2, s = 40 + Math.random() * 260;
-      puff(x, y, Math.cos(a) * s, Math.sin(a) * s, 3 + Math.random() * 8, 0.6 + Math.random() * 1.4,
-        Math.random() < 0.6 ? 'rgba(255,170,60,A)' : 'rgba(90,90,100,A)');
-    }
-    if (navigator.vibrate) try { navigator.vibrate([60, 40, 120]); } catch (e) { /* ignore */ }
+
+  function minYOf(root, skip) {
+    const box = new T.Box3(), tmp = new T.Box3();
+    root.updateMatrixWorld(true);
+    root.traverse((o) => {
+      if (!o.isMesh || !o.geometry) return;
+      for (let p = o; p; p = p.parent) if (p === skip) return;
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+      tmp.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
+      box.union(tmp);
+    });
+    return box.isEmpty() ? 0 : box.min.y - root.position.y;
   }
 
   // ---------------- Ascent ----------------
   function ascent(plan) {
+    const A = A3();
     const design = plan.design;
     const geo = D.geometry(design, plan.techs);
     const n = design.stages.length;
@@ -68,18 +190,252 @@
     const targetAlt = { LEO: 210, SSO: 560, GTO: 250, LLO: 220, LUN: 220, MTO: 220, MARS: 220 }[plan.target] || 210;
     let failAt = null;
     if (plan.fail) failAt = starts[plan.fail.stage] + burns[plan.fail.stage] * plan.fail.t;
-    const fitScale = (from) => {
-      let h = geo.nose;
-      for (let i = from; i < n; i++) h += geo.stages[i].h;
-      return Math.min((H * 0.42) / h, (W * 0.2) / geo.d);
-    };
-    let scale = fitScale(0);
+    const recov = plan.recovery !== 'expend';
     let curStage = 0;
-    const dropped = [];
     let fairingOff = false;
-    let fairingBits = [];
     let dead = false, deadT = 0, done = false, doneT = 0;
     let t = 0;
+
+    const progress = (tt) => clamp01((tt - COUNT) / (total - COUNT));
+    const altAt = (tt) => { const p = progress(tt); return targetAlt * p * p; };
+    const angleAt = (tt) => Math.min(1, progress(tt) * 1.7) * 1.05;
+
+    // camera schedule (seconds after T-0)
+    const Lr = geo.total;
+    const TPAD = 3.6;
+    const a0 = Math.max(10, (2 * (Lr + 16)) / (TPAD * TPAD));
+    const onboardFrom = n > 1 ? starts[1] - SEP - 0.6 : Infinity;
+    const chaseFrom = n > 1 ? starts[1] + 0.9 : COUNT + TPAD + 5;
+    const maxqFrom = COUNT + TPAD + 0.3, maxqTo = COUNT + TPAD + 2.1;
+
+    // ---- 3D setup ----
+    let vis = false, rk = null, scene = null, site = null, fx = null, where = 'ground', padTop = 0;
+    const fl = flashes();
+    const dropped = []; // {obj, v, spin, stage, vent}
+    let payloadFree = null;
+    let shot = null, shotT = 0, deadShot = null;
+    const deadPos = V();
+    const track = { ct: V(-3600, 30, 9800), jit: V() };
+    if (gl) {
+      try {
+        rk = A.buildRocket(design, plan.techs, { fins: recov, legs: recov && plan.recovery !== 'catch', crew: !!plan.crew });
+        scene = new T.Scene();
+        A.lights(scene, V());
+        site = A.launchSite(scene, geo) || {};
+        padTop = site.padTop || 0;
+        rk.root.position.y = padTop;
+        scene.add(rk.root);
+        if (rk.stages[0] && rk.stages[0].legs) A.setLegs(rk.stages[0], 0);
+        if (rk.stages[0] && A.setFins) A.setFins(rk.stages[0], 0);
+        fx = makeFx(scene);
+        vis = true;
+      } catch (e) { console.warn('flight: 3D ascent setup failed', e); vis = false; }
+    }
+
+    const axisOf = (ang) => V(Math.sin(ang), Math.cos(ang), 0);
+    // Rocket attitude shown on screen: upright on the pad, then pitches over smoothly.
+    const visAngle = (tt) => angleAt(tt) * clamp01((tt - COUNT - 2.4) / 4);
+    function stackLen(from) {
+      let h = fairingOff ? 0 : geo.nose;
+      for (let i = from; i < n; i++) h += geo.stages[i].h;
+      return h;
+    }
+    function groundPos(tt) {
+      const tau = Math.max(0, tt - COUNT);
+      if (tau < TPAD) return V(0, padTop + 0.5 * a0 * tau * tau, 0);
+      const altM = altAt(tt) * 1000;
+      return V(altM * 0.7 * progress(tt), padTop + altM, 0);
+    }
+
+    function toSpace() {
+      if (!vis || where === 'space') return;
+      if (fx) fx.dispose();
+      scene.remove(rk.root);
+      safe(() => A.disposeScene(scene));
+      dropped.length = 0;
+      scene = new T.Scene();
+      A.lights(scene, V());
+      scene.traverse((o) => { if (o.isHemisphereLight) o.intensity *= 0.35; });
+      rk.root.position.set(0, 0, 0);
+      scene.add(rk.root);
+      fx = makeFx(scene);
+      where = 'space';
+    }
+
+    function onSeparate(i) {
+      if (!vis) return;
+      const st = rk.stages[i - (rk.stages.length - n)] || rk.stages[i];
+      if (!st) return;
+      A.setPlume(st, 0, 0, t);
+      scene.attach(st.group);
+      const ax = axisOf(visAngle(t));
+      dropped.push({ obj: st.group, v: ax.clone().multiplyScalar(-3), spin: 0.25 + Math.random() * 0.15, vent: 1.6, st, fins: i === 0 && recov ? 0 : null });
+    }
+    function onFairing() {
+      if (!vis || !rk.fairing) return;
+      rk.root.updateMatrixWorld(true);
+      const side = V(1, 0, 0).transformDirection(rk.root.matrixWorld);
+      rk.fairing.forEach((h, k) => {
+        scene.attach(h);
+        const s = k === 0 ? 1 : -1;
+        dropped.push({ obj: h, v: side.clone().multiplyScalar(4 * s), hinge: -0.7 * s, fair: true });
+      });
+      if (rk.payload) rk.payload.visible = true;
+    }
+    function onDeploy() {
+      if (!vis || !rk.payload) return;
+      rk.payload.visible = true;
+      scene.attach(rk.payload);
+      payloadFree = { obj: rk.payload, v: axisOf(visAngle(t)).multiplyScalar(1.4), t: 0 };
+    }
+    function onExplode() {
+      buzz([60, 40, 120]);
+      if (!vis) return;
+      rk.root.updateMatrixWorld(true);
+      const p = rk.stages[Math.min(curStage, rk.stages.length - 1)].group.getWorldPosition(V());
+      p.addScaledVector(axisOf(visAngle(t)), stackLen(curStage) * 0.4);
+      deadPos.copy(p);
+      const sz = geo.d * 8 + 30;
+      if (fx && fx.has('explode')) fx.explode(p, sz, where === 'ground' ? padTop : p.y - altAt(t) * 1000); else fl.add(scene, p, sz * 1.5);
+      if (where === 'space' && fx && fx.has('explode')) fl.add(scene, p, sz);
+      rk.root.visible = false;
+      for (const st of rk.stages) A.setPlume(st, 0, 0, t);
+    }
+
+    function draw(fdt) {
+      if (!vis) { octx.clearRect(0, 0, W, H); return; }
+      const tau = t - COUNT;
+      let want;
+      if (tau < TPAD) want = 'pad';
+      else if (t < onboardFrom && t < chaseFrom) want = 'track';
+      else if (t < chaseFrom) want = 'onboard';
+      else want = 'chase';
+      if (dead) want = deadShot || want;
+      if (want !== shot) {
+        if (shot) cut();
+        if (want === 'onboard' || want === 'chase') toSpace();
+        shot = want; shotT = 0;
+      }
+      shotT += fdt;
+      const ang = visAngle(t);
+      const ax = axisOf(ang);
+      const altKm = altAt(t);
+      // place the rocket
+      if (where === 'ground') rk.root.position.copy(groundPos(t));
+      else rk.root.position.set(0, 0, 0);
+      rk.root.rotation.set(0, 0, -ang);
+      rk.root.updateMatrixWorld(true);
+      // engines
+      const burning = !dead && !done && t >= starts[curStage] && t < starts[curStage] + burns[curStage];
+      const ignite = !dead && curStage === 0 && t >= COUNT - 0.7 && t < COUNT;
+      const plumeX = where === 'ground' ? clamp01((rk.root.position.y / 1000) / 45) : 1;
+      rk.stages.forEach((st, i) => {
+        const si = i + (n - rk.stages.length);
+        let pw = 0;
+        if (!dead && si === curStage && (burning || ignite)) pw = ignite ? 0.4 + 0.6 * clamp01((t - COUNT + 0.7) / 0.7) : 1;
+        if (st.group.parent !== rk.root) pw = 0;
+        A.setPlume(st, pw, plumeX, t);
+        if (pw > 0 && fx) {
+          const noz = st.group.getWorldPosition(V()).addScaledVector(ax, -st.bh);
+          const dir = ax.clone().negate();
+          const ak = where === 'ground' ? (rk.root.position.y - padTop) / 1000 : altKm;
+          if (where === 'ground') fx.exhaust(noz, dir, pw, ak, rk.r || st.r, fdt, padTop);
+          else fx.exhaust(noz, dir, pw, ak, rk.r || st.r, fdt);
+        }
+      });
+      if (t < COUNT + TPAD && A.prepareEarth) safe(() => A.prepareEarth());
+      // pre-launch venting
+      if (fx && t < COUNT && !dead) {
+        const r = geo.d / 2;
+        for (let i = 0; i < rk.stages.length; i++) {
+          const g = rk.stages[i].group;
+          const p = V(r * 1.02, Math.min(geo.stages[i].h - 1, geo.stages[i].h * 0.9), 0);
+          fx.vent(g.localToWorld(p), V(1, -0.15, 0.2).normalize(), fdt);
+        }
+      }
+      // max-q vapour
+      if (fx && !dead && t > maxqFrom && t < maxqTo) {
+        const c = rk.root.localToWorld(V(0, stackLen(0) * 0.62, 0));
+        fx.sonic(c, geo.d * 0.9);
+      }
+      // dropped stages, fairings, payload
+      for (const d of dropped) {
+        d.obj.position.addScaledVector(d.v, fdt);
+        const upperBurn = burning && curStage > 0;
+        if (upperBurn) d.v.addScaledVector(ax, -6 * fdt);
+        if (d.fair) { d.obj.rotateZ(d.hinge * fdt); d.v.addScaledVector(ax, -2 * fdt); }
+        else d.obj.rotateZ(d.spin * fdt * 0.6), d.obj.rotateX(d.spin * fdt * 0.3);
+        if (d.fins != null && d.fins < 1 && A.setFins) { d.fins = Math.min(1, d.fins + fdt / 1.5); safe(() => A.setFins(d.st, smooth(0, 1, d.fins))); }
+        if (d.vent > 0 && fx) {
+          d.vent -= fdt;
+          const top = d.obj.localToWorld(V(0, d.st ? d.st.h : 0, 0));
+          fx.vent(top, ax, fdt);
+        }
+      }
+      if (payloadFree) {
+        payloadFree.t += fdt;
+        payloadFree.obj.position.addScaledVector(payloadFree.v, fdt);
+        payloadFree.obj.rotateY(0.15 * fdt);
+        const w = payloadFree.obj.userData.wings;
+        if (w) w.scale.x = Math.min(1, 0.05 + payloadFree.t / 1.6);
+      }
+      fl.step(fdt);
+      // ---- cameras ----
+      const c = cam();
+      let lbl = '', rAlt = 0;
+      if (shot === 'pad') {
+        lbl = 'PAD CAM 2';
+        const cp = V(Lr * 0.55 + 12, padTop + 1.2, Lr * 1.05 + 30 + Math.max(0, COUNT - t) * 2.5);
+        const rp = dead ? deadPos : rk.root.localToWorld(V(0, Lr * 0.45, 0));
+        const look = rp.clone();
+        look.y = Math.max(look.y, padTop + Lr * 0.42);
+        const shake = burning && tau < 3 ? 0.25 * (1 - tau / 3) : 0;
+        look.x += (Math.random() - 0.5) * shake; look.y += (Math.random() - 0.5) * shake;
+        setCam(cp, look, 52, 0.5);
+        rAlt = 0;
+      } else if (shot === 'track') {
+        lbl = 'TRACKING CAMERA · 18 KM';
+        const rp = dead ? deadPos : rk.root.localToWorld(V(0, stackLen(curStage) * 0.5, 0));
+        const dist = rp.distanceTo(track.ct);
+        const zoom = dead ? 6 : 1.9;
+        const fov = clamp(2 * Math.atan((Lr * zoom) / dist) * DEG, 0.05, 40);
+        // operator follows with a little drift; the long lens shakes at max-q
+        const half = dist * Math.tan(fov / DEG / 2);
+        const q = !dead && t > maxqFrom && t < maxqTo ? Math.sin(Math.PI * (t - maxqFrom) / (maxqTo - maxqFrom)) : 0;
+        const s = 0.025 + q * 0.09;
+        track.jit.set(Math.sin(t * 1.3) * 0.4 + (Math.random() - 0.5) * q * 0.9, Math.cos(t * 0.9) * 0.3 + (Math.random() - 0.5) * q * 0.9, 0).multiplyScalar(half * s);
+        setCam(track.ct, rp.clone().add(track.jit), fov, Math.max(1, dist * 0.3));
+        rAlt = 0;
+      } else if (shot === 'onboard') {
+        lbl = 'ONBOARD · STAGE 2';
+        const r = geo.d / 2;
+        const up = rk.stages.length > 1 ? rk.stages[1].group.position.y : 0;
+        const vib = burning ? 0.015 : 0.004;
+        const cp = rk.root.localToWorld(V((Math.random() - 0.5) * vib, up + 2.2, r + 1.25));
+        const look = rk.root.localToWorld(V(0, up - 70, r + 0.2));
+        const upv = V(0, 0, 1);
+        setCam(cp, look, W < H ? 88 : 70, 0.1, upv);
+        rAlt = altKm;
+      } else {
+        lbl = done ? 'CHASE CAM · PAYLOAD' : 'CHASE CAM · UPPER STAGE';
+        const L = Math.max(14, stackLen(curStage));
+        const base = rk.stages[Math.min(rk.stages.length - 1, curStage - (n - rk.stages.length))].group.getWorldPosition(V());
+        let focus = base.clone().addScaledVector(ax, L * 0.5);
+        if (dead) focus = deadPos.clone();
+        else if (payloadFree) focus.lerp(payloadFree.obj.getWorldPosition(V()), Math.min(0.6, payloadFree.t * 0.25));
+        const perp = V(-Math.cos(ang), Math.sin(ang), 0);
+        const orbit = 0.55 + shotT * 0.035;
+        const d = L * (2.4 - Math.min(0.5, shotT * 0.04));
+        const cp = focus.clone().addScaledVector(ax, -d * 0.75).addScaledVector(perp, d * 0.55)
+          .add(V(0, 0, d * Math.cos(orbit) * 0.9)).addScaledVector(ax, d * Math.sin(orbit) * 0.2);
+        setCam(cp, focus, 42, 0.3);
+        rAlt = altKm;
+      }
+      if (fx) fx.step(fdt, c);
+      render(scene, rAlt);
+      octx.clearRect(0, 0, W, H);
+      camLabel(lbl);
+    }
 
     return {
       skip() {
@@ -88,130 +444,34 @@
       },
       step(dt) {
         t += dt;
-        const p = Math.max(0, Math.min(1, (t - COUNT) / (total - COUNT)));
-        const altKm = targetAlt * Math.pow(p, 1.5);
+        const p = progress(t);
+        const altKm = altAt(t);
         const speed = (plan.target === 'GTO' || TARGET_DEEP(plan.target) ? 10.2 : 7.8) * Math.pow(p, 1.25) * 3600;
-        const angle = Math.min(1, p * 1.7) * 1.05;
         // stage logic
         while (curStage < n - 1 && t >= starts[curStage + 1] - SEP && !dead) {
-          dropped.push({ stage: curStage, x: this.bx || W / 2, y: this.by || H * 0.7, a: this.ang || 0, vx: -14, vy: 30, rot: 0, scale });
+          onSeparate(curStage);
           curStage++;
-          for (let k = 0; k < 14; k++) puff(W / 2 + (Math.random() - 0.5) * 20, H * 0.6, (Math.random() - 0.5) * 60, 40 + Math.random() * 40, 4, 1.2, 'rgba(230,230,240,A)');
         }
-        scale += (fitScale(curStage) - scale) * Math.min(1, dt * 1.5);
-        const burning = t >= starts[curStage] && t < starts[curStage] + burns[curStage] && !dead && !done;
-        if (!fairingOff && altKm > 110 && !dead) {
-          fairingOff = true;
-          fairingBits = [{ x: -1, vx: -50, rot: 0 }, { x: 1, vx: 50, rot: 0 }];
-        }
-        // camera: rocket fixed at screen point after liftoff
-        const liftM = t < COUNT ? 0 : 0.5 * 18 * Math.pow(t - COUNT, 2);
-        const rise = liftM * scale * 0.6;
-        let hs = fairingOff ? 0 : geo.nose;
-        for (let i = curStage; i < n; i++) hs += geo.stages[i].h;
-        hs *= scale;
-        const ry0 = H - 60, rmin = H * 0.5 + hs / 2;
-        const groundY = ry0 + Math.max(0, rise - (ry0 - rmin));
-        const baseY = Math.max(rmin, ry0 - rise);
-        const aNow = t < COUNT ? 0 : angle;
-        const cx = W / 2, cy = baseY - hs / 2;
-        const upx = Math.sin(aNow), upy = -Math.cos(aNow);
-        const rx = cx - upx * hs / 2, ry = cy - upy * hs / 2;
-        const topX = cx + upx * hs / 2, topY = cy + upy * hs / 2;
-
+        if (!fairingOff && altKm > 110 && !dead) { fairingOff = true; onFairing(); }
         if (failAt != null && t >= failAt && !dead) {
-          dead = true; deadT = t;
-          explode(cx, cy, 120);
+          dead = true; deadT = t; deadShot = shot;
+          onExplode();
           banner('VEHICLE LOST', plan.failText || 'Engine failure');
         }
         if (!dead && !done && t >= orbitT) {
           done = true; doneT = t;
+          onDeploy();
           banner(plan.orbitText || 'ORBIT ✓', plan.orbitSub || '');
-        }
-
-        // exhaust
-        if (burning) {
-          const ca = Math.cos(angle), sa = Math.sin(angle);
-          for (let k = 0; k < (altKm < 30 ? 4 : 1); k++) {
-            puff(rx - sa * 4, ry + ca * 4, -sa * 120 + (Math.random() - 0.5) * 40, ca * 120 + 160 + Math.random() * 60,
-              altKm < 20 ? 5 + Math.random() * 4 : 2, altKm < 25 ? 1.6 : 0.5,
-              altKm < 15 ? 'rgba(235,235,240,A)' : 'rgba(255,180,90,A)');
-          }
-        }
-        if (t < COUNT) {
-          for (let k = 0; k < 2; k++) puff(rx + (Math.random() - 0.5) * 40, groundY - 4, (Math.random() - 0.5) * 80, -10 - Math.random() * 20, 6, 1.4, 'rgba(240,240,245,A)');
-        }
-        const scroll = t >= COUNT ? Math.min(400, 30 + p * 900) * dt : 0;
-        stepParts(dt, altKm < 70 ? scroll : 0, 0);
-
-        this.bx = rx; this.by = ry; this.ang = aNow;
-        // ---- draw ----
-        const [top, bottom] = D.skyColor(altKm);
-        const g = ctx.createLinearGradient(0, 0, 0, H);
-        g.addColorStop(0, top); g.addColorStop(1, bottom);
-        ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-        const starA = Math.max(0, Math.min(1, (altKm - 25) / 40));
-        if (starA > 0) {
-          for (const [x, y, s, a] of D.starfield(W, H)) { ctx.fillStyle = `rgba(255,255,255,${starA * (0.3 + a * 0.7)})`; ctx.fillRect(x, y, s, s); }
-        }
-        // Earth limb as we climb
-        if (altKm > 35) {
-          const k = Math.min(1, (altKm - 35) / 120);
-          const R = W * 3;
-          const cy = H + R - H * 0.22 * k;
-          const eg = ctx.createRadialGradient(W * 0.3, cy, R * 0.9, W * 0.3, cy, R * 1.02);
-          eg.addColorStop(0, '#1b4f8f'); eg.addColorStop(0.96, '#3d8bd8'); eg.addColorStop(0.985, 'rgba(140,200,255,.8)'); eg.addColorStop(1, 'rgba(140,200,255,0)');
-          ctx.fillStyle = eg;
-          ctx.beginPath(); ctx.arc(W * 0.3, cy, R * 1.02, 0, Math.PI * 2); ctx.fill();
-        }
-        // clouds layer while low
-        if (altKm < 14) {
-          ctx.fillStyle = 'rgba(255,255,255,0.18)';
-          const off = (t * 60) % 400;
-          for (let i = -1; i < 6; i++) {
-            const cy = (i * 170 + (t >= COUNT ? liftM * scale * 0.08 : 0)) % (H + 200) - 100;
-            ctx.beginPath(); ctx.ellipse((i * 137 + off) % (W + 200) - 100, cy, 90, 18, 0, 0, Math.PI * 2); ctx.fill();
-          }
-        }
-        // ground
-        if (groundY < H + 40) {
-          ctx.fillStyle = '#16233b'; ctx.fillRect(0, groundY, W, H);
-          ctx.fillStyle = '#0f1a2d'; ctx.fillRect(0, groundY + 10, W, H);
-          // tower
-          const towerH = (geo.total + 8) * fitScale(0);
-          ctx.fillStyle = '#20283f';
-          ctx.fillRect(rx - geo.d * fitScale(0) / 2 - 22, groundY - towerH, 14, towerH);
-        }
-        drawParts();
-        // dropped stages fall away
-        for (const s of dropped) {
-          s.vy += 30 * dt; s.x += s.vx * dt; s.y += s.vy * dt; s.rot += 0.5 * dt;
-          D.drawRocket(ctx, design, geo, { from: s.stage, to: s.stage, noNose: true, x: s.x, y: s.y, scale: s.scale, angle: s.a + s.rot });
-        }
-        if (!dead) {
-          const vac = curStage > 0;
-          D.drawRocket(ctx, design, geo, {
-            from: curStage, x: rx, y: ry, scale, angle: aNow,
-            flame: burning ? (vac ? 0.8 : 1) : 0, vac, noNose: fairingOff,
-            fins: curStage === 0 && plan.recovery !== 'expend', legs: curStage === 0 && plan.recovery !== 'expend' && plan.recovery !== 'catch' ? false : null,
-          });
-          if (fairingOff) {
-            for (const f of fairingBits) {
-              f.x += f.vx * dt; f.rot += f.x > 0 ? 1.2 * dt : -1.2 * dt;
-              ctx.save(); ctx.translate(topX + f.x, topY + Math.abs(f.x) * 0.4); ctx.rotate(f.rot);
-              ctx.fillStyle = '#e8e6df'; ctx.fillRect(-3, -14, 6, 28); ctx.restore();
-            }
-          }
-          if (done) drawPayload(topX, topY, angle, t - doneT, plan);
         }
         if (t < COUNT) banner(`T−${Math.ceil(COUNT - t)}`, plan.title);
         else if (!dead && !done && t < COUNT + 2) banner('LIFTOFF', plan.title);
+        else if (!dead && !done && t > maxqFrom && t < maxqFrom + 1.6) banner('MAX-Q', 'Peak aerodynamic pressure');
         else if (!dead && !done && t < starts[1] + 1.5 && t > starts[1] - SEP && n > 1) banner('STAGE SEPARATION', '');
         else if (!dead && !done) banner('');
 
-        const T = Math.max(0, t - COUNT) * 22;
+        const Tc = Math.max(0, t - COUNT) * 22;
         hud([
-          ['T+', `${String(Math.floor(T / 60)).padStart(2, '0')}:${String(Math.floor(T % 60)).padStart(2, '0')}`],
+          ['T+', `${String(Math.floor(Tc / 60)).padStart(2, '0')}:${String(Math.floor(Tc % 60)).padStart(2, '0')}`],
           ['ALT', `${altKm.toFixed(1)} km`],
           ['SPEED', `${Math.round(speed).toLocaleString()} km/h`],
           ['STAGE', `${curStage + 1}/${n}`],
@@ -220,32 +480,20 @@
         if (done && t - doneT > 3.2) this.finished = true;
         this.result = { dead, stage1Ok: !dead || (failAt != null && plan.fail.stage > 0) };
       },
+      draw,
+      dispose() {
+        if (fx) fx.dispose();
+        if (vis && scene) safe(() => A.disposeScene(scene));
+        scene = null; vis = false;
+      },
     };
   }
 
   function TARGET_DEEP(t) { return ['LLO', 'LUN', 'MTO', 'MARS'].includes(t); }
 
-  function drawPayload(tx, ty, angle, dt, plan) {
-    const sep = Math.min(40, dt * 18);
-    ctx.save();
-    ctx.translate(tx, ty); ctx.rotate(angle);
-    ctx.translate(0, -8 - sep);
-    if (plan.crew) {
-      ctx.fillStyle = '#f1efe8';
-      ctx.beginPath(); ctx.moveTo(-9, 10); ctx.lineTo(9, 10); ctx.lineTo(5, -6); ctx.lineTo(-5, -6); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = '#1d2230'; ctx.fillRect(-9, 8, 18, 3);
-    } else {
-      ctx.fillStyle = '#d8b25a'; ctx.fillRect(-5, -6, 10, 12);
-      const open = Math.min(1, dt / 1.5);
-      ctx.fillStyle = '#2f5fb0';
-      ctx.fillRect(-5 - 22 * open, -3, 22 * open, 6);
-      ctx.fillRect(5, -3, 22 * open, 6);
-    }
-    ctx.restore();
-  }
-
   // ---------------- Landing ----------------
   function landing(plan) {
+    const A = A3();
     const design = plan.design;
     const geo = D.geometry(design, plan.techs);
     const mode = plan.recovery; // rtls | barge | catch
@@ -255,7 +503,7 @@
     const hands = manual || steer;
     let padX = 0, padV = 0;
     const padHalf = mode === 'catch' ? 7 : mode === 'barge' ? 20 : 17;
-    const A = 3 * G;
+    const A_ = 3 * G;
     const b = {
       x: (Math.random() < 0.5 ? -1 : 1) * (60 + Math.random() * 100),
       y: 1700, vx: (Math.random() - 0.5) * 24, vy: -185, th: (Math.random() - 0.5) * 0.15, fuel: 15, burning: false,
@@ -264,9 +512,7 @@
     if (steer) { b.x = (Math.random() < 0.5 ? -1 : 1) * (50 + Math.random() * 70); b.vx = (Math.random() - 0.5) * 16; }
     const aimX = failMode === 'miss' ? (padHalf + 14) * (b.x > 0 ? 1 : -1) : 0;
     let t = 0, outcome = null, outT = 0, reason = '';
-    let ppm = 0.3, camX = 0;
     const CATCH_HOVER = 10; // metres between the caught booster's engines and the launch mount
-    let catchArms = null;
     const st1H = geo.stages[0].h;
     let pilotShown = false;
     if (hands) {
@@ -301,6 +547,253 @@
       return { burn, turn };
     }
 
+    // ---- 3D setup ----
+    let vis = false, scene = null, bk = null, st = null, fx = null, model = null, sea = null;
+    let surfaceY = 0, touchY = 0, flameY = 0, armY = 0, towerX = -20;
+    const fl = flashes();
+    let arms = null;
+    let legK = 0, exploded = false, ventT = 0;
+    if (gl) {
+      try {
+        scene = new T.Scene();
+        A.lights(scene, V());
+        bk = A.buildRocket(design, plan.techs, { from: 0, to: 0, noNose: true, fins: true, legs: mode !== 'catch', soot: true });
+        st = bk.stages[0];
+        let foot = st.bh;
+        if (st.legs) { A.setLegs(st, 1); foot = Math.max(0.5, -minYOf(bk.root, st.plume)); A.setLegs(st, 0); }
+        if (mode === 'barge') {
+          model = A.bargeModel();
+          scene.add(model.group);
+          if (!model.group.userData.sea) { sea = A.ocean(400000); sea.position.y = 0; scene.add(sea); }
+          surfaceY = model.deckY != null ? model.deckY : 6;
+          touchY = surfaceY + foot; flameY = surfaceY;
+        } else if (mode === 'catch') {
+          const mountTop = 10;
+          touchY = mountTop + CATCH_HOVER + st.bh;
+          armY = touchY + st1H - 3;
+          model = A.catchModel(geo, armY);
+          scene.add(model.group);
+          surfaceY = model.mountTop != null ? model.mountTop : mountTop;
+          flameY = surfaceY;
+          towerX = model.towerX != null ? model.towerX : towerX;
+          arms = model.arms || null;
+        } else {
+          model = A.padModel();
+          scene.add(model.group);
+          surfaceY = model.deckY != null ? model.deckY : 0.8;
+          touchY = surfaceY + foot; flameY = surfaceY;
+        }
+        scene.add(bk.root);
+        fx = makeFx(scene);
+        vis = true;
+      } catch (e) { console.warn('flight: 3D landing setup failed', e); vis = false; }
+    }
+    // Catch arms: the model's convention is rotation.y = s*0.55 open, 0 closed around the booster.
+    if (vis && arms) for (const a of arms) { a.open = a.s * 0.55; a.closed = 0; a.pivot.rotation.y = a.open; }
+
+    // ---- cameras ----
+    const camS = { pos: V(), look: V(), init: false, cx: 0, cy: 0, d: 0 };
+    let shot = null, shotT = 0;
+    function sideCam(dt, base) {
+      // Side-on view, x across the screen: keeps booster and target readable for steering.
+      const fov = 40, tanH = Math.tan(fov / DEG / 2), asp = W / H;
+      const top = base.y + st1H + 8;
+      const bottom = (mode === 'catch' ? 0 : surfaceY) - 3;
+      const xMin = Math.min(b.x - 10, padX - padHalf - 10, mode === 'catch' ? towerX - 8 : Infinity);
+      const xMax = Math.max(b.x + 10, padX + padHalf + 10);
+      // Ground sits ~30% up from the bottom (clear of the touch controls); booster top stays in view.
+      const Wc = xMax - xMin;
+      const need = Math.max(st1H * 2.4, top - bottom) / 1.02;
+      const dFit = Math.max(need / tanH, (Wc / 2) / (tanH * asp)) * 1.08;
+      const dMax = st1H / (0.13 * 2 * tanH); // keep the booster at least ~13% of screen height
+      const d = top - bottom > 450 ? Math.min(dFit, dMax) : dFit; // low down, always show the target
+      const hv = d * tanH, hw = hv * asp;
+      const cy = Math.max(bottom + hv * 0.4, top - hv * 0.62);
+      let cx = (xMin + xMax) / 2;
+      cx = clamp(cx, b.x - hw * 0.7, b.x + hw * 0.7);
+      const k = camS.init ? 1 - Math.exp(-dt * 3) : 1;
+      camS.cx += (cx - camS.cx) * k; camS.cy += (cy - camS.cy) * k; camS.d += (d - camS.d) * k;
+      camS.init = true;
+      const yaw = 0.1;
+      const pos = V(camS.cx + camS.d * Math.sin(yaw), camS.cy + camS.d * 0.1, camS.d * Math.cos(yaw));
+      setCam(pos, V(camS.cx, camS.cy, 0), fov, Math.max(0.5, camS.d * 0.02));
+    }
+    // Aim between two points so both are in frame (vertical fov in degrees).
+    function frame2(cp, p1, p2, minFov, maxFov, margin) {
+      const a1 = p1.clone().sub(cp).normalize(), a2 = p2.clone().sub(cp).normalize();
+      const sep = Math.acos(clamp(a1.dot(a2), -1, 1)) * DEG;
+      const look = cp.clone().add(a1.add(a2).normalize());
+      setCam(cp, look, clamp(sep * 1.2 + margin, minFov, maxFov), 0.5);
+    }
+    function wideCam(base) {
+      const pad = V(padX, surfaceY, 0);
+      const top = base.clone().add(V(Math.sin(b.th) * st1H, Math.cos(b.th) * st1H, 0));
+      const dist0 = 1000;
+      const cp = V(padX + dist0 * Math.sin(0.6), surfaceY + (mode === 'barge' ? 12 : 22), dist0 * Math.cos(0.6));
+      frame2(cp, pad, top, 5, 80, 4);
+    }
+    function closeCam(base) {
+      const push = 1 - Math.min(0.15, shotT * 0.03);
+      const top = base.clone().add(V(Math.sin(b.th) * st1H, Math.cos(b.th) * st1H, 0));
+      if (mode === 'catch') {
+        const dd = (st1H * 1.5 + 30) * push;
+        const cp = V(dd * 0.55, 6 + st1H * 0.2, dd);
+        frame2(cp, V(base.x, surfaceY, 0), top.add(V(0, 6, 0)), 40, 80, 8);
+      } else {
+        const dd = (st1H * 1.7 + 24) * push;
+        const cp = V(padX - dd * 0.45, surfaceY + 4.5, dd * 0.9);
+        frame2(cp, V(base.x, surfaceY, 0), top.add(V(0, 4, 0)), 36, 80, 8);
+      }
+    }
+
+    function draw(fdt) {
+      if (!vis) { octx.clearRect(0, 0, W, H); drawBar(); return; }
+      const base = V(b.x, touchY + Math.max(0, b.y), 0);
+      const deck = mode === 'barge' && model && model.group.userData.deck;
+      if (deck && outcome === 'landed') {
+        // ride the bobbing deck once down
+        if (bk.root.parent !== deck) { bk.root.position.copy(base); bk.root.rotation.set(0, 0, -b.th); model.group.updateMatrixWorld(true); deck.attach(bk.root); }
+      } else {
+        bk.root.position.copy(base);
+        bk.root.rotation.set(0, 0, -b.th);
+      }
+      bk.root.updateMatrixWorld(true);
+      const ax = V(Math.sin(b.th), Math.cos(b.th), 0);
+      // legs
+      if (st.legs) {
+        const want = b.y < 220 || outcome === 'landed' ? 1 : 0;
+        legK = clamp01(legK + Math.sign(want - legK) * fdt / 1.5);
+        A.setLegs(st, smooth(0, 1, legK));
+      }
+      // engine and particles
+      const on = b.burning && !outcome;
+      A.setPlume(st, on ? 0.9 : 0, 0, t);
+      if (on && fx) {
+        const noz = base.clone().addScaledVector(ax, -st.bh);
+        fx.landingBurn(noz, ax.clone().negate(), 0.9, flameY, fdt, { radius: bk.r || st.r, water: mode === 'barge' });
+      }
+      if (outcome === 'landed' && fx && t - outT < 2.5) {
+        ventT += fdt;
+        fx.vent(base.clone().addScaledVector(ax, st1H * 0.9), V(1, 0.1, 0.3).normalize(), fdt);
+      }
+      if (outcome === 'crash' && !exploded && t - outT >= 0.05) {
+        exploded = true;
+        const p = base.clone().addScaledVector(ax, st1H * 0.25);
+        if (fx && fx.has('explode')) fx.explode(p, st1H * 0.9, mode === 'catch' ? 0 : surfaceY); else fl.add(scene, p, st1H * 1.6);
+        bk.root.visible = false;
+      }
+      fl.step(fdt);
+      // site animation
+      if (mode === 'barge' && model) {
+        model.group.position.x = padX;
+        if (sea && sea.userData.tick) sea.userData.tick(t);
+      }
+      if (arms) {
+        const closed = outcome === 'landed' ? smooth(0, 1, (t - outT) * 2) : 0;
+        for (const a of arms) {
+          a.pivot.rotation.y = a.open + (a.closed - a.open) * closed;
+        }
+      }
+      // camera
+      let want;
+      if (hands) want = outcome ? 'close' : 'side';
+      else want = outcome || b.y < 110 ? 'close' : 'wide';
+      if (want !== shot) { if (shot) cut(); shot = want; shotT = 0; }
+      shotT += fdt;
+      let lbl = '';
+      if (shot === 'side') { sideCam(fdt, base); lbl = 'LANDING CAM'; }
+      else if (shot === 'wide') { wideCam(base); lbl = mode === 'barge' ? 'SUPPORT SHIP CAMERA' : 'LONG RANGE TRACKING'; }
+      else { closeCam(base); lbl = mode === 'barge' ? 'DECK CAM' : mode === 'catch' ? 'TOWER CAM' : 'PAD CAM'; }
+      if (fx) fx.step(fdt, cam());
+      render(scene, 0);
+      octx.clearRect(0, 0, W, H);
+      if (hands && !outcome) { drawMarkers(base); drawBar(); }
+      camLabel(lbl);
+    }
+
+    // On-screen guides: shapes and words, not colour alone.
+    function drawMarkers(base) {
+      const lvl = mode === 'catch' ? touchY : surfaceY;
+      const on = Math.abs(b.x - padX) <= padHalf;
+      const L = project(V(padX - padHalf, lvl, 0)), Rr = project(V(padX + padHalf, lvl, 0)), C = project(V(padX, lvl, 0));
+      const g = octx;
+      g.save();
+      g.lineCap = 'round'; g.lineJoin = 'round';
+      if (L.ok && Rr.ok) {
+        // target brackets [  ] with a crosshair
+        const hgt = 14;
+        g.strokeStyle = 'rgba(0,0,0,.6)'; g.lineWidth = 5;
+        const br = () => {
+          g.beginPath();
+          g.moveTo(L.x + 8, L.y - hgt); g.lineTo(L.x, L.y - hgt); g.lineTo(L.x, L.y + 4); g.lineTo(L.x + 8, L.y + 4);
+          g.moveTo(Rr.x - 8, Rr.y - hgt); g.lineTo(Rr.x, Rr.y - hgt); g.lineTo(Rr.x, Rr.y + 4); g.lineTo(Rr.x - 8, Rr.y + 4);
+          g.moveTo(C.x - 6, C.y - 5); g.lineTo(C.x + 6, C.y - 5); g.moveTo(C.x, C.y - 11); g.lineTo(C.x, C.y + 1);
+          g.stroke();
+        };
+        br(); g.strokeStyle = '#ffffff'; g.lineWidth = 2; br();
+        label(g, mode === 'catch' ? 'CATCH ZONE' : 'TARGET', C.x, Math.min(L.y, Rr.y) - hgt - 6, '#ffffff');
+      }
+      // booster: dashed drop line to the target level, ending in a down-pointing triangle
+      const top = project(base);
+      const foot = project(V(b.x, lvl, 0));
+      if (top.ok && foot.ok) {
+        const col = on ? '#3ddc97' : '#ffb347';
+        g.setLineDash(on ? [] : [6, 6]);
+        g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 4;
+        g.beginPath(); g.moveTo(top.x, top.y + 4); g.lineTo(foot.x, foot.y - 16); g.stroke();
+        g.strokeStyle = col; g.lineWidth = 2; g.stroke();
+        g.setLineDash([]);
+        g.beginPath(); g.moveTo(foot.x, foot.y - 2); g.lineTo(foot.x - 9, foot.y - 18); g.lineTo(foot.x + 9, foot.y - 18); g.closePath();
+        g.lineWidth = 4; g.strokeStyle = 'rgba(0,0,0,.6)'; g.stroke();
+        if (on) { g.fillStyle = col; g.fill(); } else { g.lineWidth = 2.5; g.strokeStyle = col; g.stroke(); }
+        // box around the booster when it is small on screen
+        const tip = project(base.clone().add(V(Math.sin(b.th) * st1H, Math.cos(b.th) * st1H, 0)));
+        const hpx = Math.abs(top.y - tip.y);
+        if (hpx < 90) {
+          const cx = (top.x + tip.x) / 2, cy = (top.y + tip.y) / 2;
+          const hh = Math.max(16, hpx / 2 + 8), hw = Math.max(10, hh * 0.45);
+          corners(g, cx - hw, cy - hh, hw * 2, hh * 2, '#ffffff');
+          label(g, 'BOOSTER', cx, cy - hh - 6, '#ffffff');
+        }
+      }
+      g.restore();
+    }
+
+    // A level strip near the bottom: target bracket in the middle, booster triangle where it is.
+    function drawBar() {
+      if (!hands || outcome) return;
+      const g = octx;
+      const bw = Math.min(W - 40, 460), x0 = (W - bw) / 2, y = W < 600 ? 128 : 100;
+      const span = 160;
+      const toX = (m) => x0 + bw / 2 + clamp(m / span, -1, 1) * (bw / 2 - 12);
+      const dx = b.x - padX;
+      const on = Math.abs(dx) <= padHalf;
+      g.save();
+      g.fillStyle = 'rgba(5,8,16,.55)';
+      roundRect(g, x0 - 8, y - 30, bw + 16, 52, 10); g.fill();
+      g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(x0 + 6, y); g.lineTo(x0 + bw - 6, y); g.stroke();
+      for (let m = -150; m <= 150; m += 50) { g.beginPath(); g.moveTo(toX(m), y - 3); g.lineTo(toX(m), y + 3); g.stroke(); }
+      // target bracket
+      const l = toX(-padHalf), r = toX(padHalf);
+      g.strokeStyle = '#ffffff'; g.lineWidth = 2.5;
+      g.beginPath(); g.moveTo(l + 5, y - 10); g.lineTo(l, y - 10); g.lineTo(l, y + 8); g.lineTo(l + 5, y + 8);
+      g.moveTo(r - 5, y - 10); g.lineTo(r, y - 10); g.lineTo(r, y + 8); g.lineTo(r - 5, y + 8); g.stroke();
+      g.font = '700 10px -apple-system, Segoe UI, Arial, sans-serif'; g.textAlign = 'center'; g.fillStyle = '#ffffff';
+      g.fillText(mode === 'barge' ? 'BARGE' : mode === 'catch' ? 'ARMS' : 'PAD', (l + r) / 2, y + 19);
+      // booster triangle
+      const bx = toX(dx);
+      const col = on ? '#3ddc97' : '#ffb347';
+      g.beginPath(); g.moveTo(bx, y - 1); g.lineTo(bx - 8, y - 15); g.lineTo(bx + 8, y - 15); g.closePath();
+      if (on) { g.fillStyle = col; g.fill(); } else { g.strokeStyle = col; g.lineWidth = 2.5; g.stroke(); }
+      g.textAlign = Math.abs(dx) > span * 0.75 ? (dx > 0 ? 'right' : 'left') : 'center';
+      g.fillStyle = col;
+      const hint = on ? '✓ ON TARGET' : moveBoat ? (dx > 0 ? 'BOOSTER · move barge ▶' : '◀ move barge · BOOSTER') : (dx > 0 ? '◀ steer left' : 'steer right ▶');
+      g.fillText(hint, bx, y - 19);
+      if (Math.abs(dx) > span) { g.fillText(dx > 0 ? '▶▶' : '◀◀', bx + (dx > 0 ? 0 : 0), y + 19); }
+      g.restore();
+    }
+
     return {
       manual,
       skip() {
@@ -324,7 +817,7 @@
           if (steer) b.vx += Math.sin(t * 0.8) * 1.2 * dt; // wind gusts
           let ax = 0, ay = -G;
           if (b.burning) {
-            ax += A * Math.sin(b.th); ay += A * Math.cos(b.th);
+            ax += A_ * Math.sin(b.th); ay += A_ * Math.cos(b.th);
             b.fuel -= dt;
           } else {
             ax += Math.sin(b.th) * Math.abs(b.vy) * 0.12;
@@ -349,6 +842,7 @@
               outcome = 'crash';
               reason = !onPad ? (mode === 'barge' ? 'Missed the barge' : mode === 'catch' ? 'Missed the tower arms' : 'Missed the pad')
                 : Math.abs(b.vy) > 8 ? `Hit at ${Math.round(Math.abs(b.vy))} m/s` : Math.abs(b.th) > 0.26 ? 'Came in tilted and tipped over' : 'Too much sideways speed';
+              buzz([60, 40, 120]);
             }
             outT = t; b.burning = false;
             if (outcome === 'landed') banner(mode === 'catch' ? 'CAUGHT! 🦾' : 'THE BOOSTER HAS LANDED', 'It can fly again.');
@@ -356,100 +850,6 @@
             if (pilotShown) { $('pilot').hidden = true; $('p-burn').hidden = false; $('flight-skip').hidden = false; }
           }
         }
-        // camera
-        const wantPpm = (H * 0.68) / Math.max(90, b.y + 70);
-        ppm += (wantPpm - ppm) * Math.min(1, dt * 2.5);
-        camX += ((b.x + padX) * 0.5 - camX) * Math.min(1, dt * 3);
-        const groundY = H * 0.8;
-        const sx = (x) => W / 2 + (x - camX) * ppm;
-        const sy = (y) => groundY - y * ppm;
-        const vis = Math.max(ppm, (H * 0.16) / st1H);
-
-        // particles in screen space; spawn exhaust
-        if (b.burning && !outcome) {
-          const bx = sx(b.x), by = sy(b.y);
-          for (let k = 0; k < 3; k++) puff(bx - Math.sin(b.th) * 4, by + 4, -Math.sin(b.th) * 200 + (Math.random() - 0.5) * 50, 200 + Math.random() * 80, 4 + Math.random() * 3, 0.5, 'rgba(255,190,100,A)');
-          if (b.y < 60) for (let k = 0; k < 3; k++) puff(bx + (Math.random() - 0.5) * 30, groundY + (mode === 'catch' ? CATCH_HOVER * ppm : 0) - 4, (Math.random() - 0.5) * 260, -Math.random() * 30, 6, 1.2, 'rgba(230,230,235,A)');
-        }
-        stepParts(dt, 0, 0);
-
-        // draw sky
-        const g = ctx.createLinearGradient(0, 0, 0, H);
-        g.addColorStop(0, '#0d1838'); g.addColorStop(0.7, '#3a4f86'); g.addColorStop(1, '#f19a5b');
-        ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-        for (const [x, y, s, a] of D.starfield(W, H)) if (y < H * 0.45) { ctx.fillStyle = `rgba(255,255,255,${0.2 + a * 0.4})`; ctx.fillRect(x, y, s, s); }
-        // ground or sea
-        if (mode === 'barge') {
-          ctx.fillStyle = '#0d2a48'; ctx.fillRect(0, groundY + 6 * Math.max(1, ppm * 0.3), W, H);
-          ctx.strokeStyle = 'rgba(160,200,255,.25)'; ctx.lineWidth = 1;
-          for (let i = 0; i < 6; i++) {
-            const yy = groundY + 12 + i * 14;
-            ctx.beginPath();
-            for (let x = 0; x <= W; x += 20) ctx.lineTo(x, yy + Math.sin(x * 0.05 + t * 2 + i) * 2);
-            ctx.stroke();
-          }
-          // barge
-          const bw = 52 * ppm, bh = Math.max(4, 6 * ppm);
-          ctx.fillStyle = '#2a2f3c'; ctx.fillRect(sx(padX - 26), groundY, bw, bh);
-          ctx.fillStyle = '#3b4252'; ctx.fillRect(sx(padX - 26), groundY - 1, bw, 2);
-          if (Math.abs(padV) > 1) {
-            ctx.fillStyle = 'rgba(255,255,255,.5)';
-            const back = padV > 0 ? sx(padX - 26) - 4 : sx(padX + 26) + 4;
-            for (let k = 0; k < 3; k++) ctx.fillRect(back - Math.sign(padV) * k * 10, groundY + bh * 0.5 + k * 2, -Math.sign(padV) * 8, 2);
-          }
-          drawTarget(sx(padX), groundY, padHalf * ppm);
-        } else {
-          // On a tower catch the booster is held up high by the arms, so the real ground sits lower.
-          const floorY = mode === 'catch' ? groundY + CATCH_HOVER * ppm : groundY;
-          ctx.fillStyle = '#1a2238'; ctx.fillRect(0, floorY, W, H);
-          ctx.fillStyle = '#232d48'; ctx.fillRect(0, floorY, W, 3);
-          if (mode === 'catch') {
-            const armY = groundY - (st1H - 3) * vis;
-            const tw = Math.max(8, 9 * ppm);
-            const tx = sx(-padHalf - 4) - tw;
-            // lattice tower from the ground to above the arms
-            const top = armY - 14 * ppm;
-            ctx.fillStyle = '#2a3147'; ctx.fillRect(tx, top, tw, floorY - top);
-            ctx.strokeStyle = '#3a4566'; ctx.lineWidth = 1;
-            for (let yy = top; yy < floorY; yy += Math.max(6, tw)) { ctx.beginPath(); ctx.moveTo(tx, yy); ctx.lineTo(tx + tw, yy + Math.max(6, tw)); ctx.stroke(); }
-            // launch mount under the catch point
-            ctx.fillStyle = '#3a4258';
-            ctx.fillRect(sx(-padHalf), floorY - 4 * ppm, padHalf * 2 * ppm, 4 * ppm);
-            catchArms = { x0: tx + tw, armY, w: Math.max(3, 1.6 * ppm) };
-            // target band at arm height
-            ctx.fillStyle = 'rgba(255,122,26,.15)';
-            ctx.fillRect(sx(-padHalf), armY - 6, padHalf * 2 * ppm, 12);
-          } else {
-            ctx.fillStyle = '#4a5268';
-            ctx.beginPath(); ctx.ellipse(sx(0), groundY + 1, (padHalf + 5) * ppm, Math.max(2, 3 * ppm), 0, 0, Math.PI * 2); ctx.fill();
-            drawTarget(sx(0), groundY, padHalf * ppm);
-          }
-        }
-        drawParts();
-        if (hands && !outcome) {
-          // where the booster is right now, marked on the ground
-          const gx = sx(b.x);
-          ctx.fillStyle = Math.abs(b.x - padX) <= padHalf ? 'rgba(61,220,151,.9)' : 'rgba(255,179,71,.9)';
-          ctx.beginPath(); ctx.moveTo(gx, groundY - 4); ctx.lineTo(gx - 7, groundY - 16); ctx.lineTo(gx + 7, groundY - 16); ctx.closePath(); ctx.fill();
-        }
-        // booster
-        if (outcome !== 'crash' || t - outT < 0.05) {
-          D.drawRocket(ctx, design, geo, {
-            from: 0, to: 0, noNose: true, x: sx(b.x), y: sy(b.y) - 1.4 * vis, scale: vis, angle: b.th,
-            flame: b.burning ? 0.9 : 0, fins: true, legs: mode === 'catch' ? null : b.y < 220,
-          });
-        }
-        if (mode === 'catch' && catchArms) {
-          // two arms ("chopsticks") that swing shut around the booster once it is caught
-          const closed = outcome === 'landed' ? Math.min(1, (t - outT) * 2) : 0;
-          const reach = sx(padHalf + 3) - catchArms.x0;
-          const len = reach * (1 - 0.35 * closed);
-          ctx.fillStyle = '#ff7a1a';
-          for (const dy of [-catchArms.w * 1.8, catchArms.w * 0.8]) ctx.fillRect(catchArms.x0, catchArms.armY + dy, len, catchArms.w);
-          catchArms = null;
-        }
-        if (outcome === 'crash' && t - outT < 0.05) explode(sx(b.x), sy(b.y) - 10, 140);
-
         hud([
           ['ALT', `${Math.max(0, b.y).toFixed(0)} m`],
           ['V/S', `<span style="color:${Math.abs(b.vy) <= 8 || b.y > 400 ? '#e9ecf4' : '#ff8d99'}">${b.vy.toFixed(0)} m/s</span>`],
@@ -465,24 +865,49 @@
         }
         if (t > 90 && !outcome) { this.finished = true; this.result = { landed: false }; }
       },
+      draw,
+      dispose() {
+        if (fx) fx.dispose();
+        if (vis && scene) safe(() => A.disposeScene(scene));
+        scene = null; vis = false;
+      },
     };
   }
 
-  function drawTarget(x, y, half) {
-    ctx.strokeStyle = 'rgba(255,255,255,.75)';
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.ellipse(x, y - 1, Math.max(4, half), Math.max(1.5, half * 0.08), 0, 0, Math.PI * 2); ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,.75)';
-    ctx.fillRect(x - Math.max(3, half * 0.4), y - 2, Math.max(6, half * 0.8), 2);
+  function roundRect(g, x, y, w, h, r) {
+    g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+  }
+  function corners(g, x, y, w, h, col) {
+    const k = Math.min(10, w / 3, h / 3);
+    const path = () => {
+      g.beginPath();
+      g.moveTo(x, y + k); g.lineTo(x, y); g.lineTo(x + k, y);
+      g.moveTo(x + w - k, y); g.lineTo(x + w, y); g.lineTo(x + w, y + k);
+      g.moveTo(x + w, y + h - k); g.lineTo(x + w, y + h); g.lineTo(x + w - k, y + h);
+      g.moveTo(x + k, y + h); g.lineTo(x, y + h); g.lineTo(x, y + h - k);
+      g.stroke();
+    };
+    g.lineWidth = 4; g.strokeStyle = 'rgba(0,0,0,.55)'; path();
+    g.lineWidth = 2; g.strokeStyle = col; path();
+  }
+  function label(g, text, x, y, col) {
+    g.font = '700 11px -apple-system, Segoe UI, Arial, sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.7)'; g.strokeText(text, x, y);
+    g.fillStyle = col; g.fillText(text, x, y);
   }
 
   // ---------------- Runner ----------------
+  // Same timing as the 2D version: one step per frame, at most 0.05 s (slow devices run in slow motion).
   function loop(prev) {
     raf = requestAnimationFrame((now) => {
-      const dt = Math.min(0.05, (now - prev) / 1000);
+      const fdt = Math.min(0.05, Math.max(0, (now - prev) / 1000));
       if (skipReq && phase.skip) { skipReq = false; phase.skip(); }
-      if (!phase.finished) phase.step(dt);
+      if (!phase.finished) phase.step(fdt);
       if (phase.finished) { const r = phase.result; next(r); return; }
+      stepFade(fdt);
+      try { phase.draw(fdt); } catch (e) { if (!loop.warned) { loop.warned = true; console.warn('flight draw:', e); } }
       loop(now);
     });
   }
@@ -491,11 +916,12 @@
   let results = {};
   function next(r) {
     Object.assign(results, r || {});
+    if (phase && phase.dispose) safe(() => phase.dispose());
     const make = queue.shift();
-    if (!make) { finish(); return; }
+    if (!make) { phase = null; finish(); return; }
     const ph = make(results);
     if (!ph) { next(); return; }
-    phase = ph; parts = [];
+    phase = ph;
     loop(performance.now());
   }
 
@@ -503,19 +929,22 @@
     cancelAnimationFrame(raf);
     $('pilot').hidden = true;
     $('flight-skip').hidden = true;
+    if (octx) octx.clearRect(0, 0, W, H);
     const r = resolveRun; resolveRun = null;
     if (r) r(results);
   }
 
   function run(plan) {
-    canvas = $('flight-canvas');
-    ctx = canvas.getContext('2d');
     $('flight').hidden = false;
     $('result').hidden = true;
     $('pilot').hidden = true;
     $('flight-skip').hidden = false;
+    hudHtml = ''; bannerHtml = null;
     banner(''); hud([]);
-    size();
+    setup();
+    fade = 1;
+    // Build the Earth now (it is used once the rocket is high) so staging does not stutter.
+    if (gl) safe(() => { const A = A3(); if (A.prepareEarth) A.prepareEarth(); else if (A.buildEarth) A.buildEarth(); });
     results = {};
     queue = [
       () => ascent(plan),
@@ -542,7 +971,9 @@
     window.addEventListener('keydown', (e) => { if (map[e.key] && !$('flight').hidden) { keys[map[e.key]] = true; e.preventDefault(); } });
     window.addEventListener('keyup', (e) => { if (map[e.key]) keys[map[e.key]] = false; });
     $('flight-skip').addEventListener('click', () => { skipReq = true; });
-    window.addEventListener('resize', () => { if (!$('flight').hidden && canvas) size(); });
+    const onResize = () => { if (!$('flight').hidden && canvas) size(); };
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', () => setTimeout(onResize, 200));
   }
   document.addEventListener('DOMContentLoaded', bindPilot);
 
