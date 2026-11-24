@@ -34,7 +34,7 @@
       el = document.createElement('small'); el.id = 's-tod'; el.className = 'dn-tod';
       d.parentNode.appendChild(el);
     }
-    const h = hourOf(s), p = phase(h), txt = `${p.icon} ${p.word} · ${clockText(h)}`;
+    const h = hourOf(s), p = phase(h), txt = `${p.icon} ${clockText(h)}`;
     if (txt !== lastTxt) { el.textContent = txt; el.title = `${p.word}, ${clockText(h)}`; lastTxt = txt; }
   }
 

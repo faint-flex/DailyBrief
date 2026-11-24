@@ -779,6 +779,7 @@
       if (b.lvl > 0 && b.lvl < t.cost.length && b.days <= 0) s += `<button class="btn primary sm" data-cp="upgrade" data-v="${b.id}" ${st.cash < r2(t.cost[b.lvl] * pm(b).c) ? 'disabled' : ''}>Upgrade to ${pips(b.lvl + 1)} · ${money(r2(t.cost[b.lvl] * pm(b).c))} · ${Math.round(t.days[b.lvl] * pm(b).d)}d<br><span style="font-weight:500">${esc(t.fx(b.lvl + 1))}</span></button>`;
       else if (b.type === 'road') s += `<span class="small ${roadNet(st, b.site).ok.has(b.y * SITE[b.site].w + b.x) ? 'cp-ok">✓ Connected to the public road' : 'cp-bad">✕ Not connected: link it to the public road'}</span>`;
       else if (b.lvl >= 3) s += '<span class="small cp-ok">★ Max level</span>';
+      if (root.APOGEE_HUB) s += root.APOGEE_HUB.buildingButtons(st, b); // Base hub: open this building's panel
       s += `<button class="btn sm danger" data-cp="demolish" data-v="${b.id}">Demolish</button>`;
     }
     return s;
