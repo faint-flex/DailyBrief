@@ -38,8 +38,8 @@ Use "" for anything you cannot read.`;
 
 export const MANIFEST_PROMPT = `This is a photo of a printed LINE MANIFEST from a freight terminal. Each row (separated by dashed lines) is one shipment with:
 PRO # (a 7 to 9 digit number at the start of the row), CONSIGNEE NAME/CITY (company, street, city: this is who receives it, in or near Las Vegas), and SHIPPER NAME/CITY (ignore the shipper).
-Some rows are interline ("**I/L -"): they show a long line pro such as 00277715130 and a carrier code such as SMTL, and the DDP pro (like 980005646) under it. Put the DDP pro in "pro" and the long line pro in "alt". On those rows the consignee is still the company in the CONSIGNEE column (for example ACUDOR, 4216 NORTH PECOS RD, LAS VEGAS), not the carrier name (like SOUTHWESTERN MOTOR T) in the shipper column.
-Under each pro is "DEST" and a 3-letter terminal code (usually LAS, sometimes another like RNO): put that code in "dest". A row with another DEST code still goes in the list, with its consignee (for example STARBUCKS COFFEE, 2525 STARBUCKS WAY, MINDEN, dest RNO).
+Some rows are interline ("**I/L -"): the first line of the row may show a long line pro (10 to 11 digits) and a carrier code (letters), and the DDP pro (7 to 9 digits) is on the line under "**I/L -". Put the DDP pro in "pro" and the long line pro, if there is one, in "alt" (otherwise alt is ""). Never copy a number from these instructions: read every number from the photo. On those rows the consignee is still the company in the CONSIGNEE column, not the carrier name in the shipper column.
+Under each pro is "DEST" and a 3-letter terminal code (usually LAS, sometimes another like RNO): put that code in "dest". A row with another DEST code still goes in the list, with its own consignee and city.
 List EVERY row once, top to bottom. Do not invent rows.
 Also read the header at the top: the LINE MANIFEST# number, the PAGE number, and the ORIGIN TERMINAL city. Set "total" to true only if this page has the TOTAL line at the bottom (the last page of that manifest).
 Answer with JSON only:
