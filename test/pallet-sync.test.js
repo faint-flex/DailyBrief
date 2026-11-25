@@ -78,3 +78,10 @@ test('a room: create, join, poll, push', async () => {
   assert.equal(r.body.doc.pallets.length, 1);
   assert.equal((await syncRoom(memory(), { ver: -1 })).status, 404);
 });
+
+test('manifest pages from both phones are listed, newest read of a page wins', () => {
+  const a = day({ pages: [{ id: 'm1', status: 'reading', at: T + 1 }] });
+  const b = day({ pages: [{ id: 'm1', status: 'ok', rows: 9, at: T + 5 }, { id: 'm2', status: 'ok', rows: 4, at: T + 6 }] });
+  const m = mergeDocs(a, b);
+  assert.deepEqual(m.pages.map((p) => `${p.id}:${p.status}`), ['m1:ok', 'm2:ok']);
+});
