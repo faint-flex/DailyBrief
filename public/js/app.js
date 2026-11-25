@@ -249,7 +249,8 @@ function renderTrader(st) {
   $('trader-since').textContent = `What $100 became since ${since} · ${st.trades} trades, ${st.wins} wins`;
   const rows = [
     ['Day trader (shares)', st.day_trader_shares_100_is_now],
-    ['Day trader (spreads)', st.day_trader_spreads_100_is_now],
+    ['Day trader (debit spreads)', st.day_trader_spreads_100_is_now],
+    ...(st.day_trader_credit_100_is_now != null ? [['Day trader (credit spreads)', st.day_trader_credit_100_is_now]] : []),
     ['Long-term bot', st.long_term_bot_100_is_now],
     ['Just holding the S&P 500', st.spy_hold_100_is_now],
   ];
@@ -258,14 +259,16 @@ function renderTrader(st) {
     el('span', {}, name), el('strong', { class: v == null ? '' : v >= 100 ? 'up' : 'down' }, money(v)))));
   const real = st.real_100_rules;
   $('trader-real').textContent = real
-    ? `Under real $100 rules (3 day trades a week): shares ${money(real.shares_100_is_now)}, spreads ${money(real.spreads_100_is_now)}.`
+    ? `Under real $100 rules (3 day trades a week): shares ${money(real.shares_100_is_now)}, debit spreads ${money(real.spreads_100_is_now)}${real.credit_100_is_now != null ? `, credit spreads ${money(real.credit_100_is_now)}` : ''}.`
     : '';
   const today = (st.today || []).map((t) => {
     if (!t.symbol) return el('li', {}, t.note || 'No trade today.');
     const dir = t.side === 'up' ? '▲' : '▼';
     const res = t.filled ? `${t.return_pct >= 0 ? '+' : ''}${t.return_pct.toFixed(2)}%` : 'never triggered';
-    const spread = t.spread ? ` · spread ${t.spread.pnl_usd >= 0 ? '+' : '-'}$${Math.abs(t.spread.pnl_usd).toFixed(0)}` : '';
-    return el('li', {}, `${dir} ${t.symbol}: ${res}${spread}`);
+    const usd = (v) => `${v >= 0 ? '+' : '-'}$${Math.abs(v).toFixed(0)}`;
+    const spread = t.spread ? ` · debit ${usd(t.spread.pnl_usd)}` : '';
+    const credit = t.credit ? ` · credit ${usd(t.credit.pnl_usd)}` : '';
+    return el('li', {}, `${dir} ${t.symbol}: ${res}${spread}${credit}`);
   });
   $('trader-today').replaceChildren(...(today.length ? today : [el('li', {}, 'No trade today.')]));
   $('trader').hidden = false;
