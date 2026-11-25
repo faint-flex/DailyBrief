@@ -386,9 +386,9 @@ function renderPages() {
     const hasLast = list.some((p) => p.last);
     const notes = [];
     if (missing.length) notes.push(`<span class="bad-t">⚠ Missing page ${missing.join(', ')}</span>`);
-    if (!hasLast) notes.push('<span class="warn-t">⚠ No last page (TOTAL) yet</span>');
+    if (!hasLast) notes.push('<span class="muted">Last page (TOTAL) not confirmed: check the paper</span>');
     if (dupes.length) notes.push(`<span class="muted">Page ${[...new Set(dupes)].join(', ')} scanned twice</span>`);
-    if (!notes.length) notes.push('<span class="ok">✓ All pages</span>');
+    if (!missing.length && hasLast) notes.unshift('<span class="ok">✓ All pages</span>');
     out.push(`<div class="mf"><div class="mf-top"><b>Manifest ${esc(num)}</b>${list[0].origin ? ` <span class="muted">· ${esc(list[0].origin)}</span>` : ''}</div><div class="mf-pages">${list.map(chip).join('')}</div><div class="mf-notes">${notes.join(' · ')}</div></div>`);
   }
   if (loose.length) out.push(`<div class="mf"><div class="mf-top"><b>${loose.some((p) => p.status === 'ok') ? 'Header not read' : 'Photos'}</b></div><div class="mf-pages">${loose.map(chip).join('')}</div></div>`);
