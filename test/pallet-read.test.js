@@ -96,3 +96,10 @@ test('a manifest row for another terminal (DEST RNO) is kept; a misread LAS row 
   assert.deepEqual(rows.map((r) => r.name), ['STARBUCKS COFFEE', "SMITH'S"]);
   assert.equal(rows[0].dest, 'RNO');
 });
+
+test('an interline row with pro and line pro swapped is put right', async () => {
+  const { parseManifest } = await import('../src/pallet-read.js');
+  const rows = parseManifest(JSON.stringify({ rows: [{ pro: '00277715130', alt: '980005646', name: 'ACUDOR', street: '4216 NORTH PECOS RD', city: 'LAS VEGAS' }] }));
+  assert.equal(rows[0].pro, '980005646');
+  assert.equal(rows[0].alt, '00277715130');
+});
