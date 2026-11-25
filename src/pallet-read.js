@@ -39,10 +39,11 @@ Use "" for anything you cannot read.`;
 export const MANIFEST_PROMPT = `This is a photo of a printed LINE MANIFEST from a freight terminal. Each row (separated by dashed lines) is one shipment with:
 PRO # (a 7 to 9 digit number at the start of the row), CONSIGNEE NAME/CITY (company, street, city: this is who receives it, in or near Las Vegas), and SHIPPER NAME/CITY (ignore the shipper).
 Some rows are interline ("**I/L -"): they show a long line pro such as 00277715130 and a carrier code such as SMTL, and the DDP pro (like 980005646) under it. Put the DDP pro in "pro" and the long line pro in "alt". On those rows the consignee is still the company in the CONSIGNEE column (for example ACUDOR, 4216 NORTH PECOS RD, LAS VEGAS), not the carrier name (like SOUTHWESTERN MOTOR T) in the shipper column.
+Under each pro is "DEST" and a 3-letter terminal code (usually LAS, sometimes another like RNO): put that code in "dest". A row with another DEST code still goes in the list, with its consignee (for example STARBUCKS COFFEE, 2525 STARBUCKS WAY, MINDEN, dest RNO).
 List EVERY row once, top to bottom. Do not invent rows.
 Also read the header at the top: the LINE MANIFEST# number, the PAGE number, and the ORIGIN TERMINAL city. Set "total" to true only if this page has the TOTAL line at the bottom (the last page of that manifest).
 Answer with JSON only:
-{"manifest": "475682", "page": "1", "origin": "PHOENIX", "total": true, "rows": [{"pro": "5252550", "alt": "", "name": "VIP TRANSPORT", "street": "6425 S JONES BLVD #1", "city": "LAS VEGAS"}]}
+{"manifest": "475682", "page": "1", "origin": "PHOENIX", "total": true, "rows": [{"pro": "5252550", "alt": "", "dest": "LAS", "name": "VIP TRANSPORT", "street": "6425 S JONES BLVD #1", "city": "LAS VEGAS"}]}
 Use "" for anything you cannot read.`;
 
 /** The header of a manifest page: manifest#, page#, origin, and whether it is the last page (TOTAL line). */
@@ -68,7 +69,11 @@ export function parseManifest(text) {
   for (const x of list.slice(0, 120)) {
     const row = { ...addrOf(x), pro: digits(x?.pro), alt: digits(x?.alt) };
     if (row.pro.length < 6 || (!row.name && !row.street)) continue;
-    if (!isLocal(row)) continue; // every consignee here is in the Las Vegas area; anything else is a misread shipper
+    // A row bound for Las Vegas must have a Las Vegas-area consignee (anything else is a misread shipper).
+    // Rows for another terminal (DEST RNO and so on) are kept as they are.
+    const dest = clean(x?.dest).toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3);
+    if (dest && dest !== 'LAS') row.dest = dest;
+    else if (!isLocal(row)) continue;
     if (!seen.has(row.pro)) seen.set(row.pro, row);
   }
   return seen.size ? [...seen.values()] : null;

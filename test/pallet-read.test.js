@@ -85,3 +85,14 @@ test('manifest header: number, page, origin and last page', async () => {
   assert.deepEqual(h, { manifest: '475682', page: '1', origin: 'PHOENIX', last: true, listed: 2 });
   assert.deepEqual(parseManifestHeader('{"rows": []}'), { manifest: '', page: '', origin: '', last: false, listed: 0 });
 });
+
+test('a manifest row for another terminal (DEST RNO) is kept; a misread LAS row is not', async () => {
+  const { parseManifest } = await import('../src/pallet-read.js');
+  const rows = parseManifest(JSON.stringify({ rows: [
+    { pro: '5243448', dest: 'RNO', name: 'STARBUCKS COFFEE', street: '2525 STARBUCKS WAY', city: 'MINDEN' },
+    { pro: '5252771', dest: 'LAS', name: "SMITH'S", street: '9710 W SKYE CANYON P', city: 'LAS VEGAS' },
+    { pro: '980005646', dest: 'LAS', name: 'SOUTHWESTERN MOTOR T', street: '501 COMMERCE PARKWAY', city: 'KATY' },
+  ] }));
+  assert.deepEqual(rows.map((r) => r.name), ['STARBUCKS COFFEE', "SMITH'S"]);
+  assert.equal(rows[0].dest, 'RNO');
+});
