@@ -216,3 +216,5 @@ div.driver .meta { margin-left: 6px; }
 .bad-t { color: #ff8a80; font-weight: 700; }
 .warn-t { color: #ffd166; font-weight: 700; }
 .no-addr { width: 100%; margin: 4px 0 10px; color: #ffd166; text-align: left; }
+.sheet-card input.addr-in { font-size: 18px; padding: 10px 12px; margin-bottom: 6px; }
+.look[data-open] { cursor: pointer; }

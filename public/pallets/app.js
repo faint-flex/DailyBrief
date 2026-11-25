@@ -478,6 +478,11 @@ function openEdit(driverId, index) {
   editValue = d.stops[index].pro;
   $('edit-title').textContent = `Stop ${index + 1} of ${d.stops.length}`;
   $('edit-move').hidden = false;
+  $('edit-addr').hidden = false;
+  const a = d.stops[index].addr || {};
+  $('addr-name').value = a.name || '';
+  $('addr-street').value = a.street || '';
+  $('addr-city').value = a.city || '';
   $('edit-save').textContent = 'Save';
   showValue();
   $('edit-sheet').hidden = false;
@@ -502,7 +507,7 @@ function openEntry() {
   $('edit-sheet').hidden = false;
 }
 const editOpen = () => !$('edit-sheet').hidden;
-function closeEdit() { editing = null; $('edit-sheet').hidden = true; }
+function closeEdit() { editing = null; $('edit-sheet').hidden = true; $('edit-addr').hidden = true; document.activeElement?.blur?.(); }
 $('edit-cancel').onclick = closeEdit;
 $('edit-save').onclick = saveEdit;
 $('enter-btn').onclick = openEntry;
@@ -554,6 +559,12 @@ async function saveEdit() {
   if (other && !(other.driver.id === d.id && other.index === editing.index)) {
     toast(`${pro} is already ${label(other.driver)} stop ${other.index + 1}`);
     return;
+  }
+  // A typed address wins over the manifest and photos (applyPool leaves it alone).
+  const typed = { name: $('addr-name').value.trim(), street: $('addr-street').value.trim(), city: $('addr-city').value.trim() };
+  const before = stop.addr || {};
+  if ((typed.name || typed.street) && (typed.name !== (before.name || '') || typed.street !== (before.street || '') || typed.city !== (before.city || ''))) {
+    stop.addr = { ...typed, from: 'typed' };
   }
   const old = stop.pro;
   stop.pro = pro;
@@ -924,9 +935,11 @@ function renderLookup() {
       : '<span class="tag off">Not on a route</span>';
     const close = r.rank === 1 ? '<div class="addr warn">One digit off from what you entered</div>' : '';
     const old = r.at && dayKey(r.at) !== dayKey(Date.now()) ? `<div class="addr muted">From ${new Date(r.at).toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' })}</div>` : '';
-    return `<div class="look ${q && r.rank === 0 ? 'best' : ''}"><div class="look-top"><span class="pro">${esc(r.pro)}${r.alt ? ` <span class="muted">· ${esc(r.alt)}</span>` : ''}</span>${route}</div>
-      ${r.name || r.street ? `<div class="look-name">${esc(r.name)}</div><div>${esc(r.street)}</div><div>${esc(r.city)}</div>` : '<div class="muted">No address yet</div>'}${close}${old}</div>`;
+    const tap = r.driver ? ` data-open="${esc(r.driver.id)}:${r.index}"` : '';
+    return `<div class="look ${q && r.rank === 0 ? 'best' : ''}"${tap}><div class="look-top"><span class="pro">${esc(r.pro)}${r.alt ? ` <span class="muted">· ${esc(r.alt)}</span>` : ''}</span>${route}</div>
+      ${r.name || r.street ? `<div class="look-name">${esc(r.name)}</div><div>${esc(r.street)}</div><div>${esc(r.city)}</div>` : '<div class="muted">No address yet · tap to type it</div>'}${close}${old}</div>`;
   }).join('');
+  $('lookup-list').querySelectorAll('[data-open]').forEach((el) => { el.onclick = () => { const [id, i] = el.dataset.open.split(':'); openEdit(id, Number(i)); }; });
 }
 
 function renderStacks(st) {

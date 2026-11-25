@@ -109,6 +109,12 @@
         <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
         <button data-k="clear" class="fn">Clear</button><button data-k="0">0</button><button data-k="back" class="fn" aria-label="Delete">⌫</button>
       </div>
+      <div id="edit-addr" hidden>
+        <p class="hint small-hint">Address (type it if the manifest didn't have it):</p>
+        <input id="addr-name" class="addr-in" placeholder="Company / name" autocomplete="off" autocapitalize="characters">
+        <input id="addr-street" class="addr-in" placeholder="Street" autocomplete="off" autocapitalize="characters">
+        <input id="addr-city" class="addr-in" placeholder="City" autocomplete="off" autocapitalize="characters">
+      </div>
       <div class="row" id="edit-move">
         <button class="small ghost" id="edit-up">▲ Move up</button>
         <button class="small ghost" id="edit-down">▼ Move down</button>
