@@ -56,7 +56,8 @@ class_name = "CryptoBot"
 tag = "v2"
 new_sqlite_classes = ["CryptoBot"]
 
-# Meme hunter every 10 minutes; coin breakout once a day just after the daily candle closes.
+# Meme hunter every 10 minutes. Coin breakout tries hourly at :07 and trades once per UTC day
+# (the first try that gets candles; exchanges often rate-limit Cloudflare's shared addresses).
 # (Cloudflare cron triggers, free plan. GitHub Actions schedules proved unreliable.)
 [triggers]
-crons = ["*/10 * * * *", "7 0 * * *"]
+crons = ["*/10 * * * *", "7 * * * *"]

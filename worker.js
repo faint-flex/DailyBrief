@@ -159,7 +159,7 @@ export default {
     return new Response('Not found', { status: 404 });
   },
 
-  // Crypto paper bot: meme hunter every 10 minutes, coin breakout daily at 00:07 UTC.
+  // Crypto paper bot: meme hunter every 10 minutes, coin breakout hourly at :07 (trades once a day).
   async scheduled(controller, env, ctx) {
     ctx.waitUntil(cryptoScheduled(controller, env));
   },

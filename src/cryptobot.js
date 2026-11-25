@@ -2,7 +2,7 @@
 // Two pretend $1,000 pots, run by this Worker's cron triggers (Cloudflare, free plan) and
 // kept in one Durable Object (SQLite storage, free plan):
 //
-//   Coin breakout  once a day (00:07 UTC). 32 coins incl. DOGE/SHIB/PEPE/FLOKI/BONK/WIF.
+//   Coin breakout  once a day (first hourly try after 00:00 UTC that gets candles). 32 coins incl. DOGE/SHIB/PEPE/FLOKI/BONK/WIF.
 //                  Buy a coin whose daily close breaks its 20-day high on 3x its usual volume,
 //                  only while BTC is above its 50-day average. 5 slots of 20%. Sell on a 15%
 //                  drop from its best close, or when BTC falls 3% under its 50-day average.
@@ -22,9 +22,10 @@ const OKX = 'https://www.okx.com/api/v5/market'; // backup when Binance's data A
 const OKX_ID = { '1000SATS': 'SATS' };
 const KRAKEN = 'https://api.kraken.com/0/public'; // second backup (no PEOPLE, BOME or SATS there)
 const KRAKEN_ID = {};
-const SOURCES = ['binance', 'okx', 'kraken'];
-const GAP = { binance: 100, okx: 1100, kraken: 1200 };
-const BATCH = { binance: 8, okx: 8, kraken: 1 };
+const MEXC = 'https://api.mexc.com/api/v3'; // same candle format as Binance
+const SOURCES = ['binance', 'mexc', 'okx', 'kraken'];
+const GAP = { mexc: 300, binance: 100, okx: 1100, kraken: 1200 };
+const BATCH = { mexc: 6, binance: 8, okx: 8, kraken: 1 };
 const START_USD = 1000;
 
 // ---------- Coin breakout (settings chosen from the robustness grid, not the single best cell) ----------
@@ -128,7 +129,8 @@ async function dailyBars(fetcher, coin, now, source) {
     // [time, open, high, low, close, vwap, volume, count]; quote volume = volume x vwap
     return rows.filter((r) => (r[0] + 86400) * 1000 <= now).map((r) => ({ t: r[0] * 1000, high: +r[2], close: +r[4], vol: +r[6] * +r[5] }));
   }
-  const rows = await getJson(fetcher, `${BINANCE}/klines?symbol=${coin}USDT&interval=1d&limit=60`);
+  const sym = source === 'mexc' && coin === '1000SATS' ? 'SATS' : coin;
+  const rows = await getJson(fetcher, `${source === 'mexc' ? MEXC : BINANCE}/klines?symbol=${sym}USDT&interval=1d&limit=60`);
   return rows.filter((r) => r[6] < now).map((r) => ({ t: r[0], high: +r[2], close: +r[4], vol: +r[7] }));
 }
 
@@ -478,7 +480,7 @@ const bot = (env) => env.CRYPTO_BOT.get(env.CRYPTO_BOT.idFromName('paper'));
 
 export async function cryptoScheduled(controller, env) {
   if (!env.CRYPTO_BOT) return;
-  const kind = controller.cron === '7 0 * * *' ? 'daily' : 'meme';
+  const kind = controller.cron === '7 * * * *' ? 'daily' : 'meme';
   await bot(env).fetch(`https://bot/run?kind=${kind}`);
 }
 
