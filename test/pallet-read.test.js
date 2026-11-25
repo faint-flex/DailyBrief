@@ -78,3 +78,10 @@ test('manifest mode returns every row with its consignee', async () => {
   const out = await (await worker.fetch(post({ image: IMG, mode: 'manifest' }), env)).json();
   assert.deepEqual(out.rows.map((r) => [r.pro, r.alt, r.name]), [['5252550', '', 'VIP TRANSPORT'], ['980005646', '00277715130', 'ACUDOR']]);
 });
+
+test('manifest header: number, page, origin and last page', async () => {
+  const { parseManifestHeader } = await import('../src/pallet-read.js');
+  const h = parseManifestHeader('```json\n{"manifest": "00475682", "page": "1", "origin": "PHOENIX", "total": true, "rows": [{"pro":"1"},{"pro":"2"}]}\n```');
+  assert.deepEqual(h, { manifest: '475682', page: '1', origin: 'PHOENIX', last: true, listed: 2 });
+  assert.deepEqual(parseManifestHeader('{"rows": []}'), { manifest: '', page: '', origin: '', last: false, listed: 0 });
+});

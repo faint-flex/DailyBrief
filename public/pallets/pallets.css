@@ -206,3 +206,13 @@ div.driver .meta { margin-left: 6px; }
 .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .clear-q { float: right; background: var(--line); border-radius: 10px; font-size: 15px; padding: 6px 10px; margin-top: 4px; }
 #lookup-q.empty { font-size: 18px; font-weight: 600; }
+.mf { background: var(--card); border-radius: 12px; padding: 10px 12px; margin: 8px 0; }
+.mf-top { font-size: 17px; }
+.mf-pages { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 6px; align-items: center; }
+.pg { background: var(--line); border-radius: 10px; padding: 8px 10px; font-size: 15px; font-weight: 700; }
+.pg.failed { background: #3b0d0d; border: 1px solid var(--bad); }
+.pg.reading { color: var(--muted); }
+.mf-notes { font-size: 15px; }
+.bad-t { color: #ff8a80; font-weight: 700; }
+.warn-t { color: #ffd166; font-weight: 700; }
+.no-addr { width: 100%; margin: 4px 0 10px; color: #ffd166; text-align: left; }

@@ -39,6 +39,7 @@ export function shareable(s) {
     drivers: s.drivers || [],
     pallets: (s.pallets || []).map((p) => ({ code: p.code, at: p.at })),
     pool: s.pool || [],
+    pages: s.pages || [],
     gone: s.gone || {},
   };
 }
@@ -67,7 +68,12 @@ export function mergeDocs(a, b) {
     .filter((p) => !gone[`p:${palletKey(p)}`])
     .sort((x, y) => x.at - y.at || String(x.code).localeCompare(String(y.code)));
 
-  return { startedAt, drivers: keptDrivers, pallets: keptPallets, pool, gone };
+  // Manifest pages scanned today, by id; a re-read of the same page keeps the newest.
+  const pages = new Map();
+  for (const p of [...a.pages, ...b.pages]) if (!pages.has(p.id) || (p.at || 0) > (pages.get(p.id).at || 0)) pages.set(p.id, p);
+  const keptPages = [...pages.values()].sort((x, y) => (x.at || 0) - (y.at || 0) || String(x.id).localeCompare(String(y.id)));
+
+  return { startedAt, drivers: keptDrivers, pallets: keptPallets, pool, pages: keptPages, gone };
 }
 
 /** One fixed form, so two copies with the same content compare equal. */

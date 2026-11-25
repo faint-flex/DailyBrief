@@ -24,7 +24,7 @@ const timeOf = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minu
 
 // ---------- state ----------
 function blank(pool = []) {
-  return { pool, gone: {}, startedAt: Date.now(), drivers: [], pallets: [], recentNames: load()?.recentNames || [] };
+  return { pool, pages: [], gone: {}, startedAt: Date.now(), drivers: [], pallets: [], recentNames: load()?.recentNames || [] };
 }
 const KEEP_DAYS = 7;
 // Addresses carry over between days by pro#: freight from yesterday's manifest can
@@ -49,6 +49,7 @@ function load() {
 let state = load() || blank();
 state.pool = state.pool || [];
 state.gone = state.gone || {};
+state.pages = state.pages || [];
 for (const r of state.pool) if (!r.at) r.at = state.startedAt || Date.now();
 for (const d of state.drivers) if (rosterIndex(d.name) >= 0) d.colorIndex = rosterIndex(d.name); // keep roster colors fixed
 // Stamps each stack with the time of its last change (rev), and remembers deleted
@@ -307,11 +308,27 @@ $('manifest-photo').onclick = () => { $('manifest-input').value = ''; $('manifes
 $('manifest-input').addEventListener('change', async () => {
   const file = $('manifest-input').files[0];
   if (!file) return;
+  const blob = await shrink(file, 1800).catch(() => null);
+  if (!blob) { toast('Could not open that photo'); return; }
+  const id = `m${Date.now().toString(36)}`;
+  await putPhoto(id, blob).catch(() => {}); // kept on this phone to view or retry
+  readManifest(id, blob);
+});
+// Every manifest photo is logged as a page, so you can see which pages you have.
+async function readManifest(id, blob) {
+  blob = blob || await photoBlob(id).catch(() => null);
+  if (!blob) { toast('That photo is on the other phone'); return; }
+  const log = (fields) => {
+    const i = state.pages.findIndex((p) => p.id === id);
+    const page = { ...(i === -1 ? { id } : state.pages[i]), ...fields, at: Date.now() };
+    if (i === -1) state.pages.push(page); else state.pages[i] = page;
+  };
+  log({ status: 'reading' });
+  save();
   readingManifests += 1;
   render();
   toast('Reading the manifest in the background (up to a minute).');
   try {
-    const blob = await shrink(file, 1800);
     const image = await new Promise((resolve, reject) => {
       const fr = new FileReader();
       fr.onload = () => resolve(fr.result);
@@ -321,6 +338,7 @@ $('manifest-input').addEventListener('change', async () => {
     const res = await fetch('/pallets/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image, mode: 'manifest' }) });
     const out = await res.json().catch(() => ({}));
     if (!res.ok || !Array.isArray(out.rows)) throw new Error(out.error || 'no rows');
+    log({ status: 'ok', manifest: out.manifest || '', page: out.page || '', origin: out.origin || '', last: !!out.last, rows: out.rows.length, listed: out.listed || out.rows.length, pros: out.rows.map((r) => r.pro) });
     let added = 0;
     for (const r of out.rows) {
       const row = { pro: r.pro, alt: r.alt || '', name: r.name, street: r.street, city: r.city, at: Date.now() };
@@ -330,13 +348,64 @@ $('manifest-input').addEventListener('change', async () => {
     save(); good();
     toast(`Manifest: added ${added} address${added === 1 ? '' : 'es'} to the pool`);
   } catch {
+    log({ status: 'failed' });
+    save();
     bad();
-    toast('Could not read that manifest. Try again flat, close and well lit.');
+    toast('Could not read that manifest. Tap Retry under Manifest pages, or retake it flat, close and well lit.');
   } finally {
     readingManifests -= 1;
     render();
   }
-});
+}
+
+// Groups the pages by manifest#, so a missing page number or a missing last page stands out.
+function renderPages() {
+  const pages = state.pages || [];
+  const el = $('pages');
+  if (!pages.length) { el.innerHTML = ''; return; }
+  const groups = new Map();
+  const loose = [];
+  for (const p of pages) {
+    if (p.status === 'ok' && p.manifest) {
+      if (!groups.has(p.manifest)) groups.set(p.manifest, []);
+      groups.get(p.manifest).push(p);
+    } else loose.push(p);
+  }
+  const chip = (p) => {
+    const label = p.status === 'reading' ? '⏳ reading' : p.status === 'failed' ? '✕ not read' : `${p.page ? `Page ${esc(p.page)}` : 'Page ?'} · ${p.rows} row${p.rows === 1 ? "" : "s"}`;
+    return `<button class="pg ${p.status}" data-page="${esc(p.id)}">${label}</button>${p.status === 'failed' ? `<button class="retry" data-reread="${esc(p.id)}">Retry</button>` : ''}`;
+  };
+  const out = [];
+  for (const [num, list] of groups) {
+    list.sort((a, b) => (Number(a.page) || 999) - (Number(b.page) || 999));
+    const nums = list.map((p) => Number(p.page)).filter(Boolean);
+    const max = Math.max(0, ...nums);
+    const missing = [];
+    for (let n = 1; n < max; n += 1) if (!nums.includes(n)) missing.push(n);
+    const dupes = nums.filter((n, i) => nums.indexOf(n) !== i);
+    const hasLast = list.some((p) => p.last);
+    const notes = [];
+    if (missing.length) notes.push(`<span class="bad-t">⚠ Missing page ${missing.join(', ')}</span>`);
+    if (!hasLast) notes.push('<span class="warn-t">⚠ No last page (TOTAL) yet</span>');
+    if (dupes.length) notes.push(`<span class="muted">Page ${[...new Set(dupes)].join(', ')} scanned twice</span>`);
+    if (!notes.length) notes.push('<span class="ok">✓ All pages</span>');
+    out.push(`<div class="mf"><div class="mf-top"><b>Manifest ${esc(num)}</b>${list[0].origin ? ` <span class="muted">· ${esc(list[0].origin)}</span>` : ''}</div><div class="mf-pages">${list.map(chip).join('')}</div><div class="mf-notes">${notes.join(' · ')}</div></div>`);
+  }
+  if (loose.length) out.push(`<div class="mf"><div class="mf-top"><b>${loose.some((p) => p.status === 'ok') ? 'Header not read' : 'Photos'}</b></div><div class="mf-pages">${loose.map(chip).join('')}</div></div>`);
+  const ok = pages.filter((p) => p.status === 'ok');
+  el.innerHTML = `<div class="hint small-hint">Manifest pages today: ${ok.length} read · ${ok.reduce((n, p) => n + (p.rows || 0), 0)} rows. Tap a page to see the photo and check the row count.</div>${out.join('')}`;
+  el.querySelectorAll('[data-page]').forEach((b) => { b.onclick = () => showPage(b.dataset.page); });
+  el.querySelectorAll('[data-reread]').forEach((b) => { b.onclick = () => readManifest(b.dataset.reread); });
+}
+function showPage(id) {
+  const p = state.pages.find((x) => x.id === id);
+  photoUrl(id).then((url) => {
+    if (!url) { toast(p?.status === 'ok' ? `${p.rows} rows read. The photo is on the other phone.` : 'The photo is on the other phone'); return; }
+    $('viewer-img').src = url;
+    $('viewer-msg').textContent = p?.status === 'ok' ? `${p.rows} rows read${p.listed > p.rows ? ` (${p.listed - p.rows} skipped: not a Las Vegas address)` : ''}. Count the rows on the paper. Tap to close.` : 'Tap to close';
+    $('viewer').hidden = false;
+  });
+}
 
 // Fills stops from the manifest pool. A close-up sheet photo still wins; the
 // manifest (printed, clean) beats a stack photo.
@@ -524,9 +593,11 @@ function showPhoto(pro) {
   photoUrl(norm(pro)).then((url) => {
     if (!url) return;
     $('viewer-img').src = url;
+    $('viewer-msg').textContent = 'Tap to close';
     $('viewer').hidden = false;
   });
 }
+$('no-addr').onclick = () => { lookupFilter = 'noaddr'; lookupQuery = ''; setTab('lookup'); };
 $('viewer').onclick = () => { $('viewer').hidden = true; };
 
 function showStackMsg(kind, html = '', extra = '') {
@@ -831,11 +902,11 @@ function renderLookup() {
 
   const book = addressBook(state.drivers, state.pool);
   const days = [...new Set(book.filter((r) => r.at).map((r) => dayKey(r.at)))].sort().reverse();
-  if (!['all', 'route', 'off'].includes(lookupFilter) && !days.includes(lookupFilter)) lookupFilter = 'all';
-  const chips = [['all', `All ${book.length}`], ...days.map((k) => [k, dayName(k)]), ['route', 'On a route'], ['off', 'Not on a route']];
+  if (!['all', 'route', 'off', 'noaddr'].includes(lookupFilter) && !days.includes(lookupFilter)) lookupFilter = 'all';
+  const chips = [['all', `All ${book.length}`], ...days.map((k) => [k, dayName(k)]), ['route', 'On a route'], ['noaddr', 'No address'], ['off', 'Not on a route']];
   $('lookup-filters').innerHTML = chips.map(([k, t]) => `<button class="chip ${lookupFilter === k ? 'on' : ''}" data-f="${k}">${esc(t)}</button>`).join('');
   $('lookup-filters').querySelectorAll('[data-f]').forEach((b) => { b.onclick = () => { lookupFilter = b.dataset.f; renderLookup(); }; });
-  const keep = (r) => lookupFilter === 'all' || (lookupFilter === 'route' ? !!r.driver : lookupFilter === 'off' ? !r.driver : r.at && dayKey(r.at) === lookupFilter);
+  const keep = (r) => lookupFilter === 'all' || (lookupFilter === 'noaddr' ? !!r.driver && !r.name && !r.street : lookupFilter === 'route' ? !!r.driver : lookupFilter === 'off' ? !r.driver : r.at && dayKey(r.at) === lookupFilter);
 
   if (!book.length) {
     $('lookup-list').innerHTML = '<div class="empty">No stops yet. Take manifest photos or scan stacks on the Stacks tab.</div>';
@@ -866,6 +937,10 @@ function renderStacks(st) {
   $('pool-status').textContent = n
     ? `Address pool: ${today} pro#s from today's manifest${older ? `, ${older} kept from the last ${KEEP_DAYS} days` : ''}. Add more pages any time.`
     : 'Snap each manifest page once. Stops fill in their address by pro#.';
+  renderPages();
+  const noAddr = state.drivers.reduce((n, d) => n + d.stops.filter((s) => !s.addr?.name).length, 0);
+  $('no-addr').hidden = !noAddr;
+  $('no-addr').textContent = `⚠ ${noAddr} stop${noAddr === 1 ? '' : 's'} on a run ${noAddr === 1 ? 'has' : 'have'} no address · see which`;
   $('new-day').textContent = 'Start a new day';
   // Regular drivers first (in roster order, even before a stack is scanned), then anyone else added today.
   const names = [...ROSTER];

@@ -40,9 +40,20 @@ export const MANIFEST_PROMPT = `This is a photo of a printed LINE MANIFEST from 
 PRO # (a 7 to 9 digit number at the start of the row), CONSIGNEE NAME/CITY (company, street, city: this is who receives it, in or near Las Vegas), and SHIPPER NAME/CITY (ignore the shipper).
 Some rows are interline ("**I/L -"): they show a long line pro such as 00277715130 and a carrier code such as SMTL, and the DDP pro (like 980005646) under it. Put the DDP pro in "pro" and the long line pro in "alt". On those rows the consignee is still the company in the CONSIGNEE column (for example ACUDOR, 4216 NORTH PECOS RD, LAS VEGAS), not the carrier name (like SOUTHWESTERN MOTOR T) in the shipper column.
 List EVERY row once, top to bottom. Do not invent rows.
+Also read the header at the top: the LINE MANIFEST# number, the PAGE number, and the ORIGIN TERMINAL city. Set "total" to true only if this page has the TOTAL line at the bottom (the last page of that manifest).
 Answer with JSON only:
-{"rows": [{"pro": "5252550", "alt": "", "name": "VIP TRANSPORT", "street": "6425 S JONES BLVD #1", "city": "LAS VEGAS"}]}
+{"manifest": "475682", "page": "1", "origin": "PHOENIX", "total": true, "rows": [{"pro": "5252550", "alt": "", "name": "VIP TRANSPORT", "street": "6425 S JONES BLVD #1", "city": "LAS VEGAS"}]}
 Use "" for anything you cannot read.`;
+
+/** The header of a manifest page: manifest#, page#, origin, and whether it is the last page (TOTAL line). */
+export function parseManifestHeader(text) {
+  const m = String(text).match(/\{[\s\S]*\}/);
+  let o = {};
+  try { o = m ? JSON.parse(m[0]) : {}; } catch { o = {}; }
+  const num = (v) => String(v ?? '').replace(/\D/g, '').replace(/^0+(?=\d)/, '').slice(0, 12);
+  const total = o.total === true || String(o.total).toLowerCase() === 'true';
+  return { manifest: num(o.manifest), page: num(o.page).slice(0, 3), origin: clean(o.origin).slice(0, 40), last: total, listed: Array.isArray(o.rows) ? o.rows.length : 0 };
+}
 
 /** Rows read off a line manifest, each with a usable pro#. */
 export function parseManifest(text) {
@@ -189,7 +200,7 @@ export async function handlePalletRead(request, env) {
       const text = answerText(out);
       if (manifest) {
         const rows = parseManifest(text);
-        if (rows) return json({ rows, model });
+        if (rows) return json({ rows, ...parseManifestHeader(text), model });
       } else if (stack) {
         const sheets = parseStack(text);
         if (sheets) return json({ sheets, model });
