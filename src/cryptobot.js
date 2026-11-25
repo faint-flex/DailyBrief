@@ -20,6 +20,11 @@ const GECKO = 'https://api.geckoterminal.com/api/v2';
 const DEXS = 'https://api.dexscreener.com';
 const OKX = 'https://www.okx.com/api/v5/market'; // backup when Binance's data API refuses Cloudflare
 const OKX_ID = { '1000SATS': 'SATS' };
+const KRAKEN = 'https://api.kraken.com/0/public'; // second backup (no PEOPLE, BOME or SATS there)
+const KRAKEN_ID = {};
+const SOURCES = ['binance', 'okx', 'kraken'];
+const GAP = { binance: 100, okx: 1100, kraken: 1200 };
+const BATCH = { binance: 8, okx: 8, kraken: 1 };
 const START_USD = 1000;
 
 // ---------- Coin breakout (settings chosen from the robustness grid, not the single best cell) ----------
@@ -115,6 +120,14 @@ async function dailyBars(fetcher, coin, now, source) {
     if (j.code !== '0') throw new Error(`okx ${coin} ${j.msg || j.code}`);
     return j.data.filter((r) => r[8] === '1').reverse().map((r) => ({ t: +r[0], high: +r[2], close: +r[4], vol: +r[7] }));
   }
+  if (source === 'kraken') {
+    const pair = `${KRAKEN_ID[coin] || coin}USD`;
+    const j = await getJson(fetcher, `${KRAKEN}/OHLC?pair=${pair}&interval=1440&since=${Math.floor(now / 1000) - 61 * 86400}`);
+    if (j.error?.length) throw new Error(`kraken ${coin} ${j.error[0]}`);
+    const rows = Object.entries(j.result || {}).find(([k]) => k !== 'last')?.[1] || [];
+    // [time, open, high, low, close, vwap, volume, count]; quote volume = volume x vwap
+    return rows.filter((r) => (r[0] + 86400) * 1000 <= now).map((r) => ({ t: r[0] * 1000, high: +r[2], close: +r[4], vol: +r[6] * +r[5] }));
+  }
   const rows = await getJson(fetcher, `${BINANCE}/klines?symbol=${coin}USDT&interval=1d&limit=60`);
   return rows.filter((r) => r[6] < now).map((r) => ({ t: r[0], high: +r[2], close: +r[4], vol: +r[7] }));
 }
@@ -123,21 +136,31 @@ export async function runDaily(state, fetcher, now) {
   const day = new Date(now).toISOString().slice(0, 10);
   const book = state.breakout;
   if (book.last_day === day) return { skipped: 'already ran today' };
-  // One source for all coins (volumes differ between exchanges): Binance, else OKX.
-  let source = book.source || 'binance';
-  try { await dailyBars(fetcher, 'BTC', now, source); } catch { source = source === 'okx' ? 'binance' : 'okx'; }
+  // One source for all coins (volumes differ between exchanges): the first that answers for BTC.
+  const order = [...new Set([book.source || 'binance', ...SOURCES])];
+  const tried = [];
+  let source = null;
+  for (const src of order) {
+    try {
+      if ((await dailyBars(fetcher, 'BTC', now, src)).length >= BREAKOUT.regime) { source = src; break; }
+      tried.push(`${src}: too few candles`);
+    } catch (e) { tried.push(e.message); }
+    await pause(300);
+  }
+  if (!source) throw new Error(`no BTC candles (${tried.join('; ')})`);
   const bars = {};
   const errors = [];
-  // Small batches: OKX allows about 20 requests per 2 seconds.
+  // Small batches with pauses: OKX allows ~20 requests per 2 s, Kraken ~1 per second.
   let firstError = '';
-  for (let i = 0; i < COINS.length; i += 8) {
-    const part = COINS.slice(i, i + 8);
+  const size = BATCH[source];
+  for (let i = 0; i < COINS.length; i += size) {
+    const part = COINS.slice(i, i + size);
     const got = await Promise.allSettled(part.map((c) => dailyBars(fetcher, c, now, source)));
     got.forEach((g, j) => {
       if (g.status === 'fulfilled' && g.value.length) bars[part[j]] = g.value;
       else { errors.push(part[j]); firstError ||= g.reason?.message || 'empty'; }
     });
-    if (i + 8 < COINS.length) await pause(source === 'okx' ? 1100 : 100);
+    if (i + size < COINS.length) await pause(GAP[source]);
   }
   if (!bars.BTC?.length) throw new Error(`no BTC candles (${firstError})`);
   book.source = source;
@@ -160,10 +183,10 @@ export async function runDaily(state, fetcher, now) {
     book.pos[c] = { coin: c, units: (usd * (1 - coinFee(c))) / px[c], entry: px[c], peak: px[c], cost: usd, at };
     note(state, { at, pot: 'breakout', act: 'buy', sym: c, price: px[c], usd: round(usd), why });
   }
-  if (errors.length <= 3) book.last_day = day; // too many gaps: the next run tries the day again
+  if (errors.length <= 5) book.last_day = day; // too many gaps: the next run tries the day again
   book.regime = regime;
   Object.assign(state.prices, Object.fromEntries(Object.entries(px).map(([c, v]) => [`${c}USDT`, v])));
-  return { sells: sells.length, buys: buys.length, regime, missing: errors };
+  return { source, sells: sells.length, buys: buys.length, regime, missing: errors, tried };
 }
 
 // ============ Meme hunter ============
