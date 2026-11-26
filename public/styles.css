@@ -150,6 +150,7 @@ a.button.primary { background: var(--accent); color: var(--accent-text); }
 .scores li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
 .scores li:first-child { border-top: 0; }
 .scores li.lead span { font-weight: 600; }
+.scores strong { white-space: nowrap; }
 .scores .up { color: var(--good); }
 .scores .down { color: #c0392b; }
 @media (prefers-color-scheme: dark) { .scores .down { color: #f08a7e; } }

@@ -136,3 +136,51 @@ test('scalper refuses tokens it could not sell', async () => {
   assert.equal(await canSell(async () => ok({ risks: [{ name: 'Large Amount of LP Unlocked', level: 'danger' }] }), 'solana', 'M'), '');
   assert.match(await canSell(async () => ok({ result: { '0xa': { is_honeypot: '1' } } }), 'base', '0xA'), /honeypot/);
 });
+
+test('scalper learns: a mistake in 3 of the last losses moves one rule one step, within limits', async () => {
+  const { adapt, diagnose, rulesOf, TUNABLE, lessonText } = await import('../src/cryptobot.js');
+  const book = { started: '2026-11-26T00:00:00Z', losses: [], params: {} };
+  const r = rulesOf(book);
+  const chase = { sym: 'X', pnl_pct: -20, best_pct: 0.5, sig: { m5: 35, vol5m: 20000, liq: 80000, ratio: 3 }, exit_impact_pct: 0.1 };
+  assert.deepEqual(diagnose(chase, r), ['chased']);
+  assert.match(lessonText({ ...chase, tags: ['chased'] }), /big 5-min jump/);
+  for (let i = 0; i < 2; i += 1) book.losses.unshift({ ...chase, tags: ['chased'], final: true });
+  assert.equal(adapt(book, NOW), null); // two losses are not a pattern
+  book.losses.unshift({ ...chase, tags: ['chased'], final: true });
+  const ch = adapt(book, NOW);
+  assert.equal(book.params.maxM5, 35);
+  assert.match(ch.why, /3 of the last 3 losses/);
+  assert.equal(adapt(book, NOW), null); // waits for 3 more losses before moving it again
+  book.since_change.maxM5 = 3;
+  for (let i = 0; i < 20; i += 1) { book.since_change.maxM5 = 3; adapt(book, NOW); }
+  assert.equal(book.params.maxM5, TUNABLE.maxM5.min); // never past the floor
+});
+
+test('scalper post-mortem watches a stopped-out coin and flags a stop that was too tight', async () => {
+  const s = store();
+  let price = '0.01';
+  const pair = () => ({ chainId: 'solana', pairAddress: 'P1', baseToken: { address: 'NEW1', symbol: 'ZOOM' }, quoteToken: { symbol: 'SOL' },
+    priceUsd: price, liquidity: { usd: 90000 }, volume: { m5: 20000 }, priceChange: { m5: 6, h1: 20 }, txns: { m5: { buys: 90, sells: 20 } } });
+  const fetcher = async (url) => {
+    if (url.includes('token-profiles') || url.includes('token-boosts')) return ok([{ chainId: 'solana', tokenAddress: 'NEW1' }]);
+    if (url.includes('/tokens/v1/')) return ok([pair()]);
+    if (url.includes('rugcheck')) return ok({ risks: [] });
+    throw new Error(`unexpected ${url}`);
+  };
+  await runBot(s, 'scalp', fetcher, NOW);
+  price = '0.008'; // -20%: stop
+  await runBot(s, 'scalp', fetcher, NOW + 120e3);
+  let b = s.m.get('scalp');
+  assert.equal(b.losses.length, 1);
+  assert.equal(b.losses[0].final, false);
+  price = '0.0115'; // bounces above the buy price while watched
+  await runBot(s, 'scalp', fetcher, NOW + 20 * 60e3);
+  await runBot(s, 'scalp', fetcher, NOW + 35 * 60e3);
+  b = s.m.get('scalp');
+  const pm = b.losses.find((l) => l.sym === 'ZOOM' && l.final);
+  assert.ok(pm.tags.includes('stop_too_tight'));
+  assert.match(pm.lesson, /recovered above the buy price/);
+  const card = scorecard({ breakout: { cash: 1000, pos: {}, trades: 0, wins: 0 }, meme: { cash: 1000, pos: {} }, log: [], prices: {} }, b);
+  assert.equal(card.scalp.rules['stop loss'], '-15%');
+  assert.ok(card.scalp.lessons.length >= 1);
+});

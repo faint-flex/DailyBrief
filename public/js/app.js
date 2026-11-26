@@ -293,7 +293,7 @@ function renderCrypto(st) {
   const rows = [
     ['Coin breakout (daily)', st.breakout_100_is_now],
     ['Meme hunter (every 10 min)', st.meme_100_is_now],
-    ...(st.scalp_100_is_now == null ? [] : [['Meme scalper (every 2 min, 24/7)', st.scalp_100_is_now]]),
+    ...(st.scalp_100_is_now == null ? [] : [['Meme scalper (2 min, 24/7)', st.scalp_100_is_now]]),
     ['Just holding Bitcoin', st.btc_hold_100_is_now],
   ];
   const best = Math.max(...rows.map(([, v]) => (v == null ? -Infinity : v)));
@@ -309,6 +309,13 @@ function renderCrypto(st) {
     t.act === 'buy' ? `Bought ${t.sym} ($${Math.round(t.usd)}): ${t.why}`
       : `${t.act === 'sell half' ? 'Sold half of' : 'Sold'} ${t.sym} ${pct(t.pnl_pct)}: ${t.why}`));
   $('crypto-trades').replaceChildren(...(trades.length ? trades : [el('li', {}, 'No trades yet.')]));
+  const sc = st.scalp;
+  const learned = sc ? [
+    ...(sc.changes || []).slice(0, 3).map((c) => el('li', {}, `Changed ${c.rule}: ${c.from} → ${c.to}, because ${c.why}.`)),
+    ...(sc.lessons || []).slice(0, 3).map((l) => el('li', { class: 'muted' }, l.lesson)),
+  ] : [];
+  $('crypto-learned-heading').hidden = !sc;
+  $('crypto-learned').replaceChildren(...(learned.length ? learned : sc ? [el('li', { class: 'muted' }, 'No losing trades reviewed yet. Each loss is checked 30 minutes after the sale.')] : []));
   $('crypto').hidden = false;
 }
 
