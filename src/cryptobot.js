@@ -15,6 +15,10 @@
 //                  filters; only "can it be sold at all" checks (freeze authority, honeypot,
 //                  blacklist, sell tax, $10k liquidity). 5% slots, sell half at +25%, trail the
 //                  rest 15% from its best, stop at -15%, out after 60 minutes whatever happens.
+//                  Self-adapting (LyFe 11-26): every losing trade gets a post-mortem (was the entry
+//                  a chase, too thin, weak volume or buyers, did the price recover after the stop?).
+//                  When the same mistake shows up in 3 of the last 6 losses, one rule moves one
+//                  step, inside fixed limits. If it goes 6 hours without a buy it eases one step back.
 //
 // The scorecard compares all pots with just holding BTC.
 //   GET  /api/crypto            (brief key)  -> { status }
@@ -414,23 +418,105 @@ export const SCALP = {
   tp1: 0.25, trail: 0.15, stop: 0.15, maxHoldMin: 60,
   fee: 0.01,
 };
+// The rules the scalper may tune itself, each with a hard floor and ceiling.
+export const TUNABLE = {
+  maxM5: { start: 40, step: -5, min: 10, max: 40, label: 'max 5-min jump to buy', fmt: (v) => `+${v}%` },
+  minLiq: { start: 10_000, step: 5_000, min: 10_000, max: 50_000, label: 'min liquidity', fmt: (v) => `$${v / 1000}k` },
+  minVol5m: { start: 3_000, step: 2_000, min: 3_000, max: 15_000, label: 'min 5-min volume', fmt: (v) => `$${v / 1000}k` },
+  minBuyRatio: { start: 1, step: 0.25, min: 1, max: 2.5, label: 'min buys per sell', fmt: (v) => `${v}x` },
+  stop: { start: 0.15, step: 0.025, min: 0.15, max: 0.25, label: 'stop loss', fmt: (v) => `-${Math.round(v * 1000) / 10}%` },
+  tp1: { start: 0.25, step: -0.05, min: 0.15, max: 0.25, label: 'take half at', fmt: (v) => `+${Math.round(v * 100)}%` },
+};
+// Which mistake moves which rule.
+const FIX = { chased: 'maxM5', thin: 'minLiq', rug: 'minLiq', weak_volume: 'minVol5m', weak_buyers: 'minBuyRatio', stop_too_tight: 'stop', gave_back: 'tp1' };
+const LESSON = {
+  chased: 'bought after a big 5-min jump and it never went higher',
+  thin: 'liquidity was thin, so getting out cost a lot',
+  rug: 'the liquidity was pulled (rug)',
+  weak_volume: 'volume was barely over the minimum',
+  weak_buyers: 'buyers only just outnumbered sellers',
+  never_moved: 'it never went up after the buy',
+  stop_too_tight: 'it recovered above the buy price after the stop sold it',
+  gave_back: 'it was well up but gave it all back before taking profit',
+};
+const WATCH_MIN = 30;
+
+export const rulesOf = (book) => ({ ...SCALP, ...Object.fromEntries(Object.entries(TUNABLE).map(([k, t]) => [k, book.params?.[k] ?? t.start])) });
+
+/** Tags a closed losing trade with what went wrong. */
+export function diagnose(pm, r) {
+  const tags = [];
+  const s = pm.sig || {};
+  if (pm.rug) tags.push('rug');
+  if (s.m5 >= r.maxM5 * 0.6 && pm.best_pct < 3) tags.push('chased');
+  if (!pm.rug && (s.liq < r.minLiq * 2 || pm.exit_impact_pct > 3)) tags.push('thin');
+  if (s.vol5m < r.minVol5m * 2) tags.push('weak_volume');
+  if (s.ratio < r.minBuyRatio + 0.5) tags.push('weak_buyers');
+  if (pm.best_pct < 2 && !tags.includes('chased')) tags.push('never_moved');
+  if (pm.best_pct >= 15) tags.push('gave_back');
+  return tags;
+}
+
+export const lessonText = (pm) => `${pm.sym} ${pm.pnl_pct}%: ${pm.tags.length ? pm.tags.map((t) => LESSON[t]).join('; ') : 'no clear mistake, just a bad draw'}.`;
+
+/** After a loss is final: if one mistake keeps repeating, move its rule one step (inside its limits). */
+export function adapt(book, now) {
+  const done = (book.losses || []).filter((l) => l.final).slice(0, 6);
+  if (done.length < 3) return null;
+  const count = {};
+  for (const l of done) for (const t of l.tags) if (FIX[t]) count[t] = (count[t] || 0) + 1;
+  const [tag, n] = Object.entries(count).sort((a, b) => b[1] - a[1])[0] || [];
+  if (!tag || n < 3) return null;
+  const key = FIX[tag];
+  const t = TUNABLE[key];
+  // Give each change a chance to work: wait for 3 more losses before moving the same rule again.
+  if ((book.since_change?.[key] ?? 99) < 3) return null;
+  const from = book.params?.[key] ?? t.start;
+  const to = Math.round(Math.min(t.max, Math.max(t.min, from + t.step)) * 1000) / 1000;
+  if (to === from) return null;
+  (book.params ||= {})[key] = to;
+  (book.since_change ||= {})[key] = 0;
+  const change = { at: new Date(now).toISOString(), rule: t.label, from: t.fmt(from), to: t.fmt(to), why: `${n} of the last ${done.length} losses: ${LESSON[tag]}` };
+  (book.changes ||= []).unshift(change);
+  book.changes.length = Math.min(book.changes.length, 20);
+  return change;
+}
+
+/** Six hours without a buy: ease the most-tightened rule one step back toward where it started. */
+function relax(book, now) {
+  if (!book.params || now - (book.last_buy_at || Date.parse(book.started)) < 6 * 3600e3) return null;
+  if (now - (book.last_relax_at || 0) < 6 * 3600e3) return null;
+  const moved = Object.entries(book.params).filter(([k, v]) => v !== TUNABLE[k].start);
+  if (!moved.length) return null;
+  const [key, from] = moved.sort((a, b) => Math.abs((b[1] - TUNABLE[b[0]].start) / TUNABLE[b[0]].step) - Math.abs((a[1] - TUNABLE[a[0]].start) / TUNABLE[a[0]].step))[0];
+  const t = TUNABLE[key];
+  const to = Math.round((from - t.step) * 1000) / 1000;
+  book.params[key] = to;
+  book.last_relax_at = now;
+  const change = { at: new Date(now).toISOString(), rule: t.label, from: t.fmt(from), to: t.fmt(to), why: 'no buys for 6 hours, so easing back one step' };
+  (book.changes ||= []).unshift(change);
+  book.changes.length = Math.min(book.changes.length, 20);
+  return change;
+}
+
 const scalpFresh = (now) => ({ started: new Date(now).toISOString(), cash: START_USD, pos: {}, trades: 0, wins: 0, rugs: 0, scans: 0, cooldown: {}, rejected: {}, log: [] });
 const scalpEquity = (b) => b.cash + Object.values(b.pos).reduce((a, p) => a + p.units * (p.last ?? p.entry), 0);
 
 /** Momentum test on a raw DexScreener pair. '' = buy signal. */
-export function scalpReject(x, held = {}, cooldown = {}, now = Date.now()) {
+export function scalpReject(x, held = {}, cooldown = {}, now = Date.now(), r = SCALP) {
+  const R = { ...SCALP, minBuyRatio: 1, ...r };
   const addr = x.baseToken?.address;
   const sym = String(x.baseToken?.symbol || '').toUpperCase();
   if (!addr || SKIP_SYMBOLS.has(sym)) return 'not a meme coin';
   if (held[addr]) return 'already held';
   if (cooldown[addr] && now - cooldown[addr] < SCALP.cooldownMin * 60e3) return 'sold recently';
-  if (!(num(x.liquidity?.usd) >= SCALP.minLiq)) return 'too little liquidity to get out';
-  if (!(num(x.volume?.m5) >= SCALP.minVol5m)) return 'quiet';
+  if (!(num(x.liquidity?.usd) >= R.minLiq)) return 'too little liquidity to get out';
+  if (!(num(x.volume?.m5) >= R.minVol5m)) return 'quiet';
   const m5 = num(x.priceChange?.m5);
-  if (!(m5 >= SCALP.minM5)) return 'not moving up';
-  if (m5 > SCALP.maxM5) return 'already spiked';
+  if (!(m5 >= R.minM5)) return 'not moving up';
+  if (m5 > R.maxM5) return 'already spiked';
   const t = x.txns?.m5 || {};
-  if (!((t.buys ?? 0) > (t.sells ?? 0))) return 'sellers winning';
+  if (!((t.buys ?? 0) > (t.sells ?? 0) * R.minBuyRatio)) return 'sellers winning';
   if (!(num(x.priceChange?.h1 ?? 0) > -20)) return 'dumping';
   return '';
 }
@@ -462,8 +548,24 @@ function scalpNote(book, entry) {
 
 export async function runScalp(book, fetcher, now) {
   const at = new Date(now).toISOString();
+  const r = rulesOf(book);
   const open = Object.values(book.pos);
-  const priced = open.length ? await memePrices(fetcher, open) : {};
+  // Losses are watched for 30 minutes after the sale, to learn whether the stop was too tight.
+  const watching = (book.losses || []).filter((l) => !l.final);
+  const lookup = [...open, ...watching.filter((l) => !book.pos[l.addr])];
+  const priced = lookup.length ? await memePrices(fetcher, lookup) : {};
+  const learned = [];
+  for (const l of watching) {
+    const q = priced[l.addr];
+    if (q?.price > 0) l.after_best = Math.max(l.after_best || 0, q.price);
+    if (now - Date.parse(l.at) < WATCH_MIN * 60e3) continue;
+    if (/stop loss/.test(l.exit) && l.after_best >= l.entry * 1.1) l.tags.push('stop_too_tight');
+    l.final = true;
+    l.lesson = lessonText(l);
+    for (const k of Object.keys(book.since_change || {})) book.since_change[k] += 1;
+    const ch = adapt(book, now);
+    if (ch) learned.push(ch);
+  }
   for (const p of open) {
     const q = priced[p.addr];
     if (!q) continue;
@@ -474,15 +576,15 @@ export async function runScalp(book, fetcher, now) {
     else if (!(q.price > 0)) continue;
     else {
       p.peak = Math.max(p.peak, q.price); p.last = q.price;
-      if (!p.half && q.price >= p.entry * (1 + SCALP.tp1)) {
-        // Scale out: bank half at +25%, let the rest run on a trailing stop.
+      if (!p.half && q.price >= p.entry * (1 + r.tp1)) {
+        // Scale out: bank half, let the rest run on a trailing stop.
         const units = p.units / 2;
         const usd = units * q.price * (1 - SCALP.fee - impact(units * q.price, q.liq));
         p.units -= units; p.realized = (p.realized || 0) + usd; p.half = true; book.cash += usd;
-        scalpNote(book, { at, act: 'sell half', sym: p.sym, price: q.price, usd: round(usd), pnl_pct: round(((q.price / p.entry) - 1) * 100, 1), why: 'took half at +25%' });
+        scalpNote(book, { at, act: 'sell half', sym: p.sym, price: q.price, usd: round(usd), pnl_pct: round(((q.price / p.entry) - 1) * 100, 1), why: `took half at +${Math.round(r.tp1 * 100)}%` });
       }
       const ageMin = (now - Date.parse(p.at)) / 60e3;
-      if (q.price <= p.entry * (1 - SCALP.stop)) why = `stop loss (-${SCALP.stop * 100}%)`;
+      if (q.price <= p.entry * (1 - r.stop)) why = `stop loss (-${Math.round(r.stop * 1000) / 10}%)`;
       else if (p.half && q.price <= p.peak * (1 - SCALP.trail)) why = `fell ${SCALP.trail * 100}% from its best`;
       else if (ageMin >= SCALP.maxHoldMin) why = `time's up (${SCALP.maxHoldMin} min)`;
     }
@@ -493,17 +595,35 @@ export async function runScalp(book, fetcher, now) {
     const pnl = ((p.realized || 0) + usd) / p.cost - 1;
     book.trades += 1; if (pnl > 0) book.wins += 1; if (rug) book.rugs += 1;
     scalpNote(book, { at, act: 'sell', sym: p.sym, chain: p.chain, price: q.price || 0, usd: round(usd), pnl_pct: round(pnl * 100, 1), why });
+    if (pnl < 0) {
+      // Post-mortem: what the entry looked like, how it played out, and what to watch next.
+      const pm = { at, addr: p.addr, chain: p.chain, pool: p.pool, sym: p.sym, entry: p.entry, rug, exit: why,
+        pnl_pct: round(pnl * 100, 1), best_pct: round((p.peak / p.entry - 1) * 100, 1),
+        held_min: Math.round((now - Date.parse(p.at)) / 60e3), exit_impact_pct: round(impact(value, q.liq) * 100, 1), sig: p.sig || {} };
+      pm.tags = diagnose(pm, r);
+      pm.final = rug; // a rug has nothing left to watch
+      if (pm.final) {
+        pm.lesson = lessonText(pm);
+        for (const k of Object.keys(book.since_change || {})) book.since_change[k] += 1;
+      }
+      (book.losses ||= []).unshift(pm);
+      book.losses.length = Math.min(book.losses.length, 30);
+      if (pm.final) { const ch = adapt(book, now); if (ch) learned.push(ch); }
+    }
     book.cooldown[p.addr] = now;
     delete book.pos[p.addr];
   }
   for (const [a, t] of Object.entries(book.cooldown)) if (now - t > SCALP.cooldownMin * 60e3) delete book.cooldown[a];
+  const eased = relax(book, now);
+  if (eased) learned.push(eased);
+  const R = rulesOf(book);
   const slots = SCALP.slots - Object.keys(book.pos).length;
-  if (slots <= 0 || book.cash < 10) return { buys: 0, open: Object.keys(book.pos).length };
+  if (slots <= 0 || book.cash < 10) return { buys: 0, open: Object.keys(book.pos).length, learned };
   const pairs = await dexPairs(fetcher);
   book.scans += 1;
   const picks = [];
   for (const x of pairs) {
-    const why = scalpReject(x, book.pos, book.cooldown, now);
+    const why = scalpReject(x, book.pos, book.cooldown, now, R);
     if (why) book.rejected[why] = (book.rejected[why] || 0) + 1;
     else picks.push(x);
   }
@@ -520,12 +640,15 @@ export async function runScalp(book, fetcher, now) {
     const usd = Math.min(book.cash, equity * SCALP.size); // grows as the pot grows
     book.cash -= usd;
     const sym = String(x.baseToken.symbol || '?');
-    book.pos[addr] = { addr, sym, chain: x.chainId, pool: x.pairAddress, units: usd / (price * (1 + SCALP.fee + impact(usd, liq))), entry: price, peak: price, last: price, cost: usd, at };
+    const t5 = x.txns?.m5 || {};
+    const sig = { m5: num(x.priceChange?.m5), h1: num(x.priceChange?.h1), vol5m: num(x.volume?.m5), liq, ratio: round((t5.buys || 0) / Math.max(1, t5.sells || 0), 2), hour: new Date(now).getUTCHours() };
+    book.pos[addr] = { addr, sym, chain: x.chainId, pool: x.pairAddress, units: usd / (price * (1 + SCALP.fee + impact(usd, liq))), entry: price, peak: price, last: price, cost: usd, at, sig };
+    book.last_buy_at = now;
     scalpNote(book, { at, act: 'buy', sym, chain: x.chainId, price, usd: round(usd), why: `+${num(x.priceChange?.m5).toFixed(0)}% in 5 min on $${Math.round(num(x.volume?.m5) / 1000)}k volume` });
     buys += 1;
   }
   book.last_scan = at;
-  return { candidates: pairs.length, signals: picks.length, buys, open: Object.keys(book.pos).length };
+  return { candidates: pairs.length, signals: picks.length, buys, open: Object.keys(book.pos).length, learned };
 }
 
 const memeEquity = (book) => book.cash + Object.values(book.pos).reduce((a, p) => a + p.units * (p.last ?? p.entry), 0);
@@ -578,6 +701,9 @@ export function scorecard(state, scalp = null) {
       started: scalp.started, trades: scalp.trades, wins: scalp.wins, rugs: scalp.rugs, scans: scalp.scans, last_scan: scalp.last_scan,
       open: Object.values(scalp.pos).map((p) => ({ sym: p.sym, chain: p.chain, pnl_pct: round(((p.last ?? p.entry) / p.entry - 1) * 100, 1) })),
       rejected: scalp.rejected, recent: scalp.log.slice(0, 12),
+      lessons: (scalp.losses || []).filter((l) => l.final).slice(0, 5).map((l) => ({ at: l.at, sym: l.sym, pnl_pct: l.pnl_pct, tags: l.tags, lesson: l.lesson })),
+      changes: (scalp.changes || []).slice(0, 5),
+      rules: Object.fromEntries(Object.entries(TUNABLE).map(([k, t]) => [t.label, t.fmt(scalp.params?.[k] ?? t.start)])),
     },
     recent: state.log.slice(0, 12),
   };
