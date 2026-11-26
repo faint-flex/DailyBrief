@@ -10,8 +10,13 @@
 //   Meme hunter    every 10 minutes. Trending DEX pools on Solana and Base, heavy rug filters,
 //                  then a volume-spike entry. Forward test only: free data can't backtest it
 //                  honestly (dead and rugged tokens disappear from the APIs).
+//   Meme scalper   every 2 minutes (LyFe 11-26: "quick trades scaling gains", no rug filter).
+//                  Brand-new DexScreener tokens moving up in the last 5 minutes. No age or rug
+//                  filters; only "can it be sold at all" checks (freeze authority, honeypot,
+//                  blacklist, sell tax, $10k liquidity). 5% slots, sell half at +25%, trail the
+//                  rest 15% from its best, stop at -15%, out after 60 minutes whatever happens.
 //
-// The scorecard compares both pots with just holding BTC.
+// The scorecard compares all pots with just holding BTC.
 //   GET  /api/crypto            (brief key)  -> { status }
 //   POST /api/crypto/run?kind=  (brief key)  run meme|daily now (for checking)
 
@@ -372,7 +377,8 @@ export function fromDexPair(x) {
   }];
 }
 
-async function dexCandidates(fetcher) {
+/** DexScreener's newest profiles and boosted tokens on our chains: their deepest pair each. */
+async function dexPairs(fetcher) {
   const lists = await Promise.all(['token-profiles/latest/v1', 'token-boosts/latest/v1', 'token-boosts/top/v1']
     .map((path) => getJson(fetcher, `${DEXS}/${path}`).catch(() => [])));
   const want = {};
@@ -389,10 +395,137 @@ async function dexCandidates(fetcher) {
       const a = x.baseToken?.address;
       if (a && set.has(a) && (!best[a] || (x.liquidity?.usd || 0) > (best[a].liquidity?.usd || 0))) best[a] = x;
     }
-    out.push(...Object.values(best).map(fromDexPair));
+    out.push(...Object.values(best));
   }
   if (!out.length) throw new Error('dexscreener: no candidates');
   return out;
+}
+
+async function dexCandidates(fetcher) {
+  return (await dexPairs(fetcher)).map(fromDexPair);
+}
+
+// ============ Meme scalper ============
+
+export const SCALP = {
+  minLiq: 10_000, // below this a $50 exit moves the price too much to get out
+  minVol5m: 3_000, minM5: 3, maxM5: 40,
+  size: 0.05, slots: 6, maxBuysPerRun: 2, cooldownMin: 60,
+  tp1: 0.25, trail: 0.15, stop: 0.15, maxHoldMin: 60,
+  fee: 0.01,
+};
+const scalpFresh = (now) => ({ started: new Date(now).toISOString(), cash: START_USD, pos: {}, trades: 0, wins: 0, rugs: 0, scans: 0, cooldown: {}, rejected: {}, log: [] });
+const scalpEquity = (b) => b.cash + Object.values(b.pos).reduce((a, p) => a + p.units * (p.last ?? p.entry), 0);
+
+/** Momentum test on a raw DexScreener pair. '' = buy signal. */
+export function scalpReject(x, held = {}, cooldown = {}, now = Date.now()) {
+  const addr = x.baseToken?.address;
+  const sym = String(x.baseToken?.symbol || '').toUpperCase();
+  if (!addr || SKIP_SYMBOLS.has(sym)) return 'not a meme coin';
+  if (held[addr]) return 'already held';
+  if (cooldown[addr] && now - cooldown[addr] < SCALP.cooldownMin * 60e3) return 'sold recently';
+  if (!(num(x.liquidity?.usd) >= SCALP.minLiq)) return 'too little liquidity to get out';
+  if (!(num(x.volume?.m5) >= SCALP.minVol5m)) return 'quiet';
+  const m5 = num(x.priceChange?.m5);
+  if (!(m5 >= SCALP.minM5)) return 'not moving up';
+  if (m5 > SCALP.maxM5) return 'already spiked';
+  const t = x.txns?.m5 || {};
+  if (!((t.buys ?? 0) > (t.sells ?? 0))) return 'sellers winning';
+  if (!(num(x.priceChange?.h1 ?? 0) > -20)) return 'dumping';
+  return '';
+}
+
+/** Only "can I sell it?" checks. Rug risk (mint authority, unlocked LP, new token) is accepted. */
+export async function canSell(fetcher, chain, addr) {
+  try {
+    if (chain === 'solana') {
+      const s = await getJson(fetcher, `https://api.rugcheck.xyz/v1/tokens/${addr}/report/summary`);
+      const block = (s.risks || []).filter((r) => /freeze|honeypot|non.?transferable|permanent control/i.test(r.name)).map((r) => r.name);
+      return block.length ? `can't sell: ${block.join(', ')}` : '';
+    }
+    const g = await getJson(fetcher, `https://api.gopluslabs.io/api/v1/token_security/8453?contract_addresses=${addr}`);
+    const t = g.result?.[addr.toLowerCase()];
+    if (!t) return "can't sell: no safety data";
+    const bad = ['is_honeypot', 'cannot_sell_all', 'transfer_pausable', 'is_blacklisted', 'owner_change_balance'].filter((k) => t[k] === '1');
+    if (bad.length) return `can't sell: ${bad.join(', ')}`;
+    if (num(t.sell_tax || 0) > 0.10) return "can't sell: sell tax over 10%";
+    return '';
+  } catch {
+    return "can't sell: check unavailable";
+  }
+}
+
+function scalpNote(book, entry) {
+  book.log.unshift(entry);
+  book.log.length = Math.min(book.log.length, 40);
+}
+
+export async function runScalp(book, fetcher, now) {
+  const at = new Date(now).toISOString();
+  const open = Object.values(book.pos);
+  const priced = open.length ? await memePrices(fetcher, open) : {};
+  for (const p of open) {
+    const q = priced[p.addr];
+    if (!q) continue;
+    p.misses = q.price > 0 ? 0 : (p.misses || 0) + 1;
+    let rug = false;
+    let why = '';
+    if (p.misses >= 2 || (q.price > 0 && q.liq < 3_000)) { why = 'liquidity vanished (rug)'; rug = true; }
+    else if (!(q.price > 0)) continue;
+    else {
+      p.peak = Math.max(p.peak, q.price); p.last = q.price;
+      if (!p.half && q.price >= p.entry * (1 + SCALP.tp1)) {
+        // Scale out: bank half at +25%, let the rest run on a trailing stop.
+        const units = p.units / 2;
+        const usd = units * q.price * (1 - SCALP.fee - impact(units * q.price, q.liq));
+        p.units -= units; p.realized = (p.realized || 0) + usd; p.half = true; book.cash += usd;
+        scalpNote(book, { at, act: 'sell half', sym: p.sym, price: q.price, usd: round(usd), pnl_pct: round(((q.price / p.entry) - 1) * 100, 1), why: 'took half at +25%' });
+      }
+      const ageMin = (now - Date.parse(p.at)) / 60e3;
+      if (q.price <= p.entry * (1 - SCALP.stop)) why = `stop loss (-${SCALP.stop * 100}%)`;
+      else if (p.half && q.price <= p.peak * (1 - SCALP.trail)) why = `fell ${SCALP.trail * 100}% from its best`;
+      else if (ageMin >= SCALP.maxHoldMin) why = `time's up (${SCALP.maxHoldMin} min)`;
+    }
+    if (!why) continue;
+    const value = rug ? 0 : p.units * q.price;
+    const usd = rug ? 0 : value * (1 - SCALP.fee - impact(value, q.liq));
+    book.cash += usd;
+    const pnl = ((p.realized || 0) + usd) / p.cost - 1;
+    book.trades += 1; if (pnl > 0) book.wins += 1; if (rug) book.rugs += 1;
+    scalpNote(book, { at, act: 'sell', sym: p.sym, chain: p.chain, price: q.price || 0, usd: round(usd), pnl_pct: round(pnl * 100, 1), why });
+    book.cooldown[p.addr] = now;
+    delete book.pos[p.addr];
+  }
+  for (const [a, t] of Object.entries(book.cooldown)) if (now - t > SCALP.cooldownMin * 60e3) delete book.cooldown[a];
+  const slots = SCALP.slots - Object.keys(book.pos).length;
+  if (slots <= 0 || book.cash < 10) return { buys: 0, open: Object.keys(book.pos).length };
+  const pairs = await dexPairs(fetcher);
+  book.scans += 1;
+  const picks = [];
+  for (const x of pairs) {
+    const why = scalpReject(x, book.pos, book.cooldown, now);
+    if (why) book.rejected[why] = (book.rejected[why] || 0) + 1;
+    else picks.push(x);
+  }
+  picks.sort((a, b) => num(b.volume?.m5) - num(a.volume?.m5));
+  const equity = scalpEquity(book);
+  let buys = 0;
+  for (const x of picks.slice(0, 3)) {
+    if (buys >= Math.min(slots, SCALP.maxBuysPerRun) || book.cash < 10) break;
+    const addr = x.baseToken.address;
+    const stuck = await canSell(fetcher, x.chainId, addr);
+    if (stuck) { book.rejected[stuck.split(':')[0]] = (book.rejected[stuck.split(':')[0]] || 0) + 1; continue; }
+    const price = num(x.priceUsd);
+    const liq = num(x.liquidity?.usd);
+    const usd = Math.min(book.cash, equity * SCALP.size); // grows as the pot grows
+    book.cash -= usd;
+    const sym = String(x.baseToken.symbol || '?');
+    book.pos[addr] = { addr, sym, chain: x.chainId, pool: x.pairAddress, units: usd / (price * (1 + SCALP.fee + impact(usd, liq))), entry: price, peak: price, last: price, cost: usd, at };
+    scalpNote(book, { at, act: 'buy', sym, chain: x.chainId, price, usd: round(usd), why: `+${num(x.priceChange?.m5).toFixed(0)}% in 5 min on $${Math.round(num(x.volume?.m5) / 1000)}k volume` });
+    buys += 1;
+  }
+  book.last_scan = at;
+  return { candidates: pairs.length, signals: picks.length, buys, open: Object.keys(book.pos).length };
 }
 
 const memeEquity = (book) => book.cash + Object.values(book.pos).reduce((a, p) => a + p.units * (p.last ?? p.entry), 0);
@@ -419,7 +552,7 @@ export async function refreshPrices(state, fetcher) {
   if (!state.btc_start && state.prices.BTCUSDT) state.btc_start = state.prices.BTCUSDT;
 }
 
-export function scorecard(state) {
+export function scorecard(state, scalp = null) {
   const b = state.breakout;
   const bVal = b.cash + Object.values(b.pos).reduce((a, p) => a + p.units * (state.prices[`${p.coin}USDT`] ?? p.entry), 0);
   const mVal = memeEquity(state.meme);
@@ -440,6 +573,12 @@ export function scorecard(state) {
       open: Object.values(state.meme.pos).map((p) => ({ sym: p.sym, chain: p.chain, pnl_pct: round(((p.last ?? p.entry) / p.entry - 1) * 100, 1) })),
       rejected: state.meme.rejected,
     },
+    scalp_100_is_now: scalp ? per100(scalpEquity(scalp)) : null,
+    scalp: scalp && {
+      started: scalp.started, trades: scalp.trades, wins: scalp.wins, rugs: scalp.rugs, scans: scalp.scans, last_scan: scalp.last_scan,
+      open: Object.values(scalp.pos).map((p) => ({ sym: p.sym, chain: p.chain, pnl_pct: round(((p.last ?? p.entry) / p.entry - 1) * 100, 1) })),
+      rejected: scalp.rejected, recent: scalp.log.slice(0, 12),
+    },
     recent: state.log.slice(0, 12),
   };
 }
@@ -448,6 +587,15 @@ export function scorecard(state) {
 
 /** One run against a storage object (Durable Object storage, or a Map-like fake in tests). */
 export async function runBot(storage, kind, fetcher = fetch, now = Date.now()) {
+  if (kind === 'scalp') {
+    // Own storage key: a scalp run and a meme run can overlap without overwriting each other.
+    const book = (await storage.get('scalp')) || scalpFresh(now);
+    let result;
+    try { result = await runScalp(book, fetcher, now); } catch (e) { result = { error: e.message }; }
+    book.last = { at: new Date(now).toISOString(), result };
+    await storage.put('scalp', book);
+    return result;
+  }
   const state = (await storage.get('state')) || fresh(now);
   let result;
   try {
@@ -468,26 +616,27 @@ export class CryptoBot {
   async fetch(request) {
     const url = new URL(request.url);
     if (url.pathname === '/run') {
-      const result = await runBot(this.ctx.storage, url.searchParams.get('kind') === 'daily' ? 'daily' : 'meme');
+      const result = await runBot(this.ctx.storage, kindOf(url.searchParams.get('kind')));
       return Response.json({ result });
     }
-    const state = await this.ctx.storage.get('state');
-    return Response.json({ status: state ? { ...scorecard(state), last: state.last } : null });
+    const [state, scalp] = await Promise.all([this.ctx.storage.get('state'), this.ctx.storage.get('scalp')]);
+    return Response.json({ status: state ? { ...scorecard(state, scalp || null), last: state.last, scalp_last: scalp?.last || null } : null });
   }
 }
 
+const kindOf = (k) => (['daily', 'scalp'].includes(k) ? k : 'meme');
 const bot = (env) => env.CRYPTO_BOT.get(env.CRYPTO_BOT.idFromName('paper'));
 
 export async function cryptoScheduled(controller, env) {
   if (!env.CRYPTO_BOT) return;
-  const kind = controller.cron === '7 * * * *' ? 'daily' : 'meme';
+  const kind = { '7 * * * *': 'daily', '*/2 * * * *': 'scalp' }[controller.cron] || 'meme';
   await bot(env).fetch(`https://bot/run?kind=${kind}`);
 }
 
 export async function cryptoApi(request, env, url) {
   if (!env.CRYPTO_BOT) return Response.json({ error: 'The crypto bot is not set up on this deployment.' }, { status: 501 });
   if (url.pathname === '/api/crypto/run' && request.method === 'POST') {
-    return bot(env).fetch(`https://bot/run?kind=${url.searchParams.get('kind') === 'daily' ? 'daily' : 'meme'}`);
+    return bot(env).fetch(`https://bot/run?kind=${kindOf(url.searchParams.get('kind'))}`);
   }
   return bot(env).fetch('https://bot/status');
 }

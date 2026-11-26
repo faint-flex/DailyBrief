@@ -60,4 +60,5 @@ new_sqlite_classes = ["CryptoBot"]
 # (the first try that gets candles; exchanges often rate-limit Cloudflare's shared addresses).
 # (Cloudflare cron triggers, free plan. GitHub Actions schedules proved unreliable.)
 [triggers]
-crons = ["*/10 * * * *", "7 * * * *"]
+# Meme scalper every 2 minutes (quick in-and-out trades).
+crons = ["*/10 * * * *", "7 * * * *", "*/2 * * * *"]

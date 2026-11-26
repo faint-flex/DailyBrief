@@ -293,6 +293,7 @@ function renderCrypto(st) {
   const rows = [
     ['Coin breakout (daily)', st.breakout_100_is_now],
     ['Meme hunter (every 10 min)', st.meme_100_is_now],
+    ...(st.scalp_100_is_now == null ? [] : [['Meme scalper (every 2 min, 24/7)', st.scalp_100_is_now]]),
     ['Just holding Bitcoin', st.btc_hold_100_is_now],
   ];
   const best = Math.max(...rows.map(([, v]) => (v == null ? -Infinity : v)));
@@ -300,11 +301,13 @@ function renderCrypto(st) {
   $('crypto-scores').replaceChildren(...rows.map(([name, v]) => el('li', { class: v === best ? 'lead' : '' },
     el('span', {}, name),
     el('strong', { class: v == null ? '' : v >= 100 ? 'up' : 'down' }, v == null ? '—' : `${v >= 100 ? '▲' : '▼'} ${money(v)}`))));
-  const open = [...(st.breakout?.open || []), ...(m.open || [])].map((p) => `${p.sym} ${pct(p.pnl_pct)}`);
+  const open = [...(st.breakout?.open || []), ...(m.open || []), ...(st.scalp?.open || [])].map((p) => `${p.sym} ${pct(p.pnl_pct)}`);
   const trend = st.breakout?.btc_uptrend === false ? ' Coin breakout waits in cash while Bitcoin is under its 50-day average.' : '';
   $('crypto-open').textContent = `${open.length ? `Holding: ${open.join(', ')}.` : 'Holding nothing right now.'}${trend}`;
-  const trades = (st.recent || []).slice(0, 6).map((t) => el('li', {},
-    t.act === 'buy' ? `Bought ${t.sym} ($${Math.round(t.usd)}): ${t.why}` : `Sold ${t.sym} ${pct(t.pnl_pct)}: ${t.why}`));
+  const all = [...(st.recent || []), ...(st.scalp?.recent || [])].sort((a, b) => (a.at < b.at ? 1 : -1));
+  const trades = all.slice(0, 8).map((t) => el('li', {},
+    t.act === 'buy' ? `Bought ${t.sym} ($${Math.round(t.usd)}): ${t.why}`
+      : `${t.act === 'sell half' ? 'Sold half of' : 'Sold'} ${t.sym} ${pct(t.pnl_pct)}: ${t.why}`));
   $('crypto-trades').replaceChildren(...(trades.length ? trades : [el('li', {}, 'No trades yet.')]));
   $('crypto').hidden = false;
 }
