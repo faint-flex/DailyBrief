@@ -102,3 +102,37 @@ test('a failing data source is recorded, not thrown', async () => {
   assert.match(r.error, /no BTC candles/);
   assert.ok(s.m.get('state').last.result.error);
 });
+
+test('scalper: buys a fresh mover, banks half at +25%, and books a rug as a loss', async () => {
+  const { runBot: rb, scorecard: sc, SCALP } = await import('../src/cryptobot.js');
+  const s = store();
+  let price = '0.01';
+  let gone = false;
+  const pair = () => ({ chainId: 'solana', pairAddress: 'P1', baseToken: { address: 'NEW1', symbol: 'ZOOM' }, quoteToken: { symbol: 'SOL' },
+    priceUsd: price, liquidity: { usd: 40000 }, volume: { m5: 9000 }, priceChange: { m5: 8, h1: 20 }, txns: { m5: { buys: 50, sells: 20 } } });
+  const fetcher = async (url) => {
+    if (url.includes('token-profiles') || url.includes('token-boosts')) return ok([{ chainId: 'solana', tokenAddress: 'NEW1' }]);
+    if (url.includes('/tokens/v1/')) return ok(gone ? [] : [pair()]);
+    if (url.includes('rugcheck')) return ok({ risks: [{ name: 'Mint Authority still enabled', level: 'danger' }] }); // rug risk is accepted
+    throw new Error(`unexpected ${url}`);
+  };
+  assert.equal((await rb(s, 'scalp', fetcher, NOW)).buys, 1);
+  assert.equal(s.m.get('scalp').pos.NEW1.cost, 1000 * SCALP.size);
+  price = '0.013';
+  await rb(s, 'scalp', fetcher, NOW + 120e3);
+  assert.equal(s.m.get('scalp').pos.NEW1.half, true);
+  gone = true;
+  await rb(s, 'scalp', fetcher, NOW + 240e3);
+  await rb(s, 'scalp', fetcher, NOW + 360e3);
+  const b = s.m.get('scalp');
+  assert.equal(b.rugs, 1);
+  assert.ok(b.log[0].pnl_pct < 0 && b.log[0].pnl_pct > -50); // the banked half softened it
+  assert.equal(sc({ ...s.m.get('scalp'), breakout: { cash: 1000, pos: {}, trades: 0, wins: 0 }, meme: { cash: 1000, pos: {} }, log: [], prices: {} }, b).scalp.rugs, 1);
+});
+
+test('scalper refuses tokens it could not sell', async () => {
+  const { canSell } = await import('../src/cryptobot.js');
+  assert.match(await canSell(async () => ok({ risks: [{ name: 'Freeze Authority still enabled', level: 'danger' }] }), 'solana', 'M'), /can't sell/);
+  assert.equal(await canSell(async () => ok({ risks: [{ name: 'Large Amount of LP Unlocked', level: 'danger' }] }), 'solana', 'M'), '');
+  assert.match(await canSell(async () => ok({ result: { '0xa': { is_honeypot: '1' } } }), 'base', '0xA'), /honeypot/);
+});
