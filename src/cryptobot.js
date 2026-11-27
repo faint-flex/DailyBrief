@@ -779,6 +779,11 @@ export class CryptoBot {
 
   async fetch(request) {
     const url = new URL(request.url);
+    if (url.pathname === '/quant') {
+      // Phone copy of the Polymarket projection paper bot, uploaded by the engine on LyFe's PC.
+      if (request.method === 'POST') { await this.ctx.storage.put('quant', await request.text()); return Response.json({ ok: true }); }
+      return new Response((await this.ctx.storage.get('quant')) || '{}', { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
+    }
     if (url.pathname === '/run') {
       const result = await runBot(this.ctx.storage, kindOf(url.searchParams.get('kind')));
       return Response.json({ result });
@@ -792,6 +797,7 @@ export class CryptoBot {
   }
 }
 
+const QUANT_MAX = 400_000;
 const kindOf = (k) => (['daily', 'scalp'].includes(k) ? k : 'meme');
 const bot = (env) => env.CRYPTO_BOT.get(env.CRYPTO_BOT.idFromName('paper'));
 
@@ -803,6 +809,15 @@ export async function cryptoScheduled(controller, env) {
 
 export async function cryptoApi(request, env, url) {
   if (!env.CRYPTO_BOT) return Response.json({ error: 'The crypto bot is not set up on this deployment.' }, { status: 501 });
+  if (url.pathname === '/api/quant') {
+    if (request.method === 'POST') {
+      const body = await request.text();
+      if (body.length > QUANT_MAX) return Response.json({ error: 'Snapshot too big.' }, { status: 413 });
+      try { JSON.parse(body); } catch { return Response.json({ error: 'Not JSON.' }, { status: 400 }); }
+      return bot(env).fetch('https://bot/quant', { method: 'POST', body });
+    }
+    return bot(env).fetch('https://bot/quant');
+  }
   if (url.pathname === '/api/crypto/run' && request.method === 'POST') {
     return bot(env).fetch(`https://bot/run?kind=${kindOf(url.searchParams.get('kind'))}`);
   }

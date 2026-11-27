@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0a0e13">
+<title>Quant Projection</title>
+<link rel="stylesheet" href="quant.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo" aria-hidden="true">◇</span> QUANT PROJECTION <span class="paper">PAPER · NO REAL MONEY</span></div>
+  <div class="feeds" id="feeds"></div>
+  <div class="assetpick" role="group" aria-label="Asset">
+    <button data-asset="btc" aria-pressed="true">BTC</button><button data-asset="eth" aria-pressed="false">ETH</button>
+  </div>
+  <div class="clock" id="clock">--:--:--</div>
+</header>
+
+<main class="grid">
+  <section class="panel wallet" aria-label="Wallet and profit">
+    <h2>Wallet <small>paper</small></h2>
+    <div class="big" id="w-equity">$—</div>
+    <div class="sub" id="w-pnl"></div>
+    <dl class="kv" id="w-kv"></dl>
+    <canvas id="c-equity" height="70" aria-label="Paper equity curve"></canvas>
+    <div class="bt" id="w-backtest"></div>
+  </section>
+
+  <section class="panel graph" aria-label="Agent graph">
+    <h2>Agents <small id="g-sub">live message flow</small></h2>
+    <svg id="graph" viewBox="0 0 640 300" role="img" aria-label="Agent graph"></svg>
+  </section>
+
+  <section class="panel ladder" aria-label="Score ladder">
+    <h2>Score ladder <small>edge after fee</small></h2>
+    <ol id="ladder"></ol>
+    <div class="cfg" id="cfg"></div>
+  </section>
+
+  <section class="panel chart" aria-label="Price chart with strike">
+    <h2><span id="ch-title">BTC</span> vs strike <small id="ch-sub"></small></h2>
+    <canvas id="c-price" height="230"></canvas>
+    <div class="legend" id="ch-legend"></div>
+  </section>
+
+  <section class="panel osc" aria-label="Edge oscillator">
+    <h2>Edge oscillator <small>model vs crowd vs book (chance of Up)</small></h2>
+    <canvas id="c-osc" height="230"></canvas>
+    <div class="legend" id="osc-legend"></div>
+  </section>
+
+  <section class="panel mc" aria-label="Monte Carlo exit simulator">
+    <h2>Monte Carlo <small id="mc-sub">rest of window</small></h2>
+    <canvas id="c-mc" height="150"></canvas>
+    <canvas id="c-hist" height="70"></canvas>
+    <div class="mcnote" id="mc-note"></div>
+  </section>
+
+  <section class="panel river" aria-label="Order book match river">
+    <h2>Match river <small>every Polymarket trade, live</small></h2>
+    <canvas id="c-river" height="200"></canvas>
+    <div class="legend">▲ U = someone bought Up · ▼ D = bought Down · dot size = $ traded</div>
+  </section>
+
+  <section class="panel logs" aria-label="Bot log">
+    <h2>Bot log <small>tail</small></h2>
+    <pre id="log" tabindex="0"></pre>
+  </section>
+
+  <section class="panel trades" aria-label="Paper trades">
+    <h2>Paper trades</h2>
+    <ul id="trades"></ul>
+  </section>
+</main>
+
+<div class="gate" id="gate" hidden>
+  <form id="gate-form"><label for="gate-key">Daily Brief key</label><div class="row"><input id="gate-key" autocomplete="off"><button>Open</button></div><p>Only needed on your phone. The bot itself runs on your PC.</p></form>
+</div>
+<footer class="foot" id="foot">Connecting…</footer>
+<script src="quant.js"></script>
+</body>
+</html>

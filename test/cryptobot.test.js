@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { setPause, breakoutStep, memeReject, safetyCheck, runBot, scorecard, impact, BREAKOUT } from '../src/cryptobot.js';
+import { setPause, breakoutStep, memeReject, safetyCheck, runBot, scorecard, impact, BREAKOUT, CryptoBot, cryptoApi } from '../src/cryptobot.js';
 
 setPause(async () => {});
 const flat = (n, close = 100, vol = 1000) => Array.from({ length: n }, () => ({ high: close, close, vol }));
@@ -199,4 +199,16 @@ test('dashboard: history gets a point every 30 minutes and health flags late run
   assert.equal(d.trades[0].pot, 'Meme hunter');
   assert.equal(d.health[0].late, false);
   assert.equal(d.health[1].late, true); // the daily check has never run
+});
+
+test('quant phone copy: engine uploads a snapshot, the page reads it back, junk is refused', async () => {
+  const st = store();
+  const obj = new CryptoBot({ storage: st });
+  const env = { CRYPTO_BOT: { idFromName: () => 'x', get: () => ({ fetch: (u, init) => obj.fetch(new Request(u, init)) }) } };
+  const api = (method, body) => cryptoApi(new Request('https://a/api/quant', { method, body }), env, new URL('https://a/api/quant'));
+  assert.deepEqual(await (await api('GET')).json(), {});
+  assert.equal((await api('POST', JSON.stringify({ t: 1, paper: true }))).status, 200);
+  assert.deepEqual(await (await api('GET')).json(), { t: 1, paper: true });
+  assert.equal((await api('POST', 'not json')).status, 400);
+  assert.equal((await api('POST', 'x'.repeat(500_000))).status, 413);
 });
