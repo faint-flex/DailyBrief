@@ -9,6 +9,7 @@
   let S = null, asset = 'btc', lastMsg = 0;
   try { asset = localStorage.getItem('quant-asset') || 'btc'; } catch {}
 
+  const dpOf = p => (p >= 1000 ? 1 : p >= 10 ? 2 : p >= 1 ? 3 : 5);
   const money = (x, sign) => (x == null ? '—' : (sign && x > 0 ? '+' : x < 0 ? '−' : '') + '$' + Math.abs(x).toFixed(2));
   const pct = (x, d = 0) => (x == null ? '—' : (x * 100).toFixed(d) + '%');
   const cents = x => (x == null ? '—' : (x * 100).toFixed(1) + '¢');
@@ -37,10 +38,18 @@
   }
   $('phone').onsubmit = async e => { e.preventDefault(); const key = $('phone-key').value.trim(); if (!key) return; await fetch('/phone-key', { method: 'POST', body: JSON.stringify({ key }) }); $('phone-key').value = ''; };
   $('gate-form').onsubmit = e => { e.preventDefault(); try { localStorage.setItem('brief-key', JSON.stringify($('gate-key').value.trim())); } catch {} $('gate').hidden = true; poll(); };
-  document.querySelectorAll('.assetpick button').forEach(b => {
-    b.setAttribute('aria-pressed', String(b.dataset.asset === asset));
-    b.onclick = () => { asset = b.dataset.asset; try { localStorage.setItem('quant-asset', asset); } catch {} document.querySelectorAll('.assetpick button').forEach(x => x.setAttribute('aria-pressed', String(x === b))); render(); };
-  });
+  let pickKeys = '';
+  function picker() {                       // one button per coin the engine is trading
+    const keys = Object.keys(S.assets);
+    if (!keys.includes(asset)) asset = keys[0];
+    if (keys.join() === pickKeys) return;
+    pickKeys = keys.join();
+    const box = document.querySelector('.assetpick');
+    box.innerHTML = keys.map(k => `<button data-asset="${esc(k)}" aria-pressed="${k === asset}">${esc(k.toUpperCase())}</button>`).join('');
+    box.querySelectorAll('button').forEach(b => {
+      b.onclick = () => { asset = b.dataset.asset; try { localStorage.setItem('quant-asset', asset); } catch {} box.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b))); render(); };
+    });
+  }
 
   // ---------- canvas helper ----------
   function canvas(id) {
@@ -99,7 +108,7 @@
   }
 
   // agent graph (SVG)
-  const POS = { coinbase: [80, 60], markets: [80, 160], book: [80, 255], projector: [270, 60], risk: [270, 160], judge: [440, 160], executor: [560, 60], settler: [560, 255] };
+  const POS = { coinbase: [80, 60], markets: [80, 160], book: [80, 255], projector: [270, 60], risk: [270, 160], judge: [440, 160], executor: [560, 60], settler: [560, 255], learner: [320, 255] };
   let built = false;
   function graph() {
     const svg = $('graph'), nodes = S.graph.nodes;
@@ -178,14 +187,14 @@
     const tEnd = E - lag; line(g, [[X(t), Y(v.price)], [X(tEnd), Y(v.price + S.cfg.lam * v.beta * (tEnd - t))]], COL.accent, 2, [2, 3]);
     // price
     line(g, pts.map(([u, p]) => [X(u), Y(p)]), v.price >= v.strike ? COL.up : COL.down, 2);
-    const dp = asset === 'btc' ? 1 : 2;
+    const dp = dpOf(v.price);
     edgeLabels(g, W - R + 4, [[Y(v.strike), 'strike ' + v.strike.toFixed(dp), COL.text], [Y(v.price), (v.price >= v.strike ? '▲ ' : '▼ ') + v.price.toFixed(dp), v.price >= v.strike ? COL.up : COL.down]], 8, H - 20);
     // now marker + close
     line(g, [[X(t), 4], [X(t), H - 16]], COL.dim, 1, [1, 3]);
     line(g, [[X(E), 4], [X(E), H - 16]], COL.muted, 1);
     text(g, 'close', X(E) + 3, 12, COL.muted);
     const gap = v.proj - v.strike;
-    $('ch-sub').textContent = `${v.left}s left · projected settle ${gap >= 0 ? '▲ above' : '▼ below'} strike by ${Math.abs(gap).toFixed(asset === 'btc' ? 1 : 2)} · slope ${v.beta >= 0 ? '+' : ''}${v.beta.toFixed(3)}/s`;
+    $('ch-sub').textContent = `${v.left}s left · projected settle ${gap >= 0 ? '▲ above' : '▼ below'} strike by ${Math.abs(gap).toFixed(dpOf(v.price))} · slope ${v.beta >= 0 ? '+' : ''}${v.beta.toFixed(3)}/s`;
     $('ch-legend').innerHTML = `<span><i style="border-color:${COL.up}"></i>price (Coinbase, 1 s)</span><span><i class="dash" style="border-color:${COL.text}"></i>strike</span><span><i class="dot" style="border-color:${COL.accent}"></i>Theil-Sen projection</span><span><i style="border-color:${COL.accent};opacity:.4"></i>simulated paths</span>`;
   }
 
@@ -267,11 +276,32 @@
     $('trades').innerHTML = open.concat(r.map(x => `<li><span><span class="${x.side ? 'down' : 'up'}">${x.side ? '▼ D' : '▲ U'}</span> ${x.asset.toUpperCase()} ${new Date(x.at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}<br><span class="m">${x.shares.toFixed(1)} @ ${cents(x.price)} · model ${pct(x.prob)}</span></span><span>${x.won ? '✓' : '✕'} ${money(x.pnl, true)}</span></li>`)).join('') || '<li class="empty">No paper trades yet.</li>';
   }
 
+  function learn() {
+    const Lr = S.learning, w = S.wallet, f = S.frozen;
+    if (!Lr || !w.proof) return;
+    const pr = w.proof;
+    $('proof').innerHTML = pr.checks.map(c => {
+      const v = c.id === 'trades' ? c.value : c.id === 'ev' ? (c.value == null ? '—' : money(c.value, true)) : c.id === 'dd' ? money(c.value) : c.id === 'days' ? c.value.toFixed(1) + ' d' : c.value == null ? '—' : pct(c.value);
+      return `<li><span class="${c.pass ? 'ok' : 'warn'}">${c.pass ? '✓' : '○'}</span><span>${esc(c.label)}</span><span class="v">${v}</span><span class="bar"><i style="width:${Math.round(c.progress * 100)}%"></i></span></li>`;
+    }).join('') + `<li><span class="${pr.proven ? 'ok' : 'warn'}">${pr.proven ? '✓' : '○'}</span><b>${pr.proven ? 'PROVEN on paper. Real money still needs your explicit go.' : 'Not proven yet.'}</b><span></span></li>`;
+    const diff = w.pnl - f.pnl;
+    $('vsfrozen').innerHTML = `Learning bot ${money(w.pnl, true)} over ${w.trades} bets · frozen copy ${money(f.pnl, true)} over ${f.trades} bets → learning is ${diff >= 0 ? '▲ ahead' : '▼ behind'} by ${money(Math.abs(diff))}.`;
+    const P = p => `${p.N}s slope · weight ${p.lam} · edge ${Math.round(p.edge * 100)}¢ · last ${p.startLo}s`;
+    $('l-params').innerHTML = `<dt>Learning</dt><dd>${P(w.params)}</dd><dt>Frozen</dt><dd>${P(f.params)}</dd><dt>Switches</dt><dd>${Lr.switches}</dd><dt>Markets recorded</dt><dd>${Lr.records}</dd>`;
+    const la = Lr.latency;
+    $('l-lat').innerHTML = `<dt>Round trip to Polymarket</dt><dd>${la.rttMs == null ? '—' : Math.round(la.rttMs) + ' ms'}</dd><dt>Feed delay</dt><dd>${la.wsLagMs == null ? '—' : Math.round(la.wsLagMs) + ' ms'}</dd><dt>Order delay used</dt><dd>${la.simS} s (measured ${la.estS.toFixed(2)} s)</dd>`;
+    const mins = Math.max(0, Math.round((Lr.nextEval - Date.now() / 1000) / 60));
+    $('l-sub').textContent = `next re-test in ${mins} min · switches only on a clear win in the newest ${Lr.rules.holdoutHours} h`;
+    $('evals').innerHTML = Lr.evals.length ? Lr.evals.slice(0, 6).map(e => `<li><b>${new Date(e.at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ${e.decision === 'switch' ? '⇄ switched' : e.decision === 'wait' ? '… waiting' : '= kept'}</b> · ${esc(e.why)}</li>`).join('')
+      : `<li>First re-test about an hour after start. It needs ${Lr.rules.minMarkets} recorded markets before it changes anything.</li>`;
+  }
+
   function render() {
     if (!S) return;
     $('gate').hidden = true;
+    picker();
     const v = S.assets[asset];
-    try { feeds(); wallet(); graph(); ladder(); priceChart(v); oscillator(v); monte(v); river(); logs(); trades(); } catch (e) { console.error(e); }
+    try { feeds(); wallet(); learn(); graph(); ladder(); priceChart(v); oscillator(v); monte(v); river(); logs(); trades(); } catch (e) { console.error(e); }
     $('phone').hidden = !local || !!S.phone;
     $('foot').textContent = `Paper trading only: no orders are sent anywhere and no wallet or keys are used. Updated ${hhmmss(S.t)}.`;
   }
