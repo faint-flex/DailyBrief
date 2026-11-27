@@ -1,0 +1,55 @@
+/* Crypto bot dashboard. Builds on styles.css. Up/down always shows an arrow and sign, not colour alone. */
+:root { --bad: #c0392b; --s1: #2b5d8a; --s2: #a86b00; --s3: #7b3fa0; --s4: #5f6b7a; }
+@media (prefers-color-scheme: dark) { :root { --bad: #f08a7e; --s1: #7fb2e5; --s2: #f2b84b; --s3: #c99be8; --s4: #98a4b3; } }
+
+.apptabs a { white-space: nowrap; }
+.gate-row { display: flex; gap: 8px; }
+.gate-row input { flex: 1; min-width: 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; }
+.gate-row button, .more { padding: 10px 14px; border-radius: 10px; border: 0; background: var(--accent); color: var(--accent-text); font: inherit; font-weight: 600; }
+.more { width: 100%; margin-top: 10px; background: var(--bg); color: var(--text); border: 1px solid var(--line); }
+
+.up { color: var(--good); }
+.down { color: var(--bad); }
+
+.pots { list-style: none; margin: 4px 0 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pots li { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pots .name { font-size: 0.85rem; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.pots .val { font-size: 1.35rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pots .sub { font-size: 0.8rem; color: var(--muted); }
+.pots li.lead { border-color: var(--accent); }
+
+.swatch { width: 18px; height: 0; border-top: 3px solid currentColor; flex: none; }
+.swatch.d2 { border-top-style: dashed; }
+.swatch.d3 { border-top-style: dotted; }
+.swatch.d4 { border-top-width: 2px; border-top-style: dashed; opacity: .8; }
+
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.seg button { border: 0; background: transparent; color: var(--muted); padding: 6px 12px; font: inherit; font-size: 0.85rem; font-weight: 600; min-height: 32px; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
+
+.chart { width: 100%; margin-top: 6px; }
+.chart svg { width: 100%; height: auto; display: block; }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .axis { fill: var(--muted); font-size: 10px; }
+.chart .base { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 3; }
+.chart .empty { fill: var(--muted); font-size: 12px; }
+.legend { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.85rem; }
+.legend li { display: flex; align-items: center; gap: 6px; }
+
+.rows { list-style: none; margin: 0; padding: 0; }
+.rows > li { padding: 9px 0; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.rows > li:first-child { border-top: 0; }
+.rows .main { min-width: 0; display: flex; flex-direction: column; }
+.rows .title { font-weight: 600; overflow-wrap: anywhere; }
+.rows .meta { color: var(--muted); font-size: 0.85rem; }
+.rows .num { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+.rows .empty { color: var(--muted); }
+
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 2px 0 8px; }
+.chips button { border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 999px; padding: 5px 11px; font: inherit; font-size: 0.85rem; min-height: 32px; }
+.chips button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+
+.pill { font-size: 0.75rem; font-weight: 700; border-radius: 999px; padding: 2px 8px; border: 1px solid currentColor; white-space: nowrap; }
+.tag { display: inline-block; font-size: 0.75rem; border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; margin: 3px 4px 0 0; color: var(--muted); }
+
+@media (max-width: 360px) { .pots { grid-template-columns: 1fr; } }

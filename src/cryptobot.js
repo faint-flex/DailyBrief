@@ -81,7 +81,7 @@ function fresh(now) {
 
 function note(state, entry) {
   state.log.unshift(entry);
-  state.log.length = Math.min(state.log.length, 60);
+  state.log.length = Math.min(state.log.length, 200);
 }
 
 async function getJson(fetcher, url) {
@@ -543,7 +543,7 @@ export async function canSell(fetcher, chain, addr) {
 
 function scalpNote(book, entry) {
   book.log.unshift(entry);
-  book.log.length = Math.min(book.log.length, 40);
+  book.log.length = Math.min(book.log.length, 200);
 }
 
 export async function runScalp(book, fetcher, now) {
@@ -732,8 +732,46 @@ export async function runBot(storage, kind, fetcher = fetch, now = Date.now()) {
   await refreshPrices(state, fetcher);
   state.updated = new Date(now).toISOString();
   state.last = { kind, at: state.updated, result };
+  (state.runs ||= {})[kind] = state.last;
   await storage.put('state', state);
+  if (kind === 'meme') await recordHistory(storage, state, now);
   return result;
+}
+
+/** A point every 30 minutes of what $100 in each pot (and in Bitcoin) is worth, for the dashboard chart. */
+export async function recordHistory(storage, state, now) {
+  const history = (await storage.get('history')) || [];
+  if (history.length && now - history.at(-1).t < 29 * 60e3) return history;
+  const c = scorecard(state, (await storage.get('scalp')) || null);
+  history.push({ t: now, b: c.breakout_100_is_now, m: c.meme_100_is_now, s: c.scalp_100_is_now, btc: c.btc_hold_100_is_now });
+  if (history.length > 3000) history.splice(0, history.length - 3000); // about two months
+  await storage.put('history', history);
+  return history;
+}
+
+/** Everything the dashboard page shows. */
+export function dashboard(state, scalp, history) {
+  const card = scorecard(state, scalp);
+  const ago = (at) => (at ? Math.round((Date.now() - Date.parse(at)) / 60e3) : null);
+  const health = [
+    { name: 'Meme hunter scan', every_min: 10, last: state.runs?.meme?.at, result: state.runs?.meme?.result },
+    { name: 'Coin breakout daily check', every_min: 60, last: state.runs?.daily?.at, result: state.runs?.daily?.result, day: state.breakout.last_day },
+    { name: 'Meme scalper scan', every_min: 2, last: scalp?.last?.at, result: scalp?.last?.result },
+  ].map((h) => ({ ...h, minutes_ago: ago(h.last), late: h.last ? ago(h.last) > h.every_min * 3 : true, error: h.result?.error || null }));
+  return {
+    ...card,
+    history,
+    trades: [...state.log.map((t) => ({ ...t, pot: t.pot === 'breakout' ? 'Coin breakout' : 'Meme hunter' })),
+      ...(scalp?.log || []).map((t) => ({ ...t, pot: 'Meme scalper' }))].sort((a, b) => (a.at < b.at ? 1 : -1)),
+    scalp_started: scalp?.started || null,
+    lessons: (scalp?.losses || []).filter((l) => l.final).map((l) => ({ at: l.at, sym: l.sym, pnl_pct: l.pnl_pct, best_pct: l.best_pct, held_min: l.held_min, exit: l.exit, tags: l.tags, lesson: l.lesson })),
+    watching: (scalp?.losses || []).filter((l) => !l.final).map((l) => ({ sym: l.sym, at: l.at })),
+    changes: scalp?.changes || [],
+    rules: card.scalp?.rules || null,
+    sources: { coins: state.breakout.source || null, memes: state.meme.source || null },
+    rejected: { meme: state.meme.rejected, scalp: scalp?.rejected || {} },
+    health,
+  };
 }
 
 export class CryptoBot {
@@ -746,6 +784,10 @@ export class CryptoBot {
       return Response.json({ result });
     }
     const [state, scalp] = await Promise.all([this.ctx.storage.get('state'), this.ctx.storage.get('scalp')]);
+    if (url.searchParams.has('full')) {
+      if (!state) return Response.json({ dashboard: null });
+      return Response.json({ dashboard: dashboard(state, scalp || null, (await this.ctx.storage.get('history')) || []) });
+    }
     return Response.json({ status: state ? { ...scorecard(state, scalp || null), last: state.last, scalp_last: scalp?.last || null } : null });
   }
 }
@@ -764,5 +806,5 @@ export async function cryptoApi(request, env, url) {
   if (url.pathname === '/api/crypto/run' && request.method === 'POST') {
     return bot(env).fetch(`https://bot/run?kind=${kindOf(url.searchParams.get('kind'))}`);
   }
-  return bot(env).fetch('https://bot/status');
+  return bot(env).fetch(`https://bot/status${url.searchParams.has('full') ? '?full=1' : ''}`);
 }
