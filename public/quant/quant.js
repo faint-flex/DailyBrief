@@ -35,6 +35,7 @@
     } catch { $('foot').textContent = 'Offline. Retrying…'; }
     setTimeout(poll, 5000);
   }
+  $('phone').onsubmit = async e => { e.preventDefault(); const key = $('phone-key').value.trim(); if (!key) return; await fetch('/phone-key', { method: 'POST', body: JSON.stringify({ key }) }); $('phone-key').value = ''; };
   $('gate-form').onsubmit = e => { e.preventDefault(); try { localStorage.setItem('brief-key', JSON.stringify($('gate-key').value.trim())); } catch {} $('gate').hidden = true; poll(); };
   document.querySelectorAll('.assetpick button').forEach(b => {
     b.setAttribute('aria-pressed', String(b.dataset.asset === asset));
@@ -271,6 +272,7 @@
     $('gate').hidden = true;
     const v = S.assets[asset];
     try { feeds(); wallet(); graph(); ladder(); priceChart(v); oscillator(v); monte(v); river(); logs(); trades(); } catch (e) { console.error(e); }
+    $('phone').hidden = !local || !!S.phone;
     $('foot').textContent = `Paper trading only: no orders are sent anywhere and no wallet or keys are used. Updated ${hhmmss(S.t)}.`;
   }
   setInterval(() => { $('clock').textContent = new Date().toLocaleTimeString(); }, 1000);
