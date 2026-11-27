@@ -8,6 +8,7 @@
 //   POST /api/stats     the nightly BabyLog Daily Report run sends its raw numbers here
 //   GET  /api/stats     the Stats tab: live website + social, nightly App Store, history
 //   GET  /api/crypto    the crypto paper bot's scorecard (src/cryptobot.js)
+//   GET/POST /api/quant  phone copy of the Polymarket projection paper bot (engine runs on LyFe's PC)
 //
 // Every /api call needs the key (Authorization: Bearer <key>), because a brief
 // is a summary of your inbox.
@@ -132,7 +133,7 @@ export async function handleApi(request, env, url) {
 
   if (url.pathname === '/api/trader') return json({ status: await readTraderStatus(env) });
 
-  if (url.pathname === '/api/crypto' || url.pathname === '/api/crypto/run') return cryptoApi(request, env, url);
+  if (url.pathname === '/api/crypto' || url.pathname === '/api/crypto/run' || url.pathname === '/api/quant') return cryptoApi(request, env, url);
 
   if (url.pathname === '/api/stats/instagram-check') return json(await probeInstagram(env, env.BRIEFS));
 

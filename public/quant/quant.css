@@ -1,0 +1,88 @@
+/* Quant Projection terminal. Original design. Up/Down always carries a symbol and letter (▲ U / ▼ D),
+   never colour alone; colours are a blue/orange pair that stays distinct for red-green colour blindness. */
+:root {
+  --bg: #0a0e13; --panel: #10161e; --panel2: #141c26; --line: #1f2b38; --text: #d7e3ef; --muted: #7f93a8; --dim: #4b5d70;
+  --up: #4da3ff; --down: #ff9f43; --accent: #b98cff; --good: #5ad1c4; --warn: #ffd166; --bad: #ff6b8b;
+  --mono: ui-monospace, "Cascadia Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 var(--mono); }
+.top { display: flex; align-items: center; gap: 14px; padding: 10px 14px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 2; flex-wrap: wrap; }
+.brand { font-weight: 700; letter-spacing: .08em; }
+.logo { color: var(--accent); }
+.paper { margin-left: 8px; font-size: 11px; color: var(--warn); border: 1px solid var(--warn); border-radius: 4px; padding: 1px 6px; letter-spacing: .04em; }
+.feeds { display: flex; gap: 10px; flex: 1; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+.feeds span b { font-weight: 700; }
+.ok { color: var(--good); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+.assetpick { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.assetpick button { background: transparent; border: 0; color: var(--muted); font: inherit; padding: 6px 14px; min-height: 32px; cursor: pointer; }
+.assetpick button[aria-pressed="true"] { background: var(--accent); color: #120a1f; font-weight: 700; }
+.clock { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.grid { display: grid; gap: 10px; padding: 10px; grid-template-columns: 1fr 1.6fr 1.1fr; grid-auto-rows: minmax(0, auto);
+  grid-template-areas: "wallet graph ladder" "chart chart mc" "osc osc mc" "river logs trades"; }
+.wallet { grid-area: wallet; } .graph { grid-area: graph; } .ladder { grid-area: ladder; } .chart { grid-area: chart; }
+.osc { grid-area: osc; } .mc { grid-area: mc; } .river { grid-area: river; } .logs { grid-area: logs; } .trades { grid-area: trades; }
+@media (max-width: 1100px) { .grid { grid-template-columns: 1fr 1fr; grid-template-areas: "graph graph" "wallet ladder" "chart chart" "osc osc" "mc river" "logs trades"; } }
+@media (max-width: 700px) { .grid { grid-template-columns: 1fr; grid-template-areas: "wallet" "ladder" "chart" "osc" "mc" "graph" "river" "trades" "logs"; padding: 8px; } .feeds { order: 3; flex-basis: 100%; } }
+
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+.panel h2 { margin: 0 0 8px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 700; display: flex; gap: 8px; align-items: baseline; }
+.panel h2 small { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--dim); }
+canvas { width: 100%; display: block; }
+
+.big { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.sub { color: var(--muted); margin-bottom: 6px; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 6px 0; }
+.kv dt { color: var(--muted); } .kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.bt { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); color: var(--muted); font-size: 12px; }
+.bt b { color: var(--text); }
+.up { color: var(--up); } .down { color: var(--down); }
+
+#graph { width: 100%; height: auto; display: block; }
+#graph .edge { stroke: var(--line); stroke-width: 2; fill: none; }
+#graph .edge.hot { stroke: var(--accent); }
+#graph .dot { fill: var(--accent); }
+#graph .node rect { fill: var(--panel2); stroke: var(--line); stroke-width: 1.5; rx: 8; }
+#graph .node.ok rect { stroke: var(--good); } #graph .node.warn rect { stroke: var(--warn); stroke-dasharray: 4 3; } #graph .node.wait rect { stroke: var(--dim); stroke-dasharray: 2 3; }
+#graph .node.busy rect { stroke: var(--accent); stroke-width: 2.5; }
+#graph .label { fill: var(--text); font: 700 12px var(--mono); }
+#graph .detail { fill: var(--muted); font: 10px var(--mono); }
+#graph .badge { font: 700 10px var(--mono); }
+
+#ladder { list-style: none; margin: 0; padding: 0; }
+#ladder li { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 7px 0; border-top: 1px solid var(--line); }
+#ladder li:first-child { border-top: 0; }
+#ladder .nm { font-weight: 700; }
+#ladder .st { font-size: 11px; border: 1px solid currentColor; border-radius: 4px; padding: 0 6px; align-self: center; }
+#ladder .st.buy { color: var(--good); } #ladder .st.hold { color: var(--accent); } #ladder .st.idle { color: var(--dim); }
+#ladder .bar { grid-column: 1 / -1; height: 6px; background: var(--panel2); border-radius: 3px; position: relative; overflow: hidden; }
+#ladder .bar i { position: absolute; top: 0; bottom: 0; left: 50%; }
+#ladder .bar i.pos { background: var(--good); } #ladder .bar i.neg { background: var(--bad); opacity: .55; }
+#ladder .bar::after { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--muted); }
+#ladder .nums { grid-column: 1 / -1; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.cfg { margin-top: 8px; color: var(--dim); font-size: 11px; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--muted); font-size: 12px; margin-top: 6px; }
+.legend i { display: inline-block; width: 18px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 5px; }
+.legend i.dash { border-top-style: dashed; } .legend i.dot { border-top-style: dotted; border-top-width: 3px; }
+.mcnote { margin-top: 6px; color: var(--muted); font-size: 12px; }
+.mcnote b { color: var(--text); }
+
+#log { margin: 0; height: 230px; overflow: auto; font: 11.5px/1.45 var(--mono); color: var(--muted); white-space: pre-wrap; word-break: break-word; }
+#log .a { color: var(--accent); } #log .w { color: var(--warn); }
+#trades { list-style: none; margin: 0; padding: 0; max-height: 236px; overflow: auto; }
+#trades li { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+#trades li:first-child { border-top: 0; }
+#trades .m { color: var(--muted); font-size: 12px; }
+.empty { color: var(--dim); }
+
+.gate { position: fixed; inset: 0; background: rgba(5, 8, 12, .92); display: grid; place-items: center; z-index: 5; padding: 16px; }
+.gate form { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; width: min(380px, 100%); }
+.gate .row { display: flex; gap: 8px; margin: 8px 0; }
+.gate input { flex: 1; min-width: 0; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 9px; font: inherit; }
+.gate button { background: var(--accent); color: #120a1f; border: 0; border-radius: 6px; padding: 9px 14px; font: inherit; font-weight: 700; }
+.gate p { color: var(--muted); margin: 0; font-size: 12px; }
+.foot { color: var(--dim); font-size: 11px; padding: 4px 14px 14px; }
+@media (prefers-reduced-motion: reduce) { #graph .dot { display: none; } }
+.gate[hidden] { display: none; }
