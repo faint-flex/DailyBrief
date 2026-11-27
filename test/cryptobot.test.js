@@ -184,3 +184,19 @@ test('scalper post-mortem watches a stopped-out coin and flags a stop that was t
   assert.equal(card.scalp.rules['stop loss'], '-15%');
   assert.ok(card.scalp.lessons.length >= 1);
 });
+
+test('dashboard: history gets a point every 30 minutes and health flags late runs', async () => {
+  const { recordHistory, dashboard } = await import('../src/cryptobot.js');
+  const s = store();
+  const state = { started: '2026-11-24T00:00:00Z', btc_start: 100, prices: { BTCUSDT: 110 }, breakout: { cash: 1000, pos: {}, trades: 0, wins: 0 },
+    meme: { cash: 900, pos: {}, rejected: {} }, log: [{ at: '2026-11-25T00:00:00Z', pot: 'meme', act: 'buy', sym: 'A', usd: 100 }], runs: { meme: { at: new Date().toISOString(), result: {} } } };
+  await recordHistory(s, state, NOW);
+  await recordHistory(s, state, NOW + 10 * 60e3);
+  const h = await recordHistory(s, state, NOW + 31 * 60e3);
+  assert.equal(h.length, 2);
+  assert.deepEqual([h[0].m, h[0].btc], [90, 110]);
+  const d = dashboard(state, null, h);
+  assert.equal(d.trades[0].pot, 'Meme hunter');
+  assert.equal(d.health[0].late, false);
+  assert.equal(d.health[1].late, true); // the daily check has never run
+});

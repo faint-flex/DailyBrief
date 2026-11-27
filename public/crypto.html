@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="The crypto paper bot: each pot against just holding Bitcoin, open positions, trades, what the scalper learned, bot health.">
+<title>Crypto bot</title>
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icons/icon-180.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Brief">
+<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/crypto.css">
+</head>
+<body>
+<nav class="apptabs" aria-label="Pages">
+  <a href="/">Brief</a>
+  <a href="/stats">BabyLog stats</a>
+  <a href="/crypto" aria-current="page">Crypto</a>
+</nav>
+
+<header class="topbar">
+  <p class="today">Paper money only · no real trades</p>
+  <h1>Crypto bot</h1>
+  <p id="updated" class="tagline small"></p>
+</header>
+
+<main>
+  <section id="gate" class="card" hidden>
+    <h2>Unlock</h2>
+    <p class="muted">Paste the same key you use for your brief.</p>
+    <form id="gate-form" class="gate-row">
+      <input id="gate-input" type="password" autocomplete="current-password" placeholder="Key" aria-label="Key" required>
+      <button type="submit">Unlock</button>
+    </form>
+    <p id="gate-status" class="muted small" role="status"></p>
+  </section>
+
+  <div id="app" hidden>
+    <section class="card" aria-labelledby="pots-heading">
+      <div class="card-head"><h2 id="pots-heading">What $100 became</h2><span class="badge">Paper money</span></div>
+      <ul id="pots" class="pots"></ul>
+    </section>
+
+    <section class="card" aria-labelledby="chart-heading">
+      <div class="card-head">
+        <h2 id="chart-heading">Over time</h2>
+        <div class="seg" role="group" aria-label="Range">
+          <button type="button" data-range="1">1D</button>
+          <button type="button" data-range="7">1W</button>
+          <button type="button" data-range="0" aria-pressed="true">All</button>
+        </div>
+      </div>
+      <div id="chart" class="chart"></div>
+      <ul id="legend" class="legend"></ul>
+    </section>
+
+    <section class="card" aria-labelledby="open-heading">
+      <h2 id="open-heading">Holding now</h2>
+      <ul id="open" class="rows"></ul>
+    </section>
+
+    <section class="card" aria-labelledby="learn-heading">
+      <h2 id="learn-heading">What the scalper learned</h2>
+      <p class="muted small">Every losing trade gets a review. When the same mistake shows up in 3 of the last 6 losses, one rule moves one step, inside fixed limits.</p>
+      <h3 class="subhead">Rules right now</h3>
+      <ul id="rules" class="rows"></ul>
+      <h3 class="subhead">Rule changes</h3>
+      <ul id="changes" class="rows"></ul>
+      <h3 class="subhead">Loss reviews</h3>
+      <ul id="lessons" class="rows"></ul>
+    </section>
+
+    <section class="card" aria-labelledby="trades-heading">
+      <div class="card-head"><h2 id="trades-heading">Trades</h2></div>
+      <div id="trade-filter" class="chips" role="group" aria-label="Show trades from"></div>
+      <ul id="trades" class="rows"></ul>
+      <button id="more" type="button" class="more" hidden>Show more</button>
+    </section>
+
+    <section class="card" aria-labelledby="health-heading">
+      <h2 id="health-heading">Bot health</h2>
+      <ul id="health" class="rows"></ul>
+      <p id="sources" class="muted small"></p>
+    </section>
+  </div>
+</main>
+
+<script type="module" src="/js/crypto.js"></script>
+</body>
+</html>
